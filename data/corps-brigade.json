@@ -1,0 +1,226 @@
+{
+    "National Guard": [
+        {
+            "name": "[NG] 1st Azov Corps",
+            "brigades": [
+                "[NG] 1st Bureviy Brigade",
+                "[NG] 12th Azov Brigade",
+                "[NG] 14th Chervona Kalyna Brigade",
+                "[NG] 15th Kara-Dag Brigade",
+                "[NG] 20th Lyubart Brigade",
+                "[NG] Lyut' / Rage Brigade"
+            ]
+        },
+        {
+            "name": "[NG] 2nd Army Corps Khartia",
+            "brigades": [
+                "[NG] 3rd Spartan Brigade",
+                "[NG] 4th Rubizh Brigade",
+                "[NG] 13th Khartia / Charter Brigade",
+                "[NG] 17th Brigade",
+                "[NG] 18th Slovyansk Brigade"
+            ]
+        }
+    ],
+    "Ground Forces": [
+        {
+            "name": "3rd Army Corps",
+            "brigades": [
+                "3rd Assault Brigade",
+                "52nd Artillery Brigade",
+                "53rd Mechanized Brigade",
+                "60th Mechanized Brigade",
+                "63rd Mechanized Brigade",
+                "125th Heavy Mechanized Brigade"
+            ]
+        },
+        {
+            "name": "9th Army Corps",
+            "brigades": [
+                "5th Heavy Mechanized Brigade",
+                "32nd Mechanized Brigade",
+                "55th Artillery Brigade",
+                "68th Jaeger Brigade",
+                "142nd Mechanized Brigade",
+                "153rd Mechanized Brigade"
+            ]
+        },
+        {
+            "name": "10th Army Corps",
+            "brigades": [
+                "12th Heavy Mechanized Brigade",
+                "14th Mechanized Brigade",
+                "43rd Mechanized Brigade",
+                "48th Artillery Brigade",
+                "115th Mechanized Brigade",
+                "116th Mechanized Brigade"
+            ]
+        },
+        {
+            "name": "11th Army Corps",
+            "brigades": [
+                "24th Mechanized Brigade",
+                "30th Mechanized Brigade",
+                "45th Artillery Brigade",
+                "54th Mechanized Brigade",
+                "56th Motorized Brigade",
+                "81st Airmobile Brigade",
+                "127th Heavy Mechanized Brigade"
+            ]
+        },
+        {
+            "name": "12th Army Corps",
+            "brigades": [
+                "Presidential Brigade",
+                "5th Assault Brigade",
+                "27th Artillery Brigade",
+                "67th Mechanized Brigade",
+                "72nd Mechanized Brigade",
+                "151st Mechanized Brigade",
+                "157th Mechanized Brigade",
+                "25th Public Order Protection Brigade",
+                "19th Brigade",
+                "27th Brigade",
+                "112th TDF Brigade",
+                "118th TDF Brigade",
+                "120th TDF Brigade"
+            ]
+        },
+        {
+            "name": "14th Army Corps",
+            "brigades": [
+                "22nd Mechanized Brigade",
+                "29th Heavy Mechanized Brigade",
+                "42nd Mechanized Brigade",
+                "50th Artillery Brigade",
+                "58th Motorized Brigade",
+                "92nd Assault Brigade",
+                "105th TDF Brigade"
+            ]
+        },
+        {
+            "name": "15th Army Corps",
+            "brigades": [
+                "10th Mountain Assault Brigade",
+                "44th Artillery Brigade",
+                "129th Heavy Mechanized Brigade",
+                "143rd Mechanized Brigade",
+                "144th Mechanized Brigade",
+                "158th Mechanized Brigade",
+                "1st TDF Brigade",
+                "114th TDF Brigade"
+            ]
+        },
+        {
+            "name": "16th Army Corps",
+            "brigades": [
+                "3rd Heavy Mechanized Brigade",
+                "26th Artillery Brigade",
+                "41st Mechanized Brigade",
+                "57th Motorized Brigade",
+                "154th Mechanized Brigade",
+                "113th TDF Brigade"
+            ]
+        },
+        {
+            "name": "17th Army Corps",
+            "brigades": [
+                "54th Artillery Brigade",
+                "65th Mechanized Brigade",
+                "110th Mechanized Brigade",
+                "118th Mechanized Brigade",
+                "128th Heavy Mechanized Brigade",
+                "128th Mountain Assault Brigade",
+                "241st TDF Brigade",
+                "108th TDF Brigade"
+            ]
+        },
+        {
+            "name": "18th Army Corps",
+            "brigades": [
+                "1st Heavy Mechanized Brigade",
+                "21st Mechanized Brigade",
+                "47th Artillery Brigade",
+                "47th Mechanized Brigade",
+                "66th Mechanized Brigade",
+                "156th Mechanized Brigade",
+                "104th TDF Brigade",
+                "106th TDF Brigade"
+            ]
+        },
+        {
+            "name": "19th Army Corps",
+            "brigades": [
+                "28th Mechanized Brigade",
+                "40th Artillery Brigade",
+                "44th Mechanized Brigade",
+                "61st Mechanized Brigade",
+                "100th Mechanized Brigade",
+                "117th Heavy Mechanized Brigade"
+            ]
+        },
+        {
+            "name": "20th Army Corps",
+            "brigades": [
+                "17th Heavy Mechanized Brigade",
+                "23rd Mechanized Brigade",
+                "31st Mechanized Brigade",
+                "33rd Mechanized Brigade",
+                "60th Artillery Brigade",
+                "141st Mechanized Brigade",
+                "260th TDF Brigade"
+            ]
+        },
+        {
+            "name": "21st Army Corps",
+            "brigades": [
+                "4th Heavy Mechanized Brigade",
+                "68th Artillery Brigade",
+                "93rd Mechanized Brigade",
+                "152nd Jaeger Brigade",
+                "155th Mechanized Brigade",
+                "159th Mechanized Brigade"
+            ]
+        }
+    ],
+    "Naval Forces": [
+        {
+            "name": "30th Marine Corps",
+            "brigades": [
+                "32nd Artillery Brigade",
+                "34th Coastal Defense Brigade",
+                "35th Marine Brigade",
+                "36th Marine Brigade",
+                "37th Marine Brigade",
+                "38th Marine Brigade",
+                "39th Coastal Defense Brigade",
+                "40th Coastal Defense Brigade",
+                "406th Artillery Brigade"
+            ]
+        }
+    ],
+    "Air Assault Forces": [
+        {
+            "name": "7th Air Assault Corps",
+            "brigades": [
+                "25th Airborne Brigade",
+                "77th Airmobile Brigade",
+                "78th Air Assault Brigade",
+                "79th Air Assault Brigade",
+                "81st Airmobile Brigade",
+                "147th Artillery Brigade"
+            ]
+        },
+        {
+            "name": "8th Air Assault Corps",
+            "brigades": [
+                "46th Airmobile Brigade",
+                "71st Jaeger Brigade",
+                "80th Air Assault Brigade",
+                "82nd Air Assault Brigade",
+                "95th Air Assault Brigade",
+                "148th Artillery Brigade"
+            ]
+        }
+    ]
+}
