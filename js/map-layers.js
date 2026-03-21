@@ -21,6 +21,12 @@ function suriyakLabel(label) {
     }
 
     const text = String(label).trim();
+    if (
+        text.includes("Kursk") ||
+        text.includes("Belgorod")
+    ) {
+        return ["OTHER", "UNKNOWN"];
+    }
 
     if (text.includes("Ukrainian Armed Forces")) {
         return ["UA", "HOLD"];
@@ -377,7 +383,7 @@ class MapLayers {
         const dashboard = this.dashboard;
         if (enabled) {
             try {
-                await this.toggleManifestKmlOverlay('SURIYAK', 'suriyakOverlay', 'suriyakMergedPolygon');
+                await this.toggleManifestKmlOverlay('suriyak', 'suriyakOverlay', 'suriyakMergedPolygon');
             } catch (error) {
                 console.error('Error loading Suriyak overlay:', error);
                 alert(`Failed to load Suriyak overlay: ${error.message}`);
@@ -663,7 +669,7 @@ class MapLayers {
     getManifestFiles(sourceKey, manifest) {
         const sources = manifest?.sources || {};
         const normalizedKey = sourceKey.toUpperCase();
-        const aliasKey = normalizedKey === 'SURIAK' ? 'SURIYAK' : normalizedKey;
+        const aliasKey = normalizedKey === 'SURIAK' ? 'suriyak' : normalizedKey;
         const entry = sources[sourceKey] || sources[normalizedKey] || sources[aliasKey];
         const files = entry?.files || [];
         return files.slice();

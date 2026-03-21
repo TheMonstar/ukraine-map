@@ -462,7 +462,7 @@ class UiBindings {
                     { id: 'amk-overlay', key: 'AMK' },
                     { id: 'radov-overlay', key: 'RADOV' },
                     { id: 'isw-overlay', key: 'ISW' },
-                    { id: 'suriyak-overlay', key: 'SURIYAK' }
+                    { id: 'suriyak-overlay', key: 'suriyak' }
                 ];
                 let totalGains = 0;
                 let totalLosses = 0;
