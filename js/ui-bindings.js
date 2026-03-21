@@ -1093,18 +1093,50 @@ class UiBindings {
                         const color = side === 'ua' ? '#0057B7' : '#D0021B'; // Blue for UA, Red for RU
                         const isUSFFilterEnabled = dashboard.isChecked('filter-usf-units');
 
+                        // Parse icon from styleUrl: #icon-ci-57 -> 57 -> images/icon-57.png
+                        const getUnitIcon = (feature, color) => {
+                            const styleUrl = feature.properties?.styleUrl || '';
+                            const match = styleUrl.match(/[\d]+/);
+                            if (!match) return null;
+                            let iconId = parseInt(match[0]);
+                            if (side === 'ru') iconId += 57;
+                            const iconUrl = `./images/icon-${iconId}.png`;
+                            return L.divIcon({
+                                className: 'unit-icon-marker',
+                                html: `<img src="${iconUrl}" style="width:100%;height:100%;border:2px solid ${color};border-radius:5px;background:rgba(255,255,255,0.7);box-sizing:border-box;">`,
+                                iconSize: [24, 24],
+                                iconAnchor: [12, 12],
+                                popupAnchor: [0, -12]
+                            });
+                        };
+
+                        // Also try extracting styleUrl from raw KML since toGeoJSON may strip it
+                        const styleMap = {};
+                        const placemarks = kml.querySelectorAll('Placemark');
+                        placemarks.forEach(pm => {
+                            const name = pm.querySelector('name')?.textContent?.trim();
+                            const styleUrl = pm.querySelector('styleUrl')?.textContent?.trim();
+                            if (name && styleUrl) styleMap[name] = styleUrl;
+                        });
+
                         dashboard[layerProp] = L.geoJSON(geojson, {
                             filter: (feature) => {
                                 if (side === 'ua' && isUSFFilterEnabled) {
-                                    // Filter for USF units
-                                    // Assuming feature.properties.name matches keys in dashboard.usfStats
-                                    if (!dashboard.usfStats) return false; // Stats not loaded yet
+                                    if (!dashboard.usfStats) return false;
                                     const name = feature.properties.name?.trim();
                                     return dashboard.usfStats.hasOwnProperty(name);
                                 }
                                 return true;
                             },
                             pointToLayer: (feature, latlng) => {
+                                // Inject styleUrl from KML parse if not in properties
+                                if (!feature.properties.styleUrl && feature.properties.name) {
+                                    feature.properties.styleUrl = styleMap[feature.properties.name.trim()] || '';
+                                }
+                                const icon = getUnitIcon(feature, color);
+                                if (icon) {
+                                    return L.marker(latlng, { icon });
+                                }
                                 return L.circleMarker(latlng, {
                                     radius: 4,
                                     fillColor: color,
@@ -1582,6 +1614,7 @@ class UiBindings {
         dashboard.bindUI('feature-positions-ua', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
         dashboard.bindUI('feature-positions-ru', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
         dashboard.bindUI('filter-usf-units', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
+        dashboard.bindUI('show-unit-icons', 'change', () => { updateDailyPositions(); });
         dashboard.bindUI('usf-period-select', 'change', () => {
             updateUSFStatsDisplay();
             handleAutoRefreshVisibility();
@@ -1741,7 +1774,7 @@ class UiBindings {
                     };
 
 
-                    const showIcons = dashboard.isChecked('show-unit-icons');
+                    const showIcons = true; // Icons always on
                     const showLinkedUnits = dashboard.isChecked('show-linked-units');
                     const dragCorpsEnabled = dashboard.isChecked('drag-corps');
                     const filterByIcon = dashboard.isChecked('filter-by-icon');
