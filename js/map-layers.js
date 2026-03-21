@@ -76,6 +76,9 @@ class MapLayers {
         dashboard.clusterLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.deepLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.featureDitchesLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.featureWireLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.featureDragonLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.settlementsLayer.addTo(dashboard.map);
         dashboard.settlementBordersLayer.addTo(dashboard.map);
         dashboard.settlementBufferLayer.addTo(dashboard.map);

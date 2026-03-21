@@ -800,6 +800,24 @@ body {
     background: var(--accent);
 }
 
+/* ---- Attribution ---- */
+.attribution {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid var(--sidebar-border);
+    font-size: 10px;
+    color: var(--sidebar-muted);
+}
+
+.attribution a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.attribution a:hover {
+    text-decoration: underline;
+}
+
 /* ---- Loader ---- */
 #loader {
     text-align: center;

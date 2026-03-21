@@ -23,15 +23,19 @@
     <div class="top-bar">
         <div class="top-bar-inner">
             <button id="play-btn" class="top-bar-btn" title="Play/Pause">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <svg class="icon-play" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M4 2l10 6-10 6V2z" />
+                </svg>
+                <svg class="icon-pause" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none;">
+                    <rect x="3" y="2" width="4" height="12" rx="1" />
+                    <rect x="9" y="2" width="4" height="12" rx="1" />
                 </svg>
             </button>
             <select id="playback-speed" class="top-bar-select">
-                <option value="2000">Slow</option>
-                <option value="1000" selected>Normal</option>
-                <option value="500">Fast</option>
-                <option value="250">Very Fast</option>
+                <option value="2000">0.5x</option>
+                <option value="1000" selected>1x</option>
+                <option value="500">2x</option>
+                <option value="250">4x</option>
             </select>
             <input type="date" id="date-start" class="top-bar-date" />
             <div id="date-slider" class="top-bar-slider"></div>
@@ -72,48 +76,31 @@
                             <label class="control-label">Overlays</label>
                             <div class="toggle-row">
                                 <label class="toggle-label"><input type="checkbox" id="russia-overlay" /><span
-                                        class="toggle-switch"></span>Russia</label>
-                                <label class="toggle-label"><input type="checkbox" id="ukraine-overlay" /><span
-                                        class="toggle-switch"></span>Ukraine</label>
-                            </div>
-                            <div class="toggle-row">
-                                <label class="toggle-label"><input type="checkbox" id="amk-overlay" /><span
-                                        class="toggle-switch"></span>AMK</label>
-                                <label class="toggle-label"><input type="checkbox" id="owl-overlay" /><span
-                                        class="toggle-switch"></span>OWL</label>
-                            </div>
-                            <div class="toggle-row">
-                                <label class="toggle-label"><input type="checkbox" id="radov-overlay" /><span
-                                        class="toggle-switch"></span>Radov</label>
-                                <label class="toggle-label"><input type="checkbox" id="isw-overlay" /><span
-                                        class="toggle-switch"></span>ISW</label>
-                            </div>
-                            <div class="toggle-row">
+                                        class="toggle-switch"></span>PlayFra</label>
                                 <label class="toggle-label"><input type="checkbox" id="suriyak-overlay" /><span
                                         class="toggle-switch"></span>Suriyak</label>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">DeepState</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label"><input type="checkbox" id="diff-area" /><span
+                                        class="toggle-switch"></span>DeepState</label>
+                                <label class="toggle-label"><input type="checkbox" id="diff-highlight" /><span
+                                        class="toggle-switch"></span>Highlight</label>
                             </div>
                         </div>
                         <div class="control-group">
                             <label class="control-label">Layer Comparison</label>
                             <select id="compare-layer-1" class="control-select">
                                 <option value="deepLayer">DeepStateMap</option>
-                                <option value="russianOverlay">Russia Overlay</option>
-                                <option value="ukraineOverlay">Ukraine Overlay</option>
-                                <option value="amkOverlay">AMK Overlay</option>
-                                <option value="owlOverlay">OWL Overlay</option>
-                                <option value="radovOverlay">Radov KML</option>
-                                <option value="iswOverlay">ISW Overlay</option>
+                                <option value="russianOverlay">Russia (PlayFra)</option>
                                 <option value="suriyakOverlay">Suriyak Overlay</option>
                                 <option value="customKmlOverlay">Custom KML</option>
                             </select>
                             <select id="compare-layer-2" class="control-select">
                                 <option value="deepLayer">DeepStateMap</option>
-                                <option value="russianOverlay">Russia Overlay</option>
-                                <option value="ukraineOverlay">Ukraine Overlay</option>
-                                <option value="amkOverlay" selected>AMK Overlay</option>
-                                <option value="owlOverlay">OWL Overlay</option>
-                                <option value="radovOverlay">Radov KML</option>
-                                <option value="iswOverlay">ISW Overlay</option>
+                                <option value="russianOverlay" selected>Russia (PlayFra)</option>
                                 <option value="suriyakOverlay">Suriyak Overlay</option>
                                 <option value="customKmlOverlay">Custom KML</option>
                             </select>
@@ -157,20 +144,15 @@
                     </div>
                     <div class="accordion-body" style="display:none;">
                         <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="show-line" /><span
-                                    class="toggle-switch"></span>Frontline</label>
-                            <label class="toggle-label"><input type="checkbox" id="captured" /><span
-                                    class="toggle-switch"></span>Captured</label>
-                        </div>
-                        <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="diff-area" /><span
-                                    class="toggle-switch"></span>Diff Area</label>
-                            <label class="toggle-label"><input type="checkbox" id="diff-highlight" /><span
-                                    class="toggle-switch"></span>Highlight</label>
-                        </div>
-                        <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="shadow-ua" /><span
                                     class="toggle-switch"></span>UA Shadow</label>
+                        </div>
+                        <div class="control-row">
+                            <label class="small-label">Shadow size (km):</label>
+                            <input type="number" id="shadow-ua-size" value="20" min="1" max="100" step="1"
+                                class="control-input-sm" />
+                        </div>
+                        <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="shadow-line" /><span
                                     class="toggle-switch"></span>Shadow</label>
                         </div>
@@ -189,21 +171,6 @@
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="casualties-density" /><span
                                     class="toggle-switch"></span>Casualties</label>
-                            <label class="toggle-label"><input type="checkbox" id="regions-highlight" /><span
-                                    class="toggle-switch"></span>Regions</label>
-                        </div>
-                        <div class="control-group">
-                            <label class="control-label">Diff Slices</label>
-                            <input type="number" id="diff-slices-count" min="0" max="5" value="0"
-                                class="control-input-sm" />
-                            <div id="diff-slices-slider"></div>
-                            <div id="diff-slices-labels" class="slider-labels"></div>
-                        </div>
-                        <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="show-regions" /><span
-                                    class="toggle-switch"></span>Regions</label>
-                            <label class="toggle-label"><input type="checkbox" id="snap-regions" /><span
-                                    class="toggle-switch"></span>Lock View</label>
                         </div>
                     </div>
                 </div>
@@ -222,10 +189,10 @@
                                     class="toggle-switch"></span>RU Positions</label>
                         </div>
                         <div class="toggle-row">
+                            <label class="toggle-label"><input type="checkbox" id="show-unit-icons" checked /><span
+                                    class="toggle-switch"></span>Unit Icons</label>
                             <label class="toggle-label"><input type="checkbox" id="position-change" /><span
                                     class="toggle-switch"></span>Position Changes</label>
-                            <label class="toggle-label"><input type="checkbox" id="analyze-positions" /><span
-                                    class="toggle-switch"></span>Analyze</label>
                         </div>
                         <div id="position-change-controls" class="sub-controls" style="display: none;">
                             <label class="toggle-label"><input type="checkbox" id="filter-trace-distance" /><span
@@ -236,13 +203,11 @@
                             <input type="number" id="trace-distance-limit-less" value="10"
                                 class="control-input-sm" /> km
                             <div class="toggle-row">
-                                <label class="toggle-label"><input type="checkbox" id="show-unit-icons" /><span
-                                        class="toggle-switch"></span>Unit Icons</label>
                                 <label class="toggle-label"><input type="checkbox" id="show-linked-units" /><span
                                         class="toggle-switch"></span>Linked Units</label>
+                                <label class="toggle-label"><input type="checkbox" id="show-only-highlighted" /><span
+                                        class="toggle-switch"></span>Only Highlighted</label>
                             </div>
-                            <label class="toggle-label"><input type="checkbox" id="show-only-highlighted" /><span
-                                    class="toggle-switch"></span>Show Only Highlighted</label>
                             <label class="toggle-label"><input type="checkbox" id="filter-by-icon" /><span
                                     class="toggle-switch"></span>Filter by Icon</label>
                             <div id="icon-filter-controls" style="display: none;">
@@ -251,13 +216,8 @@
                             <div id="position-change-stats" class="stats-text"></div>
                         </div>
                         <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="route-tracker" /><span
-                                    class="toggle-switch"></span>Route Tracker</label>
-                            <label class="toggle-label"><input type="checkbox" id="route-tracker-toggled-only" /><span
-                                    class="toggle-switch"></span>Toggled Only</label>
-                        </div>
-                        <div id="route-tracker-panel" class="route-tracker-panel" style="display: none;"></div>
-                        <div class="toggle-row">
+                            <label class="toggle-label"><input type="checkbox" id="analyze-positions" /><span
+                                    class="toggle-switch"></span>Analyze</label>
                             <label class="toggle-label"><input type="checkbox" id="filter-usf-units" /><span
                                     class="toggle-switch"></span>USF Only</label>
                         </div>
@@ -283,6 +243,9 @@
                             <p class="stats-text">Total units: <span id="units-count">0</span></p>
                             <div id="units-list" class="units-list"></div>
                         </div>
+                        <div id="units-attribution" class="attribution" style="display:none;">
+                            Data: <a href="https://x.com/UAControlMap" target="_blank">@UAControlMap</a>
+                        </div>
                     </div>
                 </div>
 
@@ -301,7 +264,7 @@
                         </div>
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-dragon" /><span
-                                    class="toggle-switch"></span>Dragon</label>
+                                    class="toggle-switch"></span>Teeth</label>
                         </div>
                         <div class="control-group">
                             <label class="control-label">Image Overlay</label>
@@ -317,18 +280,28 @@
                             <label class="toggle-label"><input type="checkbox" id="enable-image-resize" /><span
                                     class="toggle-switch"></span>Resize Mode</label>
                         </div>
-                        <div class="control-group">
-                            <label class="control-label">Tools</label>
-                            <div class="toggle-row">
-                                <label class="toggle-label"><input type="checkbox" id="polygon-select" /><span
-                                        class="toggle-switch"></span>Polygon</label>
-                                <label class="toggle-label"><input type="checkbox" id="ruler-tool" /><span
-                                        class="toggle-switch"></span>Ruler</label>
-                            </div>
-                            <div class="btn-row">
-                                <button id="clear-polygons" class="btn btn-sm">Clear Selection</button>
-                                <button id="export-polygons" class="btn btn-sm">Export</button>
-                            </div>
+                        <div id="features-attribution" class="attribution" style="display:none;">
+                            Data: <a href="https://x.com/Playfra0" target="_blank">Playfra</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tools -->
+                <div class="accordion-section" data-section="tools">
+                    <div class="accordion-header">
+                        <span class="accordion-arrow">&#9654;</span>
+                        Tools
+                    </div>
+                    <div class="accordion-body" style="display:none;">
+                        <div class="toggle-row">
+                            <label class="toggle-label"><input type="checkbox" id="polygon-select" /><span
+                                    class="toggle-switch"></span>Polygon Select</label>
+                            <label class="toggle-label"><input type="checkbox" id="ruler-tool" /><span
+                                    class="toggle-switch"></span>Ruler</label>
+                        </div>
+                        <div class="btn-row">
+                            <button id="clear-polygons" class="btn btn-sm">Clear Selection</button>
+                            <button id="export-polygons" class="btn btn-sm">Export</button>
                         </div>
                     </div>
                 </div>
@@ -350,12 +323,6 @@
                             <label class="small-label">Min Population:</label>
                             <input id="clusterRadius" value="20" class="control-input-sm" />
                         </div>
-                        <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="settlements-border" /><span
-                                    class="toggle-switch"></span>Borders</label>
-                            <label class="toggle-label"><input type="checkbox" id="settlement-buffers" /><span
-                                    class="toggle-switch"></span>Buffers</label>
-                        </div>
                         <div class="control-group">
                             <label class="control-label">Search</label>
                             <input type="text" id="settlement-search" placeholder="Settlement name..."
@@ -372,20 +339,10 @@
                                 id="search-in-predefined-region" /><span class="toggle-switch"></span>In Predefined
                             Region</label>
                         <div class="control-group">
-                            <label class="control-label">Regions</label>
                             <select id="predefined-regions" class="control-select">
                                 <option value="">Select region...</option>
                             </select>
-                            <select id="region-multiselect" multiple class="control-select region-multi"></select>
-                            <button id="load-selected-regions" class="btn btn-sm">Load Regions</button>
                         </div>
-                        <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="exclude-occupied" /><span
-                                    class="toggle-switch"></span>Exclude Occupied</label>
-                            <label class="toggle-label"><input type="checkbox" id="optimize-polygons" checked /><span
-                                    class="toggle-switch"></span>Optimize</label>
-                        </div>
-                        <button id="refresh-optimization" class="btn btn-sm">Refresh Optimization</button>
                         <button id="calculate-unoccupied" class="btn btn-sm">Calc Unoccupied</button>
                     </div>
                 </div>
@@ -455,6 +412,16 @@
         <label class="toggle-label"><input type="checkbox" id="usf-auto-refresh" /><span
                 class="toggle-switch"></span>Auto refresh</label>
     </div>
+    <!-- Hidden: optimize is default on -->
+    <input type="checkbox" id="optimize-polygons" checked style="display:none;" />
+    <input type="checkbox" id="show-regions" style="display:none;" />
+    <input type="checkbox" id="snap-regions" style="display:none;" />
+    <input type="checkbox" id="regions-highlight" style="display:none;" />
+    <input type="checkbox" id="show-line" style="display:none;" />
+    <input type="checkbox" id="captured" style="display:none;" />
+    <input type="number" id="diff-slices-count" min="0" max="5" value="0" style="display:none;" />
+    <div id="diff-slices-slider" style="display:none;"></div>
+    <div id="diff-slices-labels" style="display:none;"></div>
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>

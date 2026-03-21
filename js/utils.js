@@ -497,14 +497,14 @@ class DeepUtils {
 
     async loadFeatures(feature='ditches', user=0) {
         try {
-            const response = await fetch(`${API_BASE_URL}/${feature}`);
+            const response = await fetch(`https://playframap.github.io/data/${feature}.geojson`);
             if (!response.ok) {
                 throw new Error(`HTTP error! Status: ${response.status}`);
             }
 
             return await response.json();
         } catch (e) {
-
+            console.error(`Failed to load ${feature} from PlayFra:`, e);
         }
 
     }

@@ -5,6 +5,7 @@
 
 // GCP API base URL - update this to your GCP endpoint
 const API_BASE_URL = 'https://europe-west1-high-electron-312820.cloudfunctions.net/flask-app';
+const APP_STATIC_URL = 'https://storage.googleapis.com/telegram-reader-static/static/';
 
 class AttackMapDashboard {
     constructor() {
@@ -208,7 +209,7 @@ class AttackMapDashboard {
             });
         }
 
-        // Accordion behavior
+        // Accordion behavior (independent toggle, no auto-close)
         document.querySelectorAll('.accordion-header').forEach(header => {
             header.addEventListener('click', () => {
                 const section = header.parentElement;
@@ -216,17 +217,6 @@ class AttackMapDashboard {
                 const arrow = header.querySelector('.accordion-arrow');
                 const isOpen = body.style.display !== 'none';
 
-                // Close all other sections
-                document.querySelectorAll('.accordion-section').forEach(other => {
-                    if (other !== section) {
-                        const otherBody = other.querySelector('.accordion-body');
-                        const otherArrow = other.querySelector('.accordion-arrow');
-                        if (otherBody) otherBody.style.display = 'none';
-                        if (otherArrow) otherArrow.innerHTML = '&#9654;';
-                    }
-                });
-
-                // Toggle current section
                 body.style.display = isOpen ? 'none' : 'block';
                 arrow.innerHTML = isOpen ? '&#9654;' : '&#9660;';
             });
@@ -411,29 +401,35 @@ class AttackMapDashboard {
      * Load geographic data (regions and settlements)
      */
     async loadGeographicData() {
-        try {
-            // Load regions data from API
-            const regionsResponse = await fetch(`${API_BASE_URL}/regions`);
-            this.regionsData = await regionsResponse.json();
+        const fetchJSON = async (primary, fallback) => {
+            try {
+                const resp = await fetch(primary);
+                if (resp.ok) return await resp.json();
+            } catch (e) { /* fall through */ }
+            if (fallback) {
+                const resp = await fetch(fallback);
+                if (resp.ok) return await resp.json();
+            }
+            return null;
+        };
 
-            // Load settlements data from API
-            const settlementsResponse = await fetch(`${API_BASE_URL}/settlements`);
-            this.settlementsData = await settlementsResponse.json();
+        try {
+            // Load regions data - try API first, then local file
+            this.regionsData = await fetchJSON(`${APP_STATIC_URL}/regions`, './regions.json');
+
+            // Load settlements data - try API first, then local file
+            this.settlementsData = await fetchJSON(`${APP_STATIC_URL}/settlements`, './settlements.json');
 
             // Settlement boundaries loaded on demand from Nominatim
             this.settlementBoundariesData = null;
 
+            if (this.settlementsData) {
+                console.log(`Loaded ${this.settlementsData.features?.length || 0} settlements`);
+            }
+
             this.initRegionMultiSelect();
         } catch (error) {
             console.error('Error loading geographic data:', error);
-            // Try alternative paths
-            try {
-                this.regionsData = await this.loadLocalFile('regions.json');
-                this.settlementsData = await this.loadLocalFile('settlements.json');
-                this.initRegionMultiSelect();
-            } catch (fallbackError) {
-                console.error('Failed to load geographic data from fallback:', fallbackError);
-            }
         }
     }
 
@@ -2749,7 +2745,9 @@ class AttackMapDashboard {
 
         const playBtn = this.getEl('play-btn');
         if (playBtn) {
-            playBtn.innerHTML = '<i class="fas fa-pause"></i> Pause';
+            playBtn.querySelector('.icon-play').style.display = 'none';
+            playBtn.querySelector('.icon-pause').style.display = '';
+            playBtn.classList.add('playing');
         }
 
         const stepSizeMs = 86400000;
@@ -2778,7 +2776,9 @@ class AttackMapDashboard {
         this.isPlaying = false;
         const playBtn = this.getEl('play-btn');
         if (playBtn) {
-            playBtn.innerHTML = '<i class="fas fa-play"></i> Play';
+            playBtn.querySelector('.icon-play').style.display = '';
+            playBtn.querySelector('.icon-pause').style.display = 'none';
+            playBtn.classList.remove('playing');
         }
     }
 

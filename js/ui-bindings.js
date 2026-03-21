@@ -586,18 +586,27 @@ class UiBindings {
             dashboard.initSlider(dashboard.minDate, dashboard.maxDate, dashboard.startDate, dashboard.endDate);
         });
 
+        const updateFeaturesAttribution = () => {
+            const el = document.getElementById('features-attribution');
+            if (el) {
+                const any = dashboard.isChecked('feature-ditches') || dashboard.isChecked('feature-wire') || dashboard.isChecked('feature-dragon');
+                el.style.display = any ? '' : 'none';
+            }
+        };
+
         dashboard.bindUI('feature-ditches', 'change', async () => {
-            const deepMap = new DeepUtils(dashboard.featureLayer);
             if (dashboard.isChecked('feature-ditches')) {
-                const data = await deepMap.loadFeatures('clement');
+                const deepMap = new DeepUtils(dashboard.featureDitchesLayer);
+                const data = await deepMap.loadFeatures('ditches');
                 L.geoJSON(data, {
                     style: function () {
                         return { color: 'red' };
                     }
-                }).addTo(dashboard.featureLayer);
+                }).addTo(dashboard.featureDitchesLayer);
             } else {
-                dashboard.featureLayer.clearLayers();
+                dashboard.featureDitchesLayer.clearLayers();
             }
+            updateFeaturesAttribution();
         });
 
         dashboard.bindUI('russia-overlay', 'change', async () => {
@@ -925,31 +934,33 @@ class UiBindings {
         });
 
         dashboard.bindUI('feature-wire', 'change', async () => {
-            const deepMap = new DeepUtils(dashboard.featureLayer);
             if (dashboard.isChecked('feature-wire')) {
-                const wire = await deepMap.loadFeatures('ditches', 1);
+                const deepMap = new DeepUtils(dashboard.featureWireLayer);
+                const wire = await deepMap.loadFeatures('wire');
                 L.geoJSON(wire, {
                     style: function () {
                         return { color: 'cyan' };
                     }
-                }).addTo(dashboard.featureLayer);
+                }).addTo(dashboard.featureWireLayer);
             } else {
-                dashboard.featureLayer.clearLayers();
+                dashboard.featureWireLayer.clearLayers();
             }
+            updateFeaturesAttribution();
         });
 
         dashboard.bindUI('feature-dragon', 'change', async () => {
-            const deepMap = new DeepUtils(dashboard.featureLayer);
             if (dashboard.isChecked('feature-dragon')) {
-                const dragon = await deepMap.loadFeatures('teeth', 1);
+                const deepMap = new DeepUtils(dashboard.featureDragonLayer);
+                const dragon = await deepMap.loadFeatures('teeth');
                 L.geoJSON(dragon, {
                     style: function () {
                         return { color: 'blue' };
                     }
-                }).addTo(dashboard.featureLayer);
+                }).addTo(dashboard.featureDragonLayer);
             } else {
-                dashboard.featureLayer.clearLayers();
+                dashboard.featureDragonLayer.clearLayers();
             }
+            updateFeaturesAttribution();
         });
 
         dashboard.bindUI('feature-waterways', 'change', async () => {
@@ -1559,9 +1570,18 @@ class UiBindings {
             }
         };
 
-        dashboard.bindUI('feature-positions-ua', 'change', updateDailyPositions);
-        dashboard.bindUI('feature-positions-ru', 'change', updateDailyPositions);
-        dashboard.bindUI('filter-usf-units', 'change', updateDailyPositions);
+        dashboard.updateUnitsAttribution = () => {
+            const el = document.getElementById('units-attribution');
+            if (el) {
+                const any = dashboard.isChecked('feature-positions-ua') || dashboard.isChecked('feature-positions-ru') || dashboard.isChecked('position-change') || dashboard.isChecked('filter-usf-units');
+                el.style.display = any ? '' : 'none';
+            }
+        };
+        const updateUnitsAttribution = dashboard.updateUnitsAttribution;
+
+        dashboard.bindUI('feature-positions-ua', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
+        dashboard.bindUI('feature-positions-ru', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
+        dashboard.bindUI('filter-usf-units', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
         dashboard.bindUI('usf-period-select', 'change', () => {
             updateUSFStatsDisplay();
             handleAutoRefreshVisibility();
@@ -2411,7 +2431,7 @@ class UiBindings {
         // Expose renderPositionChanges to dashboard for slider updates
         dashboard.renderPositionChanges = renderPositionChanges;
 
-        dashboard.bindUI('position-change', 'change', renderPositionChanges);
+        dashboard.bindUI('position-change', 'change', () => { renderPositionChanges(); if (dashboard.updateUnitsAttribution) dashboard.updateUnitsAttribution(); });
         dashboard.bindUI('feature-positions-ua', 'change', renderPositionChanges);
         dashboard.bindUI('feature-positions-ru', 'change', renderPositionChanges);
         dashboard.bindUI('show-unit-icons', 'change', renderPositionChanges);
