@@ -5,7 +5,7 @@
 
 // GCP API base URL - update this to your GCP endpoint
 const API_BASE_URL = 'https://europe-west1-high-electron-312820.cloudfunctions.net/flask-app';
-const APP_STATIC_URL = 'https://storage.googleapis.com/telegram-reader-static/static/';
+const APP_STATIC_URL = 'https://storage.googleapis.com/telegram-reader-static/static';
 
 class AttackMapDashboard {
     constructor() {
@@ -415,10 +415,10 @@ class AttackMapDashboard {
 
         try {
             // Load regions data - try API first, then local file
-            this.regionsData = await fetchJSON(`${APP_STATIC_URL}/regions`, './regions.json');
+            this.regionsData = await fetchJSON(`${APP_STATIC_URL}/regions.json`, './regions.json');
 
             // Load settlements data - try API first, then local file
-            this.settlementsData = await fetchJSON(`${APP_STATIC_URL}/settlements`, './settlements.json');
+            this.settlementsData = await fetchJSON(`${APP_STATIC_URL}/settlements.json`, './settlements.json');
 
             // Settlement boundaries loaded on demand from Nominatim
             this.settlementBoundariesData = null;
