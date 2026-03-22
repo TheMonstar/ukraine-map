@@ -824,3 +824,146 @@ body {
     padding: 20px;
     display: none;
 }
+
+/* ---- Drawing Tool ---- */
+.draw-section {
+    margin-top: 10px;
+    border-top: 1px solid var(--sidebar-border);
+    padding-top: 8px;
+}
+
+#draw-controls {
+    margin-top: 8px;
+}
+
+.draw-tools {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.draw-tool-btn {
+    width: 30px;
+    height: 30px;
+    background: var(--sidebar-border);
+    border: 1px solid #475569;
+    border-radius: var(--radius-sm);
+    color: var(--sidebar-text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+    flex-shrink: 0;
+}
+
+.draw-tool-btn:hover { background: #475569; }
+
+.draw-tool-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+/* Color presets + custom picker row */
+.draw-style-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.draw-presets {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+}
+
+.draw-preset {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    transition: border-color 0.15s, transform 0.1s;
+}
+
+.draw-preset:hover { transform: scale(1.2); }
+
+.draw-preset.active {
+    border-color: white;
+    box-shadow: 0 0 0 1px #64748b;
+}
+
+.draw-color-input {
+    width: 28px;
+    height: 24px;
+    padding: 1px 2px;
+    border: 1px solid #475569;
+    border-radius: var(--radius-sm);
+    background: var(--sidebar-border);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.draw-dash-btn {
+    height: 24px;
+    padding: 0 6px;
+    background: var(--sidebar-border);
+    border: 1px solid #475569;
+    border-radius: var(--radius-sm);
+    color: var(--sidebar-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.draw-dash-btn:hover { background: #475569; }
+
+.draw-dash-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+.draw-options {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 4px 8px;
+    margin-bottom: 8px;
+}
+
+.draw-hint {
+    font-size: 11px;
+    color: var(--sidebar-muted);
+    margin-top: 4px;
+    min-height: 14px;
+    line-height: 1.4;
+}
+
+/* ---- Draw text input overlay ---- */
+.draw-text-wrap {
+    position: absolute;
+    pointer-events: auto;
+    z-index: 600;
+}
+
+.draw-text-input {
+    background: transparent;
+    border: none;
+    border-bottom: 1px dashed currentColor;
+    outline: none;
+    font-family: Helvetica, Arial, sans-serif;
+    font-weight: normal;
+    min-width: 60px;
+    white-space: nowrap;
+    padding: 0;
+    line-height: 1;
+}

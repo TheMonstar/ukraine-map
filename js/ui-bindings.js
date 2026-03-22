@@ -2868,6 +2868,113 @@ class UiBindings {
                 }
             }
         });
+
+        // ── Drawing Tool ──────────────────────────────────────────────────────
+        const drawTool = new DrawingTool(dashboard.map);
+        dashboard.drawTool = drawTool;
+
+        const drawHints = {
+            freedraw: 'Click and drag to draw freely.',
+            line:     'Click and drag to draw a line.',
+            arrow:    'Click and drag to draw an arrow.',
+            ellipse:  'Drag 1: set axis. Drag 2: stretch width.',
+            rect:     'Drag 1: set axis. Drag 2: stretch width.',
+            arc:      'Draw a curved path — the deepest point sets the arc.',
+            text:     'Drag to set position and angle, then type. Enter to confirm.',
+            eraser:   'Click or drag over shapes to erase them.',
+        };
+
+        const thicknessSlider = dashboard.getEl('draw-thickness');
+        const thicknessLabel  = dashboard.getEl('draw-thickness-value');
+        const thicknessRow    = thicknessSlider && thicknessSlider.closest('.draw-options');
+        const thicknessTitle  = thicknessRow && thicknessRow.querySelector('.small-label');
+
+        const applyThicknessMode = (mode) => {
+            if (!thicknessSlider) return;
+            if (mode === 'text') {
+                thicknessSlider.min  = '8';
+                thicknessSlider.max  = '96';
+                thicknessSlider.step = '2';
+                if (thicknessTitle) thicknessTitle.childNodes[0].textContent = 'Size ';
+            } else {
+                thicknessSlider.min  = '1';
+                thicknessSlider.max  = '20';
+                thicknessSlider.step = '1';
+                if (thicknessTitle) thicknessTitle.childNodes[0].textContent = 'Width ';
+            }
+            if (thicknessLabel) thicknessLabel.textContent = thicknessSlider.value;
+            drawTool.setThickness(thicknessSlider.value);
+        };
+
+        const setDrawHint = (mode) => {
+            const el = dashboard.getEl('draw-hint');
+            if (el) el.textContent = drawHints[mode] || '';
+        };
+
+        dashboard.bindUI('draw-enable', 'change', () => {
+            const controls = dashboard.getEl('draw-controls');
+            if (dashboard.isChecked('draw-enable')) {
+                controls.style.display = 'block';
+                drawTool.enable();
+                setDrawHint(drawTool.mode);
+            } else {
+                controls.style.display = 'none';
+                drawTool.disable();
+            }
+        });
+
+        document.querySelectorAll('.draw-tool-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.draw-tool-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const mode = btn.dataset.mode;
+                drawTool.setMode(mode);
+                applyThicknessMode(mode);
+                setDrawHint(mode);
+            });
+        });
+
+        // Color presets
+        const colorInput = dashboard.getEl('draw-color');
+        const setActivePreset = (color) => {
+            document.querySelectorAll('.draw-preset').forEach(b => {
+                b.classList.toggle('active', b.dataset.color === color);
+            });
+        };
+        document.querySelectorAll('.draw-preset').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const color = btn.dataset.color;
+                drawTool.setColor(color);
+                if (colorInput) colorInput.value = color;
+                setActivePreset(color);
+            });
+        });
+        // Mark first preset active by default
+        setActivePreset('#ff0000');
+
+        dashboard.bindUI('draw-color', 'input', (e) => {
+            drawTool.setColor(e.target.value);
+            setActivePreset(e.target.value);
+        });
+
+        // Dashed line toggle
+        const dashBtn = dashboard.getEl('draw-dash-btn');
+        if (dashBtn) {
+            dashBtn.addEventListener('click', () => {
+                const on = !dashBtn.classList.contains('active');
+                dashBtn.classList.toggle('active', on);
+                drawTool.setDash(on);
+            });
+        }
+
+        dashboard.bindUI('draw-thickness', 'input', (e) => {
+            drawTool.setThickness(e.target.value);
+            const label = dashboard.getEl('draw-thickness-value');
+            if (label) label.textContent = e.target.value;
+        });
+
+        dashboard.bindUI('draw-undo', 'click', () => drawTool.undo());
+        dashboard.bindUI('draw-clear', 'click', () => drawTool.clear());
     }
 }
 

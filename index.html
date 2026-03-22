@@ -301,6 +301,64 @@
                             <button id="clear-polygons" class="btn btn-sm">Clear Selection</button>
                             <button id="export-polygons" class="btn btn-sm">Export</button>
                         </div>
+
+                        <!-- Drawing Tool -->
+                        <div class="draw-section">
+                            <label class="toggle-label"><input type="checkbox" id="draw-enable" /><span
+                                    class="toggle-switch"></span>Drawing Mode</label>
+                            <div id="draw-controls" style="display:none;">
+                                <div class="draw-tools">
+                                    <button class="draw-tool-btn active" data-mode="freedraw" title="Free Draw">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12 Q4 6 7 5 Q10 4 12 2"/></svg>
+                                    </button>
+                                    <button class="draw-tool-btn" data-mode="line" title="Line">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="12" x2="12" y2="2"/></svg>
+                                    </button>
+                                    <button class="draw-tool-btn" data-mode="arrow" title="Arrow">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="12" x2="11" y2="3"/><polyline points="6,3 11,3 11,8"/></svg>
+                                    </button>
+                                    <button class="draw-tool-btn" data-mode="ellipse" title="Ellipse">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="7" cy="7" rx="5" ry="3"/></svg>
+                                    </button>
+                                    <button class="draw-tool-btn" data-mode="rect" title="Rectangle">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="10" height="6" rx="1"/></svg>
+                                    </button>
+                                    <button class="draw-tool-btn" data-mode="arc" title="Arc">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 11 Q7 1 12 11"/></svg>
+                                    </button>
+                                    <button class="draw-tool-btn" data-mode="text" title="Text Label">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="3" x2="12" y2="3"/><line x1="7" y1="3" x2="7" y2="12"/></svg>
+                                    </button>
+                                    <button class="draw-tool-btn" data-mode="eraser" title="Eraser">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 L12 5 L5 12 L2 12 L2 9 Z"/><line x1="6" y1="3" x2="11" y2="8"/></svg>
+                                    </button>
+                                </div>
+                                <div class="draw-style-row">
+                                    <div class="draw-presets">
+                                        <button class="draw-preset" data-color="#ff0000" style="background:#ff0000;" title="Red"></button>
+                                        <button class="draw-preset" data-color="#ff8c00" style="background:#ff8c00;" title="Orange"></button>
+                                        <button class="draw-preset" data-color="#ffff00" style="background:#ffff00;" title="Yellow"></button>
+                                        <button class="draw-preset" data-color="#00ff88" style="background:#00ff88;" title="Green"></button>
+                                        <button class="draw-preset" data-color="#0044ff" style="background:#0044ff;" title="Blue"></button>
+                                        <button class="draw-preset" data-color="#ffffff" style="background:#ffffff;" title="White"></button>
+                                        <button class="draw-preset" data-color="#000000" style="background:#000000;" title="Black"></button>
+                                    </div>
+                                    <input type="color" id="draw-color" value="#ff0000" class="draw-color-input" title="Custom color" />
+                                    <button id="draw-dash-btn" class="draw-dash-btn" title="Dashed line">
+                                        <svg width="22" height="10" viewBox="0 0 22 10"><line x1="1" y1="5" x2="6" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="5" x2="14" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="17" y1="5" x2="22" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                    </button>
+                                </div>
+                                <div class="draw-options">
+                                    <label class="small-label">Width <span id="draw-thickness-value">3</span></label>
+                                    <input type="range" id="draw-thickness" min="1" max="20" value="3" class="control-range" />
+                                </div>
+                                <div class="btn-row">
+                                    <button id="draw-undo" class="btn btn-sm">Undo</button>
+                                    <button id="draw-clear" class="btn btn-sm btn-danger">Clear All</button>
+                                </div>
+                                <div id="draw-hint" class="draw-hint"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -435,6 +493,7 @@
     <script src="js/data-store.js"></script>
     <script src="js/map-layers.js"></script>
     <script src="js/settlements.js"></script>
+    <script src="js/draw.js"></script>
     <script src="js/ui-bindings.js"></script>
     <script src="js/app.js"></script>
     <script>
