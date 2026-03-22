@@ -186,7 +186,7 @@ body {
 /* ---- Sidebar Toggle ---- */
 .sidebar-toggle {
     position: absolute;
-    top: 8px;
+    bottom: 40px;
     left: var(--sidebar-width);
     z-index: 600;
     background: var(--sidebar-bg);

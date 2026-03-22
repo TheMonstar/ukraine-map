@@ -40,7 +40,7 @@ function suriyakLabel(label) {
         return ["RU", "HOLD"];
     }
 
-    const match = text.match(/Poligono\\s+(\\d+)/);
+    const match = text.match(/Pol.gono\s+(\d+)/);
     if (match) {
         const num = parseInt(match[1], 10);
         if (UA_POLYGON_IDS.includes(num)) {
