@@ -488,6 +488,8 @@ class AttackMapDashboard {
      */
     loadSelectedRegions() {
         const select = this.getEl('region-multiselect');
+        const btn = this.getEl('load-selected-regions');
+
         if (!select) {
             return;
         }
@@ -498,19 +500,28 @@ class AttackMapDashboard {
             return;
         }
 
-        // Clear existing selections
-        this.clearSelectedPolygons();
+        if (btn) {
+            btn.classList.add('btn-loading');
+        }
 
-        selectedOptions.forEach(option => {
-            const regionName = option.value;
-            this.loadRegionPolygon(regionName);
-        });
-        this.polygonVersion += 1;
-
-        // Calculate statistics after loading all regions
+        // Use a short timeout to let the UI update and show the loading state
         setTimeout(() => {
+            // Clear existing selections
+            this.clearSelectedPolygons();
+
+            selectedOptions.forEach(option => {
+                const regionName = option.value;
+                this.loadRegionPolygon(regionName);
+            });
+            this.polygonVersion += 1;
+
+            // Calculate statistics after loading all regions
             this.calculateSelectedAreaStatistics();
-        }, 100);
+
+            if (btn) {
+                btn.classList.remove('btn-loading');
+            }
+        }, 50);
     }
 
     /**
@@ -1376,6 +1387,18 @@ class AttackMapDashboard {
             return;
         }
 
+        // Add loading state to UI
+        const loaderHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-radius:50%;border-top-color:#fff;animation:btn-spin 0.8s linear infinite;"></span>';
+        const ids = [
+            'selected-area', 'selected-population', 'captured-in-selection',
+            'captured-population', 'highlighted-in-selection', 'grayed-in-selection',
+            'frontline-length', 'capture-percentage', 'shadow-population'
+        ];
+        ids.forEach(id => this.setHTML(id, loaderHTML));
+
+        // Yield to allow the browser to paint loaders
+        await new Promise(resolve => setTimeout(resolve, 50));
+
         // Calculate total selected area
         let totalSelectedArea = 0;
         let totalSelectedPopulation = 0;
@@ -1518,6 +1541,9 @@ class AttackMapDashboard {
             }
         }
 
+        // Yield again before the heaviest part of the calculation (app.js:1532) to keep loaders spinning smoothly
+        await new Promise(resolve => setTimeout(resolve, 50));
+
         // Calculate population in captured territories and shadow zones
         if (this.settlementsData && this.settlementsData.features && this.deepLayer.toGeoJSON().features.length > 0) {
             let settlementsInSelection = 0;
@@ -1573,6 +1599,12 @@ class AttackMapDashboard {
         this.setText('grayed-in-selection', grayedArea.toFixed(2));
         this.setText('frontline-length', frontlineLength.toFixed(2));
         this.setText('shadow-population', shadowZonePopulation.toLocaleString());
+
+        // Automatically calculate Unoccupied stats based on area/population differences
+        const totalUnoccupiedArea = Math.max(0, totalSelectedArea - capturedArea);
+        const totalUnoccupiedPopulation = Math.max(0, totalSelectedPopulation - capturedPopulation);
+        this.setText('unoccupied-area', totalUnoccupiedArea.toFixed(2));
+        this.setText('unoccupied-population', totalUnoccupiedPopulation.toLocaleString());
 
         // Calculate total capture percentage including both captured and highlighted areas
         const totalCapturedArea = capturedArea + highlightedArea;
@@ -1956,34 +1988,7 @@ class AttackMapDashboard {
     /**
      * Calculate unoccupied statistics for all selected regions
      */
-    calculateUnoccupiedForAllRegions() {
-        if (this.selectedPolygons.length === 0) {
-            alert('Please select at least one region first');
-            return;
-        }
 
-        let totalUnoccupiedArea = 0;
-        let totalUnoccupiedPopulation = 0;
-
-        this.selectedPolygons.forEach(polygon => {
-            const stats = this.calculateUnoccupiedStats(polygon);
-            totalUnoccupiedArea += stats.area;
-            totalUnoccupiedPopulation += stats.population;
-        });
-
-        // Update UI
-        const unoccupiedAreaEl = this.getEl('unoccupied-area');
-        const unoccupiedPopulationEl = this.getEl('unoccupied-population');
-        if (unoccupiedAreaEl) {
-            unoccupiedAreaEl.textContent = totalUnoccupiedArea.toFixed(2);
-        }
-        if (unoccupiedPopulationEl) {
-            unoccupiedPopulationEl.textContent = totalUnoccupiedPopulation.toLocaleString();
-        }
-
-        console.log(`Unoccupied territory: ${totalUnoccupiedArea.toFixed(2)} km²`);
-        console.log(`Unoccupied population: ${totalUnoccupiedPopulation.toLocaleString()}`);
-    }
 
     /**
      * Calculate the perimeter of a polygon in kilometers
@@ -2988,7 +2993,7 @@ class AttackMapDashboard {
         // Handle GSUA heatmap layer
         if (this.heatmapLayer) {
             this.map.removeLayer(this.heatmapLayer);
-            }
+        }
 
         if (this.isChecked('source-gsua-heatmap')) {
             // Build heatmap data from GSUA markers using group.count as intensity
@@ -3558,7 +3563,7 @@ class AttackMapDashboard {
                 const areaKm2 = areaM2 / 1_000_000;
 
                 // Calculate number of casualties for this polygon
-                const casualties = Math.round(areaKm2 * casualtiesPerKm2/10);
+                const casualties = Math.round(areaKm2 * casualtiesPerKm2 / 10);
 
                 if (casualties === 0) return;
 

@@ -2787,10 +2787,6 @@ class UiBindings {
             dashboard.calculateSelectedAreaStatistics();
         });
 
-        dashboard.bindUI('calculate-unoccupied', 'click', () => {
-            dashboard.calculateUnoccupiedForAllRegions();
-        });
-
         dashboard.bindUI('refresh-optimization', 'click', () => {
             if (dashboard.isChecked('diff-area')) {
                 dashboard.getEl('diff-area')?.dispatchEvent(new Event('change'));

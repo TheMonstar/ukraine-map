@@ -5,11 +5,11 @@
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-TDKVEL6LDH"></script>
     <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
 
-    gtag('config', 'G-TDKVEL6LDH');
+        gtag('config', 'G-TDKVEL6LDH');
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -35,7 +35,8 @@
                 <svg class="icon-play" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M4 2l10 6-10 6V2z" />
                 </svg>
-                <svg class="icon-pause" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none;">
+                <svg class="icon-pause" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"
+                    style="display:none;">
                     <rect x="3" y="2" width="4" height="12" rx="1" />
                     <rect x="9" y="2" width="4" height="12" rx="1" />
                 </svg>
@@ -82,21 +83,21 @@
                             </select>
                         </div>
                         <div class="control-group">
+                            <label class="control-label">DeepState</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label"><input type="checkbox" id="diff-area" /><span
+                                        class="toggle-switch"></span>DeepState</label>
+                                <label class="toggle-label"><input type="checkbox" id="diff-highlight" /><span
+                                        class="toggle-switch"></span>Difference</label>
+                            </div>
+                        </div>
+                        <div class="control-group">
                             <label class="control-label">Overlays</label>
                             <div class="toggle-row">
                                 <label class="toggle-label"><input type="checkbox" id="russia-overlay" /><span
                                         class="toggle-switch"></span>PlayFra</label>
                                 <label class="toggle-label"><input type="checkbox" id="suriyak-overlay" /><span
                                         class="toggle-switch"></span>Suriyak</label>
-                            </div>
-                        </div>
-                        <div class="control-group">
-                            <label class="control-label">DeepState</label>
-                            <div class="toggle-row">
-                                <label class="toggle-label"><input type="checkbox" id="diff-area" /><span
-                                        class="toggle-switch"></span>DeepState</label>
-                                <label class="toggle-label"><input type="checkbox" id="diff-highlight" /><span
-                                        class="toggle-switch"></span>Highlight</label>
                             </div>
                         </div>
                         <div class="control-group">
@@ -109,8 +110,8 @@
                             </select>
                             <select id="compare-layer-2" class="control-select">
                                 <option value="deepLayer">DeepStateMap</option>
-                                <option value="russianOverlay" selected>Russia (PlayFra)</option>
-                                <option value="suriyakOverlay">Suriyak Overlay</option>
+                                <option value="russianOverlay">Russia (PlayFra)</option>
+                                <option value="suriyakOverlay" selected>Suriyak Overlay</option>
                                 <option value="customKmlOverlay">Custom KML</option>
                             </select>
                             <select id="compare-mode" class="control-select">
@@ -177,10 +178,6 @@
                             <label class="small-label">Losses/km²: <input type="number" id="losses-input" min="0"
                                     max="5000" value="0" step="10" class="control-input-sm" /></label>
                         </div>
-                        <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="casualties-density" /><span
-                                    class="toggle-switch"></span>Casualties</label>
-                        </div>
                     </div>
                 </div>
 
@@ -207,8 +204,8 @@
                             <input type="number" id="trace-distance-limit" value="50" class="control-input-sm" /> km
                             <label class="toggle-label"><input type="checkbox" id="filter-trace-distance-less" /><span
                                     class="toggle-switch"></span>Hide Moves &lt;</label>
-                            <input type="number" id="trace-distance-limit-less" value="10"
-                                class="control-input-sm" /> km
+                            <input type="number" id="trace-distance-limit-less" value="10" class="control-input-sm" />
+                            km
                             <div class="toggle-row">
                                 <label class="toggle-label"><input type="checkbox" id="show-linked-units" /><span
                                         class="toggle-switch"></span>Linked Units</label>
@@ -223,8 +220,6 @@
                             <div id="position-change-stats" class="stats-text"></div>
                         </div>
                         <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="analyze-positions" /><span
-                                    class="toggle-switch"></span>Analyze</label>
                             <label class="toggle-label"><input type="checkbox" id="filter-usf-units" /><span
                                     class="toggle-switch"></span>USF Only</label>
                         </div>
@@ -266,26 +261,14 @@
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-ditches" /><span
                                     class="toggle-switch"></span>Ditches</label>
+                        </div>
+                        <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-wire" /><span
                                     class="toggle-switch"></span>Wire</label>
                         </div>
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-dragon" /><span
                                     class="toggle-switch"></span>Teeth</label>
-                        </div>
-                        <div class="control-group">
-                            <label class="control-label">Image Overlay</label>
-                            <input type="text" id="image-overlay-url" placeholder="Enter image URL..."
-                                class="control-input" />
-                            <div class="btn-row">
-                                <button id="load-image-overlay" class="btn btn-sm">Load Image</button>
-                                <button id="clear-image-overlay" class="btn btn-sm btn-danger">Clear</button>
-                            </div>
-                            <label class="small-label">Opacity: <span id="image-opacity-value">70</span>%</label>
-                            <input type="range" id="image-opacity-slider" min="0" max="100" value="70"
-                                class="control-range" />
-                            <label class="toggle-label"><input type="checkbox" id="enable-image-resize" /><span
-                                    class="toggle-switch"></span>Resize Mode</label>
                         </div>
                         <div id="features-attribution" class="attribution" style="display:none;">
                             Data: <a href="https://x.com/Playfra0" target="_blank">Playfra</a>
@@ -300,15 +283,33 @@
                         Tools
                     </div>
                     <div class="accordion-body" style="display:none;">
-                        <div class="toggle-row">
-                            <label class="toggle-label"><input type="checkbox" id="polygon-select" /><span
-                                    class="toggle-switch"></span>Polygon Select</label>
-                            <label class="toggle-label"><input type="checkbox" id="ruler-tool" /><span
-                                    class="toggle-switch"></span>Ruler</label>
+
+                        <div class="control-group">
+                            <div class="toggle-row">
+                                <label class="toggle-label"><input type="checkbox" id="polygon-select" /><span
+                                        class="toggle-switch"></span>Polygon Select</label>
+                                <label class="toggle-label"><input type="checkbox" id="ruler-tool" /><span
+                                        class="toggle-switch"></span>Ruler</label>
+                            </div>
+                            <div class="btn-row">
+                                <button id="clear-polygons" class="btn btn-sm">Clear Selection</button>
+                                <button id="export-polygons" class="btn btn-sm">Export</button>
+                            </div>
                         </div>
-                        <div class="btn-row">
-                            <button id="clear-polygons" class="btn btn-sm">Clear Selection</button>
-                            <button id="export-polygons" class="btn btn-sm">Export</button>
+
+                        <div class="control-group">
+                            <label class="control-label">Image Overlay</label>
+                            <input type="text" id="image-overlay-url" placeholder="Enter image URL..."
+                                class="control-input" />
+                            <div class="btn-row">
+                                <button id="load-image-overlay" class="btn btn-sm">Load Image</button>
+                                <button id="clear-image-overlay" class="btn btn-sm btn-danger">Clear</button>
+                            </div>
+                            <label class="small-label">Opacity: <span id="image-opacity-value">70</span>%</label>
+                            <input type="range" id="image-opacity-slider" min="0" max="100" value="70"
+                                class="control-range" />
+                            <label class="toggle-label"><input type="checkbox" id="enable-image-resize" /><span
+                                    class="toggle-switch"></span>Resize Mode</label>
                         </div>
 
                         <!-- Drawing Tool -->
@@ -318,48 +319,94 @@
                             <div id="draw-controls" style="display:none;">
                                 <div class="draw-tools">
                                     <button class="draw-tool-btn active" data-mode="freedraw" title="Free Draw">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12 Q4 6 7 5 Q10 4 12 2"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                                            <path d="M2 12 Q4 6 7 5 Q10 4 12 2" />
+                                        </svg>
                                     </button>
                                     <button class="draw-tool-btn" data-mode="line" title="Line">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="12" x2="12" y2="2"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                                            <line x1="2" y1="12" x2="12" y2="2" />
+                                        </svg>
                                     </button>
                                     <button class="draw-tool-btn" data-mode="arrow" title="Arrow">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="12" x2="11" y2="3"/><polyline points="6,3 11,3 11,8"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <line x1="2" y1="12" x2="11" y2="3" />
+                                            <polyline points="6,3 11,3 11,8" />
+                                        </svg>
                                     </button>
                                     <button class="draw-tool-btn" data-mode="ellipse" title="Ellipse">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="7" cy="7" rx="5" ry="3"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                                            stroke="currentColor" stroke-width="1.5">
+                                            <ellipse cx="7" cy="7" rx="5" ry="3" />
+                                        </svg>
                                     </button>
                                     <button class="draw-tool-btn" data-mode="rect" title="Rectangle">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="10" height="6" rx="1"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                                            stroke="currentColor" stroke-width="1.5">
+                                            <rect x="2" y="4" width="10" height="6" rx="1" />
+                                        </svg>
                                     </button>
                                     <button class="draw-tool-btn" data-mode="arc" title="Arc">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 11 Q7 1 12 11"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                                            <path d="M2 11 Q7 1 12 11" />
+                                        </svg>
                                     </button>
                                     <button class="draw-tool-btn" data-mode="text" title="Text Label">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="3" x2="12" y2="3"/><line x1="7" y1="3" x2="7" y2="12"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <line x1="2" y1="3" x2="12" y2="3" />
+                                            <line x1="7" y1="3" x2="7" y2="12" />
+                                        </svg>
                                     </button>
                                     <button class="draw-tool-btn" data-mode="eraser" title="Eraser">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 L12 5 L5 12 L2 12 L2 9 Z"/><line x1="6" y1="3" x2="11" y2="8"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path d="M9 2 L12 5 L5 12 L2 12 L2 9 Z" />
+                                            <line x1="6" y1="3" x2="11" y2="8" />
+                                        </svg>
                                     </button>
                                 </div>
                                 <div class="draw-style-row">
                                     <div class="draw-presets">
-                                        <button class="draw-preset" data-color="#ff0000" style="background:#ff0000;" title="Red"></button>
-                                        <button class="draw-preset" data-color="#ff8c00" style="background:#ff8c00;" title="Orange"></button>
-                                        <button class="draw-preset" data-color="#ffff00" style="background:#ffff00;" title="Yellow"></button>
-                                        <button class="draw-preset" data-color="#00ff88" style="background:#00ff88;" title="Green"></button>
-                                        <button class="draw-preset" data-color="#0044ff" style="background:#0044ff;" title="Blue"></button>
-                                        <button class="draw-preset" data-color="#ffffff" style="background:#ffffff;" title="White"></button>
-                                        <button class="draw-preset" data-color="#000000" style="background:#000000;" title="Black"></button>
+                                        <button class="draw-preset" data-color="#ff0000" style="background:#ff0000;"
+                                            title="Red"></button>
+                                        <button class="draw-preset" data-color="#ff8c00" style="background:#ff8c00;"
+                                            title="Orange"></button>
+                                        <button class="draw-preset" data-color="#ffff00" style="background:#ffff00;"
+                                            title="Yellow"></button>
+                                        <button class="draw-preset" data-color="#00ff88" style="background:#00ff88;"
+                                            title="Green"></button>
+                                        <button class="draw-preset" data-color="#0044ff" style="background:#0044ff;"
+                                            title="Blue"></button>
+                                        <button class="draw-preset" data-color="#ffffff" style="background:#ffffff;"
+                                            title="White"></button>
+                                        <button class="draw-preset" data-color="#000000" style="background:#000000;"
+                                            title="Black"></button>
                                     </div>
-                                    <input type="color" id="draw-color" value="#ff0000" class="draw-color-input" title="Custom color" />
+                                    <input type="color" id="draw-color" value="#ff0000" class="draw-color-input"
+                                        title="Custom color" />
                                     <button id="draw-dash-btn" class="draw-dash-btn" title="Dashed line">
-                                        <svg width="22" height="10" viewBox="0 0 22 10"><line x1="1" y1="5" x2="6" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="5" x2="14" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="17" y1="5" x2="22" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                        <svg width="22" height="10" viewBox="0 0 22 10">
+                                            <line x1="1" y1="5" x2="6" y2="5" stroke="currentColor" stroke-width="2"
+                                                stroke-linecap="round" />
+                                            <line x1="9" y1="5" x2="14" y2="5" stroke="currentColor" stroke-width="2"
+                                                stroke-linecap="round" />
+                                            <line x1="17" y1="5" x2="22" y2="5" stroke="currentColor" stroke-width="2"
+                                                stroke-linecap="round" />
+                                        </svg>
                                     </button>
                                 </div>
                                 <div class="draw-options">
                                     <label class="small-label">Width <span id="draw-thickness-value">3</span></label>
-                                    <input type="range" id="draw-thickness" min="1" max="20" value="3" class="control-range" />
+                                    <input type="range" id="draw-thickness" min="1" max="20" value="3"
+                                        class="control-range" />
                                 </div>
                                 <div class="btn-row">
                                     <button id="draw-undo" class="btn btn-sm">Undo</button>
@@ -386,7 +433,7 @@
                         </div>
                         <div class="control-row">
                             <label class="small-label">Min Population:</label>
-                            <input id="clusterRadius" value="20" class="control-input-sm" />
+                            <input id="clusterRadius" value="2000" class="control-input-sm" />
                         </div>
                         <div class="control-group">
                             <label class="control-label">Search</label>
@@ -400,15 +447,21 @@
                             <label class="toggle-label"><input type="checkbox" id="search-in-polygons" /><span
                                     class="toggle-switch"></span>In Polygons</label>
                         </div>
-                        <label class="toggle-label"><input type="checkbox"
-                                id="search-in-predefined-region" /><span class="toggle-switch"></span>In Predefined
+                        <label class="toggle-label"><input type="checkbox" id="search-in-predefined-region" /><span
+                                class="toggle-switch"></span>In Predefined
                             Region</label>
                         <div class="control-group">
                             <select id="predefined-regions" class="control-select">
                                 <option value="">Select region...</option>
                             </select>
                         </div>
-                        <button id="calculate-unoccupied" class="btn btn-sm">Calc Unoccupied</button>
+                        <label for="region-multiselect">Select Multiple Regions:</label>
+                        <div class="control-group">
+                            <select id="region-multiselect" multiple class="control-select"
+                                style="width: 100%; height: 120px; margin: 5px 0; padding: 5px;">
+                            </select>
+                        </div>
+                        <button id="load-selected-regions" class="btn btn-sm">Load Selected Regions</button>
                     </div>
                 </div>
 
@@ -416,15 +469,49 @@
                 <div id="settlement-legend" class="sidebar-panel" style="display: none;">
                     <h3 class="panel-title">Settlement Legend</h3>
                     <div class="legend-content">
-                        <div class="legend-item"><div class="legend-color" style="background:#4a90e2;"></div><span>&lt; 1,000</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background:#7ed321;"></div><span>1k - 5k</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background:#f5a623;"></div><span>5k - 10k</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background:#d0021b;"></div><span>10k - 25k</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background:#9013fe;"></div><span>25k - 100k</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background:#50e3c2;"></div><span>&ge; 100k</span></div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background:#4a90e2;"></div><span>&lt; 1,000</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background:#7ed321;"></div><span>1k - 5k</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background:#f5a623;"></div><span>5k - 10k</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background:#d0021b;"></div><span>10k - 25k</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background:#9013fe;"></div><span>25k - 100k</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background:#50e3c2;"></div><span>&ge; 100k</span>
+                        </div>
                     </div>
                 </div>
+            </div>
 
+            <!-- Donations -->
+            <div class="sidebar-panel donation-panel"
+                style="margin-top: auto; border-top: 1px solid var(--sidebar-border); padding-top: 15px; padding-bottom: 20px; border-bottom: none; flex-shrink: 0;">
+                <h3 class="panel-title" style="margin-bottom: 10px;">Support Map Development</h3>
+                <div
+                    style="font-size: 11px; color: var(--sidebar-text); display: flex; flex-direction: column; gap: 8px;">
+                    <div>
+                        <div style="color: var(--sidebar-muted); font-weight: 600; margin-bottom: 2px;">TRX (TRC20)
+                        </div>
+                        <div
+                            style="background: var(--sidebar-border); padding: 4px 6px; border-radius: var(--radius-sm); user-select: all; font-family: monospace; word-break: break-all; border: 1px solid #475569;">
+                            TPP1QJcNGZT2BpSTBBSpczENz6DHigZYJW</div>
+                    </div>
+                    <div>
+                        <div style="color: var(--sidebar-muted); font-weight: 600; margin-bottom: 2px;">BSC (BEP20)
+                        </div>
+                        <div
+                            style="background: var(--sidebar-border); padding: 4px 6px; border-radius: var(--radius-sm); user-select: all; font-family: monospace; word-break: break-all; border: 1px solid #475569;">
+                            0x27a781ea91cee602fd5f6f3932fb31cf2e40222d</div>
+                    </div>
+                </div>
             </div>
         </aside>
 
