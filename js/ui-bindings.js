@@ -52,7 +52,7 @@ class UiBindings {
                     const area = deepMap.unionList([...deepMap.normalizePolygon(endDatePolygons.polygons), turf.intersect(ruborder, frame)]);
                     const chunk = turf.difference(uaborder, area);
 
-                    const shadow = deepMap.addShadow(area, dashboard.getEl('clusterRadius')?.value || 300);
+                    const shadow = deepMap.addShadow(area, dashboard.getEl('shadow-ua-size')?.value || 20);
                     const shadowOnly = turf.difference(shadow, area);
                     const shadowExclRu = turf.difference(shadowOnly, ruborder);
                     const zone = turf.difference(chunk, shadow);
@@ -131,7 +131,7 @@ class UiBindings {
                                     polygon.sliceIndex = i;
                                     diffPolygons.push(polygon);
                                     combinedDifference = safeUnion(combinedDifference, polygon.geojson);
-                                    try { sliceGains += turf.area(polygon.geojson) / 1e6; } catch (e) {}
+                                    try { sliceGains += turf.area(polygon.geojson) / 1e6; } catch (e) { }
                                 });
 
                             // Add losses (reverse-difference) polygons in blue
@@ -147,7 +147,7 @@ class UiBindings {
                                     polygon.sliceIndex = i;
                                     polygon.isLoss = true;
                                     diffPolygons.push(polygon);
-                                    try { sliceLosses += turf.area(polygon.geojson) / 1e6; } catch (e) {}
+                                    try { sliceLosses += turf.area(polygon.geojson) / 1e6; } catch (e) { }
                                 });
 
                             sliceTerritoryStats.push({
@@ -171,8 +171,10 @@ class UiBindings {
                                         turf.area(turf.polygon(coords)) >= minAreaSqM
                                     );
                                     if (kept.length === 0) return null;
-                                    return { ...polygon, geojson: kept.length === 1
-                                        ? turf.polygon(kept[0]) : turf.multiPolygon(kept) };
+                                    return {
+                                        ...polygon, geojson: kept.length === 1
+                                            ? turf.polygon(kept[0]) : turf.multiPolygon(kept)
+                                    };
                                 }
                                 if (geom.type === 'Polygon') {
                                     return turf.area(polygon.geojson) >= minAreaSqM ? polygon : null;
@@ -1192,7 +1194,7 @@ class UiBindings {
 
                 // Populate period select
                 const periods = new Set();
-                Object.keys(data["USF Grouping"].periods).forEach(p => periods.add({key:p, ...data["USF Grouping"].periods[p]})); // Ensure grouping periods are included
+                Object.keys(data["USF Grouping"].periods).forEach(p => periods.add({ key: p, ...data["USF Grouping"].periods[p] })); // Ensure grouping periods are included
 
                 const select = dashboard.getEl('usf-period-select');
                 // clear existing options except first
@@ -1857,7 +1859,7 @@ class UiBindings {
                         if (!items || !Array.isArray(items)) return;
                         items.forEach(item => {
                             let iconId = getIconId(item);
-                            if (item.side === 'RU') iconId = `${parseInt(iconId) + 57}`; 
+                            if (item.side === 'RU') iconId = `${parseInt(iconId) + 57}`;
                             if (iconId) uniqueIcons.add(iconId);
                         });
                     };
@@ -2867,30 +2869,30 @@ class UiBindings {
 
         const drawHints = {
             freedraw: 'Click and drag to draw freely.',
-            line:     'Click and drag to draw a line.',
-            arrow:    'Click and drag to draw an arrow.',
-            ellipse:  'Drag 1: set axis. Drag 2: stretch width.',
-            rect:     'Drag 1: set axis. Drag 2: stretch width.',
-            arc:      'Draw a curved path — the deepest point sets the arc.',
-            text:     'Drag to set position and angle, then type. Enter to confirm.',
-            eraser:   'Click or drag over shapes to erase them.',
+            line: 'Click and drag to draw a line.',
+            arrow: 'Click and drag to draw an arrow.',
+            ellipse: 'Drag 1: set axis. Drag 2: stretch width.',
+            rect: 'Drag 1: set axis. Drag 2: stretch width.',
+            arc: 'Draw a curved path — the deepest point sets the arc.',
+            text: 'Drag to set position and angle, then type. Enter to confirm.',
+            eraser: 'Click or drag over shapes to erase them.',
         };
 
         const thicknessSlider = dashboard.getEl('draw-thickness');
-        const thicknessLabel  = dashboard.getEl('draw-thickness-value');
-        const thicknessRow    = thicknessSlider && thicknessSlider.closest('.draw-options');
-        const thicknessTitle  = thicknessRow && thicknessRow.querySelector('.small-label');
+        const thicknessLabel = dashboard.getEl('draw-thickness-value');
+        const thicknessRow = thicknessSlider && thicknessSlider.closest('.draw-options');
+        const thicknessTitle = thicknessRow && thicknessRow.querySelector('.small-label');
 
         const applyThicknessMode = (mode) => {
             if (!thicknessSlider) return;
             if (mode === 'text') {
-                thicknessSlider.min  = '8';
-                thicknessSlider.max  = '96';
+                thicknessSlider.min = '8';
+                thicknessSlider.max = '96';
                 thicknessSlider.step = '2';
                 if (thicknessTitle) thicknessTitle.childNodes[0].textContent = 'Size ';
             } else {
-                thicknessSlider.min  = '1';
-                thicknessSlider.max  = '20';
+                thicknessSlider.min = '1';
+                thicknessSlider.max = '20';
                 thicknessSlider.step = '1';
                 if (thicknessTitle) thicknessTitle.childNodes[0].textContent = 'Width ';
             }

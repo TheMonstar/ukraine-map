@@ -10,7 +10,7 @@ class DeepUtils {
      */
     calculateGeoPolygonArea(vertices) {
         if (vertices.length < 3) {
-            return {squareMeters: 0, squareKilometers: 0};
+            return { squareMeters: 0, squareKilometers: 0 };
         }
 
         const earthRadius = 6378137.0; // WGS84 semi-major axis in meters
@@ -46,25 +46,47 @@ class DeepUtils {
 
     async addDeepMap(date = new Date()) {
         try {
-            const response = await fetch(`https://flask-app-kibakefmpq-ew.a.run.app/geojson-by-date?date=${date.toLocaleDateString('en-CA')}`);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status}`);
+            const dateStr = date.toLocaleDateString('en-CA');
+            if (!this.constructor.cache) {
+                this.constructor.cache = new Map();
             }
-            
-            const data = await response.json();
-            
+
+            const MAX_CACHE_SIZE = 30; // Limit to ~18MB to prevent memory leaks
+
+            let data;
+            if (this.constructor.cache.has(dateStr)) {
+                // Return cached data and move to the end to mark as recently used
+                data = this.constructor.cache.get(dateStr);
+                this.constructor.cache.delete(dateStr);
+                this.constructor.cache.set(dateStr, data);
+            } else {
+                const response = await fetch(`https://flask-app-kibakefmpq-ew.a.run.app/geojson-by-date?date=${dateStr}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                data = await response.json();
+                this.constructor.cache.set(dateStr, data);
+
+                // Enforce maximum cache size by removing the oldest entry
+                if (this.constructor.cache.size > MAX_CACHE_SIZE) {
+                    const oldestKey = this.constructor.cache.keys().next().value;
+                    this.constructor.cache.delete(oldestKey);
+                }
+            }
+
             //"#bcaaa4", "#a52714", "#ff5252"
             const dbg = {};
             const polis = [];
             const filteredPolygons = [];
-            
-            data.features.filter(item => 
-                item.geometry.type === "Polygon" && 
+
+            data.features.filter(item =>
+                item.geometry.type === "Polygon" &&
                 ["#bcaaa4", "#a52714", "#880e4f"].indexOf(item.properties.stroke) >= 0
             ).forEach(item => {
                 const coordinates = item.geometry.coordinates[0].map(coord => [coord[1], coord[0]]);
-                
+
                 // Create polygon data object instead of rendering directly
                 const polygonData = {
                     coordinates: coordinates,
@@ -77,7 +99,7 @@ class DeepUtils {
                     properties: item.properties,
                     area: this.calculateGeoPolygonArea(coordinates)
                 };
-                
+
                 filteredPolygons.push(polygonData);
 
                 if (document.getElementById('shadow-line')?.checked && item.properties.fill === "#bcaaa4") {
@@ -103,7 +125,7 @@ class DeepUtils {
                     dbg[item.properties.fill] = parseFloat(polygonData.area.squareKilometers.toFixed(2));
                 }
             });
-            
+
             // Handle shadow polygons if needed
             let shadowPolygon = null;
             if (document.getElementById('shadow-line')?.checked && polis.length > 0) {
@@ -120,7 +142,7 @@ class DeepUtils {
                 }
 
                 // Create buffers for occupied side (extends outward from grey zone)
-                let occupiedBuffers = polis.map(p => turf.buffer(p.geojson, p.occupiedDepth, {units: 'kilometers'}));
+                let occupiedBuffers = polis.map(p => turf.buffer(p.geojson, p.occupiedDepth, { units: 'kilometers' }));
                 let mergedOccupiedBuffer = occupiedBuffers[0];
                 for (let i = 1; i < occupiedBuffers.length; i++) {
                     mergedOccupiedBuffer = turf.union(mergedOccupiedBuffer, occupiedBuffers[i]);
@@ -129,7 +151,7 @@ class DeepUtils {
                 let occupiedShadow = turf.difference(mergedOccupiedBuffer, mergedOccupied);
 
                 // Create buffers for opposite side (extends inward)
-                let oppositeBuffers = polis.map(p => turf.buffer(p.geojson, p.oppositeDepth, {units: 'kilometers'}));
+                let oppositeBuffers = polis.map(p => turf.buffer(p.geojson, p.oppositeDepth, { units: 'kilometers' }));
                 let mergedOppositeBuffer = oppositeBuffers[0];
                 for (let i = 1; i < oppositeBuffers.length; i++) {
                     mergedOppositeBuffer = turf.union(mergedOppositeBuffer, oppositeBuffers[i]);
@@ -164,7 +186,7 @@ class DeepUtils {
                     const ringOppositeDepth = avgOppositeDepth * depthPercent;
 
                     // Create buffer for this ring on occupied side
-                    let ringOccupiedBuffers = polis.map(p => turf.buffer(p.geojson, ringOccupiedDepth, {units: 'kilometers'}));
+                    let ringOccupiedBuffers = polis.map(p => turf.buffer(p.geojson, ringOccupiedDepth, { units: 'kilometers' }));
                     let ringOccupiedBuffer = ringOccupiedBuffers[0];
                     for (let j = 1; j < ringOccupiedBuffers.length; j++) {
                         ringOccupiedBuffer = turf.union(ringOccupiedBuffer, ringOccupiedBuffers[j]);
@@ -172,7 +194,7 @@ class DeepUtils {
                     let ringOccupiedShadow = turf.difference(ringOccupiedBuffer, mergedOccupied);
 
                     // Create buffer for this ring on opposite side
-                    let ringOppositeBuffers = polis.map(p => turf.buffer(p.geojson, ringOppositeDepth, {units: 'kilometers'}));
+                    let ringOppositeBuffers = polis.map(p => turf.buffer(p.geojson, ringOppositeDepth, { units: 'kilometers' }));
                     let ringOppositeBuffer = ringOppositeBuffers[0];
                     for (let j = 1; j < ringOppositeBuffers.length; j++) {
                         ringOppositeBuffer = turf.union(ringOppositeBuffer, ringOppositeBuffers[j]);
@@ -209,15 +231,15 @@ class DeepUtils {
                     gradientRings: gradientRings
                 };
             }
-            
+
             console.log(dbg);
-            
+
             return {
                 polygons: filteredPolygons,
                 shadowPolygon: shadowPolygon,
                 statistics: dbg
             };
-            
+
         } catch (error) {
             console.error('Fetch error:', error);
             if (document.getElementById('output')) {
@@ -255,7 +277,7 @@ class DeepUtils {
                 L.polygon(polygon.coordinates, polygon.style).addTo(this.deepLayer);
             }
         });
-        
+
         // Render shadow polygon if it exists with gradient effect
         if (polygonData.shadowPolygon) {
             // Create gradient by rendering multiple buffer rings with decreasing opacity
@@ -274,7 +296,7 @@ class DeepUtils {
             }
         }
     }
-    
+
     /**
      * Render a single polygon
      * @param {Object} polygon - Polygon data object
@@ -464,24 +486,26 @@ class DeepUtils {
 
     prepareRender(geojsons) {
         return {
-            polygons: geojsons.map(geojson => { return {
-                geojson: geojson,
-                style: {
-                    color: "#a52714",
-                    fillColor: "#a52714",
-                    fillOpacity: 0.2,
-                    weight: 1
-                },
-                type: 'merged-start'
-            };})
+            polygons: geojsons.map(geojson => {
+                return {
+                    geojson: geojson,
+                    style: {
+                        color: "#a52714",
+                        fillColor: "#a52714",
+                        fillOpacity: 0.2,
+                        weight: 1
+                    },
+                    type: 'merged-start'
+                };
+            })
         };
     }
 
     addShadow(geojson, depth = 20) {
-        return turf.buffer(geojson, depth, {units: 'kilometers'})
+        return turf.buffer(geojson, depth, { units: 'kilometers' })
     }
 
-    async loadTheBorder(code='ua') {
+    async loadTheBorder(code = 'ua') {
         try {
             const response = await fetch(`https://summary-map.storage.googleapis.com/${code}.json`);
             if (!response.ok) {
@@ -495,7 +519,7 @@ class DeepUtils {
         }
     }
 
-    async loadFeatures(feature='ditches', user=0) {
+    async loadFeatures(feature = 'ditches', user = 0) {
         try {
             const response = await fetch(`https://playframap.github.io/data/${feature}.geojson`);
             if (!response.ok) {

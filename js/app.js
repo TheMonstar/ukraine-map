@@ -842,13 +842,16 @@ class AttackMapDashboard {
             this.clearRulerMeasurement();
 
             // Add click event listener for ruler
-            this.map.on('click', this.rulerClickHandler.bind(this));
-            this.map.on('mousemove', this.rulerMouseMoveHandler.bind(this));
+            if (!this.boundRulerClickHandler) {
+                this.boundRulerClickHandler = this.rulerClickHandler.bind(this);
+            }
+            this.map.on('click', this.boundRulerClickHandler);
 
             // Show instructions
             console.log('Ruler tool enabled:');
             console.log('- Click to add measurement points');
-            console.log('- Double-click or press Escape to finish');
+            console.log('- Drag points to move them');
+            console.log('- Press Escape to finish');
             console.log('- Total distance will be displayed');
 
             // Add keyboard listener for Escape key
@@ -861,8 +864,9 @@ class AttackMapDashboard {
         } else {
             // Disable ruler mode
             this.map.getContainer().style.cursor = '';
-            this.map.off('click', this.rulerClickHandler);
-            this.map.off('mousemove', this.rulerMouseMoveHandler);
+            if (this.boundRulerClickHandler) {
+                this.map.off('click', this.boundRulerClickHandler);
+            }
 
             if (this.rulerKeyHandler) {
                 document.removeEventListener('keydown', this.rulerKeyHandler);
@@ -881,61 +885,57 @@ class AttackMapDashboard {
         if (!this.rulerEnabled) return;
 
         const latlng = e.latlng;
-        this.rulerPoints.push(latlng);
 
-        // Add marker at click point
-        const marker = L.circleMarker(latlng, {
-            radius: 4,
-            color: '#FF0000',
-            fillColor: '#FF0000',
-            fillOpacity: 1,
-            weight: 2
+        // Add draggable marker at click point
+        const marker = L.marker(latlng, {
+            draggable: true,
+            icon: L.divIcon({
+                className: 'ruler-node',
+                html: `<div style="width: 12px; height: 12px; background: white; border: 2px solid #FF0000; border-radius: 50%; cursor: move; box-shadow: 0 1px 4px rgba(0,0,0,0.3);"></div>`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            })
         }).addTo(this.map);
+
         this.rulerMarkers.push(marker);
 
-        // Update or create polyline
-        if (this.rulerPoints.length === 1) {
-            // First point - create polyline
-            this.rulerPolyline = L.polyline([latlng], {
-                color: '#FF0000',
-                weight: 3,
-                dashArray: '10, 5'
-            }).addTo(this.map);
-        } else {
-            // Update polyline with new points
-            this.rulerPolyline.setLatLngs(this.rulerPoints);
-        }
+        const updateRuler = () => {
+            if (this.rulerMarkers.length === 0) return;
+            this.rulerPoints = this.rulerMarkers.map(m => m.getLatLng());
+            if (this.rulerPoints.length > 1) {
+                if (!this.rulerPolyline) {
+                    this.rulerPolyline = L.polyline(this.rulerPoints, {
+                        color: '#FF0000',
+                        weight: 3,
+                        dashArray: '10, 5'
+                    }).addTo(this.map);
+                } else {
+                    this.rulerPolyline.setLatLngs(this.rulerPoints);
+                }
+            } else if (this.rulerPoints.length === 1 && this.rulerPolyline) {
+                this.map.removeLayer(this.rulerPolyline);
+                this.rulerPolyline = null;
+            }
+            this.updateRulerDistance();
+        };
 
-        // Calculate and display total distance
-        this.updateRulerDistance();
+        // Also update immediately
+        updateRuler();
+
+        // Update when dragged
+        marker.on('drag', updateRuler);
     }
 
-    /**
-     * Handle mouse move for ruler tool (show preview line)
-     */
-    rulerMouseMoveHandler(e) {
-        if (!this.rulerEnabled || this.rulerPoints.length === 0) return;
 
-        const latlng = e.latlng;
-
-        // Update polyline to show preview to cursor
-        const previewPoints = [...this.rulerPoints, latlng];
-        if (this.rulerPolyline) {
-            this.rulerPolyline.setLatLngs(previewPoints);
-        }
-
-        // Update distance display with preview
-        this.updateRulerDistance(latlng);
-    }
 
     /**
      * Calculate and display distance
      */
-    updateRulerDistance(previewPoint = null) {
+    updateRulerDistance() {
         if (this.rulerPoints.length === 0) return;
 
         let totalDistance = 0;
-        const points = previewPoint ? [...this.rulerPoints, previewPoint] : this.rulerPoints;
+        const points = this.rulerPoints;
 
         // Calculate total distance
         for (let i = 0; i < points.length - 1; i++) {
@@ -961,11 +961,6 @@ class AttackMapDashboard {
             this.rulerTooltip
                 .setLatLng(lastPoint)
                 .setContent(`${distanceKm} km`);
-        }
-
-        // Also log to console
-        if (!previewPoint) {
-            console.log(`Distance: ${distanceKm} km (${points.length} points)`);
         }
     }
 
