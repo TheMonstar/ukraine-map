@@ -1157,7 +1157,7 @@ class UiBindings {
                                 if (feature.properties) {
                                     // Basic popup with properties
                                     let popupContent = Object.entries(feature.properties)
-                                        .filter(([key, value]) => value && value !== 'null' && typeof value === 'string' && value.trim() !== '')
+                                        .filter(([key, value]) => value && value !== 'null' && typeof value === 'string' && value.trim() !== '' && key !== 'description')
                                         .map(([key, value]) => `<strong>${key}:</strong> ${value}`)
                                         .join('<br>');
 
@@ -1192,11 +1192,7 @@ class UiBindings {
 
                 // Populate period select
                 const periods = new Set();
-                Object.values(data).forEach(unitData => {
-                    // Handle new structure { icon, periods } or old structure (fallback)
-                    const unitPeriods = unitData.periods || unitData;
-                    Object.keys(unitPeriods).forEach(p => periods.add(p));
-                });
+                Object.keys(data["USF Grouping"].periods).forEach(p => periods.add({key:p, ...data["USF Grouping"].periods[p]})); // Ensure grouping periods are included
 
                 const select = dashboard.getEl('usf-period-select');
                 // clear existing options except first
@@ -1204,15 +1200,11 @@ class UiBindings {
                     select.remove(1);
                 }
 
-                const sortedPeriods = Array.from(periods).sort((a, b) => {
-                    // Custom sort if needed, for now alphabetical/default
-                    return b.localeCompare(a);
-                });
 
-                sortedPeriods.forEach(p => {
+                Array.from(periods).forEach(p => {
                     const opt = document.createElement('option');
-                    opt.value = p;
-                    opt.textContent = p;
+                    opt.value = p.key;
+                    opt.textContent = p["period.name_en"];
                     select.appendChild(opt);
                 });
 
@@ -2785,6 +2777,10 @@ class UiBindings {
 
         dashboard.bindUI('exclude-occupied', 'change', () => {
             dashboard.calculateSelectedAreaStatistics();
+        });
+
+        dashboard.bindUI('calculate-unoccupied', 'click', () => {
+            dashboard.calculateUnoccupiedForAllRegions();
         });
 
         dashboard.bindUI('refresh-optimization', 'click', () => {
