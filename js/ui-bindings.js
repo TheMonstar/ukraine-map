@@ -1063,7 +1063,12 @@ class UiBindings {
                     dashboard[layerProp] = null;
                 }
 
-                if (dashboard.isChecked(checkboxId)) {
+                let shouldLoad = dashboard.isChecked(checkboxId);
+                if (side === 'ua' && dashboard.isChecked('filter-usf-units')) {
+                    shouldLoad = true;
+                }
+
+                if (shouldLoad) {
                     if (!dashboard.endDate) return;
 
                     const date = dashboard.endDate;
