@@ -219,9 +219,10 @@
                             </div>
                             <div id="position-change-stats" class="stats-text"></div>
                         </div>
-                        <div class="toggle-row">
+                        <div class="toggle-row" style="display:flex; align-items:center; gap:6px;">
                             <label class="toggle-label"><input type="checkbox" id="filter-usf-units" /><span
                                     class="toggle-switch"></span>USF Only</label>
+                            <button id="usf-reload-btn" title="Reload USF data" style="background:none; border:1px solid #555; border-radius:10px; color:#ccc; cursor:pointer; padding:2px 5px; font-size:14px; line-height:1;">&#x21BB;</button>
                         </div>
                         <div class="control-row">
                             <select id="usf-period-select" class="control-select-sm">
@@ -261,6 +262,8 @@
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-ditches" /><span
                                     class="toggle-switch"></span>Ditches</label>
+                            <label class="toggle-label" style="margin-left:8px;" title="Show start date diff in blue"><input type="checkbox" id="features-diff" /><span
+                                    class="toggle-switch"></span>Diff</label>
                         </div>
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-wire" /><span
@@ -271,7 +274,26 @@
                                     class="toggle-switch"></span>Teeth</label>
                         </div>
                         <div id="features-attribution" class="attribution" style="display:none;">
-                            Data: <a href="https://x.com/Playfra0" target="_blank">Playfra</a>
+                            Data: <a href="https://x.com/Playfra0" target="_blank">@Playfra</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Events -->
+                <div class="accordion-section" data-section="events">
+                    <div class="accordion-header">
+                        <span class="accordion-arrow">&#9654;</span>
+                        Events
+                    </div>
+                    <div class="accordion-body" style="display:none;">
+                        <div class="toggle-row" style="display:flex; align-items:center; gap:6px;">
+                            <label class="toggle-label"><input type="checkbox" id="feature-events" /><span
+                                    class="toggle-switch"></span>Events <small>(31 recent days)</small></label>
+                            <button id="events-reload-btn" title="Reload events" style="display:none; background:none; border:1px solid #555; border-radius:10px; color:#ccc; cursor:pointer; padding:2px 5px; font-size:14px; line-height:1;">&#x21BB;</button>
+                        </div>
+                        <div id="events-filter-list" style="display:none; margin-top:6px;"></div>
+                        <div id="events-attribution" class="attribution" style="display:none;">
+                            Data: <a href="https://x.com/AndrewPerpetua" target="_blank">@AndrewPerpetua</a>
                         </div>
                     </div>
                 </div>

@@ -514,6 +514,7 @@ class UiBindings {
             if (lossesContainer) {
                 lossesContainer.style.display = dashboard.isChecked('diff-highlight') ? 'block' : 'none';
             }
+
         });
 
         // Handle losses input changes
@@ -598,17 +599,18 @@ class UiBindings {
 
         dashboard.bindUI('feature-ditches', 'change', async () => {
             if (dashboard.isChecked('feature-ditches')) {
-                const deepMap = new DeepUtils(dashboard.featureDitchesLayer);
-                const data = await deepMap.loadFeatures('ditches');
-                L.geoJSON(data, {
-                    style: function () {
-                        return { color: 'red' };
-                    }
-                }).addTo(dashboard.featureDitchesLayer);
+                await dashboard.refreshDitches();
             } else {
                 dashboard.featureDitchesLayer.clearLayers();
+                dashboard.featureDitchesStartLayer.clearLayers();
             }
             updateFeaturesAttribution();
+        });
+
+        dashboard.bindUI('features-diff', 'change', async () => {
+            if (dashboard.isChecked('feature-ditches')) {
+                await dashboard.refreshDitches();
+            }
         });
 
         dashboard.bindUI('russia-overlay', 'change', async () => {
@@ -965,6 +967,25 @@ class UiBindings {
             updateFeaturesAttribution();
         });
 
+        dashboard.bindUI('feature-events', 'change', async () => {
+            if (dashboard.isChecked('feature-events')) {
+                dashboard._eventsSetReloadBtn('idle');
+                await dashboard.refreshEvents();
+            } else {
+                if (dashboard.eventsLayer) dashboard.eventsLayer.clearLayers();
+                const filterList = document.getElementById('events-filter-list');
+                if (filterList) filterList.style.display = 'none';
+                const attr = document.getElementById('events-attribution');
+                if (attr) attr.style.display = 'none';
+                dashboard._eventsSetReloadBtn('hidden');
+            }
+        });
+
+        const eventsReloadBtn = document.getElementById('events-reload-btn');
+        if (eventsReloadBtn) {
+            eventsReloadBtn.addEventListener('click', () => dashboard.refreshEvents());
+        }
+
         dashboard.bindUI('feature-waterways', 'change', async () => {
             if (!dashboard.isChecked('feature-waterways')) {
                 dashboard.featureLayer.clearLayers();
@@ -1222,6 +1243,21 @@ class UiBindings {
 
         // Load USF stats on init
         loadUSFStats();
+
+        const usfReloadBtn = document.getElementById('usf-reload-btn');
+        if (usfReloadBtn) {
+            usfReloadBtn.addEventListener('click', async () => {
+                usfReloadBtn.disabled = true;
+                usfReloadBtn.style.animation = 'btn-spin 1s linear infinite';
+                const period = dashboard.getEl('usf-period-select')?.value;
+                if (period && dashboard.usfDataCache) {
+                    delete dashboard.usfDataCache[period];
+                }
+                await updateUSFStatsDisplay();
+                usfReloadBtn.disabled = false;
+                usfReloadBtn.style.animation = 'none';
+            });
+        }
 
         const updateUSFStatsDisplay = async () => {
             const period = dashboard.getEl('usf-period-select').value;

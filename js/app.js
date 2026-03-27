@@ -60,6 +60,16 @@ class AttackMapDashboard {
         this.deepLayer = null;
         this.featureLayer = null;
 
+        this.eventsLayer = null;
+        this.eventsData = [];
+        this.eventsFilterEnabled = {};
+        this.eventsNameFilter = '';
+        this.eventsRefreshDebounce = null;
+        this.eventsLoading = false;
+        this.eventsStale = false;
+
+        this.ditchesRefreshDebounce = null;
+
         this.startDate = null;
         this.endDate = null;
         this.minDate = null;
@@ -323,7 +333,11 @@ class AttackMapDashboard {
             'show-line',
             'snap-regions',
             'date-start',
-            'date-end'
+            'date-end',
+            'feature-events',
+            'events-filter-list',
+            'events-attribution',
+            'events-reload-btn'
         ];
         ids.forEach(id => {
             this.ui[id] = document.getElementById(id);
@@ -2484,6 +2498,237 @@ class AttackMapDashboard {
         this.attackLegendEl.style.display = this.isChecked('show-regions') ? '' : 'none';
     }
 
+    formatDateYMD(date) {
+        const d = new Date(date);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}${m}${day}`;
+    }
+
+    async refreshDitches() {
+        if (!this.isChecked('feature-ditches')) return;
+        if (!this.featureDitchesLayer || !this.featureDitchesStartLayer) return;
+
+        const endDate = this.endDate;
+        const startDate = this.startDate;
+        if (!endDate) return;
+
+        this.featureDitchesLayer.clearLayers();
+        this.featureDitchesStartLayer.clearLayers();
+
+        // Fetch and render endDate layer (red)
+        try {
+            const resp = await fetch(`${API_BASE_URL}/ditches.geojson?date=${this.formatDateYMD(endDate)}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                L.geoJSON(data, { style: () => ({ color: 'red', weight: 2 }) }).addTo(this.featureDitchesLayer);
+            }
+        } catch (e) {
+            console.warn('Failed to load ditches (endDate):', e);
+        }
+
+        // If features-diff is enabled, also fetch startDate layer (blue) on top
+        if (this.isChecked('features-diff') && startDate) {
+            try {
+                const resp = await fetch(`${API_BASE_URL}/ditches.geojson?date=${this.formatDateYMD(startDate)}`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    L.geoJSON(data, { style: () => ({ color: '#4fc3f7', weight: 2 }) }).addTo(this.featureDitchesStartLayer);
+                }
+            } catch (e) {
+                console.warn('Failed to load ditches (startDate):', e);
+            }
+        }
+    }
+
+    _eventsSetReloadBtn(state) {
+        const btn = this.getEl('events-reload-btn');
+        if (!btn) return;
+        if (state === 'loading') {
+            btn.style.display = '';
+            btn.disabled = true;
+            btn.style.borderColor = '#555';
+            btn.style.color = '#888';
+            btn.style.animation = 'btn-spin 1s linear infinite';
+        } else if (state === 'stale') {
+            btn.style.display = '';
+            btn.disabled = false;
+            btn.style.borderColor = '#f9a825';
+            btn.style.color = '#f9a825';
+            btn.style.animation = 'none';
+        } else if (state === 'hidden') {
+            btn.style.display = 'none';
+            btn.style.animation = 'none';
+        } else { // idle
+            btn.style.display = '';
+            btn.disabled = false;
+            btn.style.borderColor = '#555';
+            btn.style.color = '#ccc';
+            btn.style.animation = 'none';
+        }
+    }
+
+    async refreshEvents() {
+        if (!this.isChecked('feature-events') || !this.eventsLayer) return;
+
+        const start = this.startDate || this.minDate;
+        const end = this.endDate || this.maxDate;
+        if (!start || !end) return;
+
+        if (this.eventsLoading) {
+            this.eventsStale = true;
+            this._eventsSetReloadBtn('stale');
+            return;
+        }
+
+        this.eventsLoading = true;
+        this.eventsStale = false;
+        this._eventsSetReloadBtn('loading');
+
+        const url = `http://localhost:8081/events?startDate=${this.formatDateYMD(start)}&endDate=${this.formatDateYMD(end)}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const kmlText = await response.text();
+            const kmlDoc = new DOMParser().parseFromString(kmlText, 'text/xml');
+            const placemarks = Array.from(kmlDoc.getElementsByTagName('Placemark'));
+            const styleRegex = /#msn_([\D_]+)\d*/;
+
+            this.eventsData = placemarks.map(p => {
+                const name = p.querySelector('name')?.textContent || '';
+                const styleUrl = p.querySelector('styleUrl')?.textContent || '';
+                const coords = p.querySelector('coordinates')?.textContent?.trim() || '';
+                const [lon, lat] = coords.split(',').map(Number);
+                const match = styleUrl.match(styleRegex);
+                const category = match ? match[1] : styleUrl;
+                return { name, styleUrl, category, lat, lon };
+            }).filter(e => e.lat && e.lon);
+
+            this.renderEventsFilterList();
+
+            const attr = this.getEl('events-attribution');
+            if (attr) attr.style.display = '';
+        } catch (err) {
+            console.error('Failed to load events:', err);
+        } finally {
+            this.eventsLoading = false;
+            this._eventsSetReloadBtn(this.eventsStale ? 'stale' : 'idle');
+        }
+    }
+
+    renderEventsFilterList() {
+        const container = this.getEl('events-filter-list');
+        if (!container) return;
+
+        const counts = {};
+        this.eventsData.forEach(e => {
+            counts[e.category] = (counts[e.category] || 0) + 1;
+        });
+
+        container.innerHTML = '';
+        container.style.display = Object.keys(counts).length ? '' : 'none';
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.placeholder = 'Filter by name (comma-separated)';
+        nameInput.value = this.eventsNameFilter;
+        nameInput.style.cssText = 'width:100%; box-sizing:border-box; margin-bottom:6px; padding:3px 6px; font-size:12px;';
+        nameInput.addEventListener('input', () => {
+            this.eventsNameFilter = nameInput.value;
+            this.renderEventsMarkers();
+        });
+        container.appendChild(nameInput);
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid; grid-template-columns:repeat(3,1fr); gap:4px;';
+        container.appendChild(grid);
+
+        const start = this.startDate || this.minDate;
+        const end = this.endDate || this.maxDate;
+        const days = (start && end)
+            ? Math.max(1, Math.round((new Date(end) - new Date(start)) / 86400000) + 1)
+            : 1;
+        const threshold = days * 0.5;
+
+        // Disable categories that fall below threshold so markers don't linger
+        Object.entries(counts).forEach(([cat, count]) => {
+            if (count < threshold) this.eventsFilterEnabled[cat] = false;
+        });
+
+        const getPrefix = cat => cat.startsWith('blue_') ? 'blue_' : cat.startsWith('red_') ? 'red_' : '';
+        const prefixOrder = ['', 'blue_', 'red_'];
+
+        const groups = {};
+        Object.entries(counts)
+            .filter(([, count]) => count >= threshold)
+            .forEach(([cat, count]) => {
+                const prefix = getPrefix(cat);
+                if (!groups[prefix]) groups[prefix] = [];
+                groups[prefix].push([cat, count]);
+            });
+
+        prefixOrder.forEach(prefix => {
+            const entries = groups[prefix];
+            if (!entries || entries.length === 0) return;
+
+            entries.sort(([, a], [, b]) => b - a);
+
+            if (prefix) {
+                const header = document.createElement('div');
+                header.textContent = prefix.replace('_', '');
+                header.style.cssText = 'grid-column:1/-1; font-size:10px; color:#aaa; margin-top:4px; text-transform:uppercase; letter-spacing:1px;';
+                grid.appendChild(header);
+            }
+
+            entries.forEach(([cat, count]) => {
+                if (!(cat in this.eventsFilterEnabled)) {
+                    this.eventsFilterEnabled[cat] = false;
+                }
+                const cell = document.createElement('div');
+                cell.style.cssText = `display:flex; flex-direction:column; align-items:center; cursor:pointer; padding:3px; border-radius:4px; border:2px solid ${this.eventsFilterEnabled[cat] ? '#4fc3f7' : 'transparent'}; user-select:none;`;
+                const img = document.createElement('img');
+                img.src = `images/events/${cat}.png`;
+                img.title = `${cat} (${count})`;
+                img.style.cssText = 'width:32px; height:32px; object-fit:contain;';
+                const badge = document.createElement('span');
+                badge.textContent = count;
+                badge.style.cssText = 'font-size:10px; margin-top:2px;';
+                cell.appendChild(img);
+                cell.appendChild(badge);
+                cell.addEventListener('click', () => {
+                    this.eventsFilterEnabled[cat] = !this.eventsFilterEnabled[cat];
+                    cell.style.borderColor = this.eventsFilterEnabled[cat] ? '#4fc3f7' : 'transparent';
+                    this.renderEventsMarkers();
+                });
+                grid.appendChild(cell);
+            });
+        });
+    }
+
+    renderEventsMarkers() {
+        if (!this.eventsLayer) return;
+        this.eventsLayer.clearLayers();
+        const nameTerms = this.eventsNameFilter
+            .split(',')
+            .map(s => s.trim().toLowerCase())
+            .filter(Boolean);
+        this.eventsData.forEach(e => {
+            if (!this.eventsFilterEnabled[e.category]) return;
+            if (nameTerms.length && !nameTerms.some(t => e.name.toLowerCase().includes(t))) return;
+            const marker = L.circleMarker([e.lat, e.lon], {
+                radius: 6,
+                color: '#fff',
+                weight: 1,
+                fillColor: '#e53935',
+                fillOpacity: 0.85
+            });
+            marker.bindPopup(`<strong>${e.name}</strong><br><em>${e.category}</em>`);
+            marker.addTo(this.eventsLayer);
+        });
+        console.log(`Events markers: ${this.eventsLayer.getLayers().length}`);
+    }
+
     /**
      * Format date for display
      */
@@ -2549,6 +2794,10 @@ class AttackMapDashboard {
             if (this.renderPositionChanges && this.isChecked('position-change')) {
                 this.renderPositionChanges();
             }
+            if (this.eventsRefreshDebounce) clearTimeout(this.eventsRefreshDebounce);
+            this.eventsRefreshDebounce = setTimeout(() => this.refreshEvents(), 800);
+            if (this.ditchesRefreshDebounce) clearTimeout(this.ditchesRefreshDebounce);
+            this.ditchesRefreshDebounce = setTimeout(() => this.refreshDitches(), 800);
         });
     }
 
