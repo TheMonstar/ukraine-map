@@ -69,6 +69,7 @@ class AttackMapDashboard {
         this.eventsStale = false;
 
         this.ditchesRefreshDebounce = null;
+        this.unitsNameFilter = '';
 
         this.startDate = null;
         this.endDate = null;

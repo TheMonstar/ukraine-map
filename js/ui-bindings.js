@@ -1149,9 +1149,11 @@ class UiBindings {
 
                         dashboard[layerProp] = L.geoJSON(geojson, {
                             filter: (feature) => {
+                                const name = feature.properties.name?.trim() || '';
+                                const terms = dashboard.unitsNameFilter.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+                                if (terms.length && !terms.some(t => name.toLowerCase().includes(t))) return false;
                                 if (side === 'ua' && isUSFFilterEnabled) {
                                     if (!dashboard.usfStats) return false;
-                                    const name = feature.properties.name?.trim();
                                     return dashboard.usfStats.hasOwnProperty(name);
                                 }
                                 return true;
@@ -1657,6 +1659,16 @@ class UiBindings {
             updateUnitsAttribution();
         });
         dashboard.bindUI('show-unit-icons', 'change', () => { updateDailyPositions(); });
+
+        let unitsNameFilterDebounce = null;
+        const unitsNameFilterEl = document.getElementById('units-name-filter');
+        if (unitsNameFilterEl) {
+            unitsNameFilterEl.addEventListener('input', () => {
+                dashboard.unitsNameFilter = unitsNameFilterEl.value;
+                clearTimeout(unitsNameFilterDebounce);
+                unitsNameFilterDebounce = setTimeout(() => updateDailyPositions(), 400);
+            });
+        }
         dashboard.bindUI('usf-period-select', 'change', () => {
             updateUSFStatsDisplay();
             handleAutoRefreshVisibility();
