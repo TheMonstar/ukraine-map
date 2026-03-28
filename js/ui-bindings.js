@@ -1648,7 +1648,14 @@ class UiBindings {
 
         dashboard.bindUI('feature-positions-ua', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
         dashboard.bindUI('feature-positions-ru', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
-        dashboard.bindUI('filter-usf-units', 'change', () => { updateDailyPositions(); updateUnitsAttribution(); });
+        dashboard.bindUI('filter-usf-units', 'change', () => {
+            if (!dashboard.isChecked('filter-usf-units')) {
+                const overlay = dashboard.getEl('usf-metric-overlay');
+                if (overlay) overlay.style.display = 'none';
+            }
+            updateDailyPositions();
+            updateUnitsAttribution();
+        });
         dashboard.bindUI('show-unit-icons', 'change', () => { updateDailyPositions(); });
         dashboard.bindUI('usf-period-select', 'change', () => {
             updateUSFStatsDisplay();
