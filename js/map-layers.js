@@ -396,6 +396,58 @@ class MapLayers {
         }
     }
 
+    async toggleCreamyOverlay(enabled) {
+        const dashboard = this.dashboard;
+        if (!dashboard.creamyOverlay) {
+            dashboard.creamyOverlay = L.layerGroup().addTo(dashboard.map);
+        }
+        dashboard.creamyOverlay.clearLayers();
+        if (!enabled) return;
+
+        const fmt = (date) => {
+            const d = new Date(date);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}${m}${day}`;
+        };
+
+        const loadKml = async (dateStr) => {
+            const url = `${API_BASE_URL}/daily/${dateStr}/creamycaprice_${dateStr}.kml`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+            const text = await resp.text();
+            const kml = new DOMParser().parseFromString(text, 'text/xml');
+            return toGeoJSON.kml(kml);
+        };
+
+        const endDate = dashboard.endDate || dashboard.maxDate;
+        const startDate = dashboard.startDate || dashboard.minDate;
+        const diffEnabled = dashboard.isChecked('diff-highlight');
+
+        try {
+            const endStr = fmt(endDate);
+            const endGeoJSON = await loadKml(endStr);
+            L.geoJSON(endGeoJSON, {
+                style: () => ({ color: '#ff9800', weight: 2, opacity: 0.9, dashArray: null })
+            }).addTo(dashboard.creamyOverlay);
+        } catch (e) {
+            console.warn('Creamy: failed to load endDate layer:', e);
+        }
+
+        if (diffEnabled && startDate) {
+            try {
+                const startStr = fmt(startDate);
+                const startGeoJSON = await loadKml(startStr);
+                L.geoJSON(startGeoJSON, {
+                    style: () => ({ color: '#ff9800', weight: 2, opacity: 0.6, dashArray: '6 4' })
+                }).addTo(dashboard.creamyOverlay);
+            } catch (e) {
+                console.warn('Creamy: failed to load startDate layer:', e);
+            }
+        }
+    }
+
     async toggleManifestKmlOverlay(sourceKey, overlayKey, mergedKey) {
         const dashboard = this.dashboard;
         const startDate = dashboard.startDate || new Date();

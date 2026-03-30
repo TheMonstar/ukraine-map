@@ -515,6 +515,9 @@ class UiBindings {
                 lossesContainer.style.display = dashboard.isChecked('diff-highlight') ? 'block' : 'none';
             }
 
+            if (dashboard.isChecked('creamy-overlay')) {
+                await dashboard.layers.toggleCreamyOverlay(true);
+            }
         });
 
         // Handle losses input changes
@@ -639,6 +642,10 @@ class UiBindings {
 
         dashboard.bindUI('suriyak-overlay', 'change', async () => {
             await dashboard.layers.toggleSuriyakOverlay(dashboard.isChecked('suriyak-overlay'));
+        });
+
+        dashboard.bindUI('creamy-overlay', 'change', async () => {
+            await dashboard.layers.toggleCreamyOverlay(dashboard.isChecked('creamy-overlay'));
         });
 
         // Custom KML bindings
@@ -1072,7 +1079,7 @@ class UiBindings {
         });
 
 
-        const updateDailyPositions = async () => {
+        const updateDailyPositions = async (forceLoad = false, addToMapOverride = false) => {
             // Helper to load and render a layer
             const loadLayer = async (side) => { // side: 'ua' or 'ru'
                 const checkboxId = side === 'ua' ? 'feature-positions-ua' : 'feature-positions-ru';
@@ -1084,7 +1091,7 @@ class UiBindings {
                     dashboard[layerProp] = null;
                 }
 
-                let shouldLoad = dashboard.isChecked(checkboxId);
+                let shouldLoad = forceLoad || dashboard.isChecked(checkboxId);
                 if (side === 'ua' && dashboard.isChecked('filter-usf-units')) {
                     shouldLoad = true;
                 }
@@ -1199,7 +1206,12 @@ class UiBindings {
                                     }
                                 }
                             }
-                        }).addTo(dashboard.featureLayer);
+                        });
+
+                        const isChecked = dashboard.isChecked(checkboxId);
+                        if (addToMapOverride || isChecked) {
+                            dashboard[layerProp].addTo(dashboard.featureLayer);
+                        }
 
                         // If stats are already selected, trigger update (optional, might be heavy)
                         // For now we rely on user interaction or period select change
@@ -1213,6 +1225,8 @@ class UiBindings {
             await loadLayer('ua');
             await loadLayer('ru');
         };
+
+        dashboard.updateDailyPositions = updateDailyPositions;
 
         const loadUSFStats = async () => {
             try {
@@ -3029,6 +3043,56 @@ class UiBindings {
 
         dashboard.bindUI('draw-undo', 'click', () => drawTool.undo());
         dashboard.bindUI('draw-clear', 'click', () => drawTool.clear());
+
+        // MapUML bindings
+        dashboard.bindUI('btn-render-mapuml', 'click', async () => {
+            const el = dashboard.getEl('map-uml-input');
+            const btn = dashboard.getEl('btn-render-mapuml');
+            if (el && dashboard.mapUmlEngine) {
+                const oldText = btn.textContent;
+                btn.textContent = 'Rendering...';
+                btn.disabled = true;
+                try {
+                    await dashboard.mapUmlEngine.renderScript(el.value);
+                } catch(e) { 
+                    console.error(e); 
+                    alert('Error parsing or rendering MapUML. See console.'); 
+                } finally {
+                    btn.textContent = oldText;
+                    btn.disabled = false;
+                }
+            }
+        });
+        
+        dashboard.bindUI('map-uml-edit-mode', 'change', () => {
+            const btn = dashboard.getEl('btn-render-mapuml');
+            if (btn) btn.click();
+        });
+
+        dashboard.bindUI('map-uml-hide-markers', 'change', () => {
+            const btn = dashboard.getEl('btn-render-mapuml');
+            if (btn) btn.click();
+        });
+
+        dashboard.bindUI('btn-clear-mapuml', 'click', () => {
+            if (dashboard.mapUmlEngine) {
+                dashboard.mapUmlEngine.clear();
+            }
+        });
+
+        dashboard.bindUI('btn-help-mapuml', 'click', () => {
+            const modal = document.getElementById('map-uml-help-modal');
+            if (modal) modal.style.display = 'flex';
+        });
+
+        dashboard.bindUI('btn-close-mapuml-help', 'click', () => {
+            const modal = document.getElementById('map-uml-help-modal');
+            if (modal) modal.style.display = 'none';
+        });
+
+        document.getElementById('map-uml-help-modal')?.addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+        });
     }
 }
 

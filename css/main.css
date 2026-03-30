@@ -167,6 +167,53 @@ body {
     pointer-events: none;
 }
 
+/* ---- Custom KML Layer ---- */
+.custom-kml-polygon {
+    pointer-events: none;
+}
+
+/* ---- MapUML Engine Styles ---- */
+.map-uml-tooltip {
+    background: rgba(30, 41, 59, 0.9);
+    border: 1px solid #475569;
+    color: #e2e8f0;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    padding: 4px 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.map-uml-tooltip::before {
+    border-top-color: #475569 !important;
+}
+
+.map-uml-note {
+    background: rgba(245, 166, 35, 0.9);
+    color: #000;
+    border: 1px solid #b37300;
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+    pointer-events: auto;
+    width: 120px;
+    text-align: center;
+    height: auto !important;
+}
+
+.map-uml-note-ru {
+    background: rgba(208, 2, 27, 0.9);
+    color: #fff;
+    border-color: #a00;
+}
+
+.map-uml-note-ua {
+    background: rgba(74, 144, 226, 0.9);
+    color: #fff;
+    border-color: #357abd;
+}
+
 .sidebar-scroll {
     flex: 1;
     overflow-y: auto;

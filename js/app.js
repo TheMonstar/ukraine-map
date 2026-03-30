@@ -38,7 +38,7 @@ class AttackMapDashboard {
             Pokrovsk: '[[[37.493196,47.936982],[37.393341,48.203664],[37.738037,48.310618],[37.378235,48.595228],[36.702576,48.47379],[36.386719,48.173328],[37.043152,47.977058],[37.493196,47.936982]]]',
             Toretsk: '[[[38.004456,48.45834],[37.738037,48.310618],[37.378235,48.595228],[37.646027,48.563457],[38.004456,48.45834]]]',
             Kramatorsk: '[[[38.004456,48.45834],[38.060074,48.679554],[37.889786,48.794161],[37.433167,48.781515],[37.378235,48.595228],[37.646027,48.563457],[38.004456,48.45834]]]',
-            Siversk: '[[[38.017502,48.916633],[38.255081,48.945029],[38.217316,48.771968],[38.060074,48.679554],[37.889786,48.794161],[37.895966,48.877298],[38.017502,48.916633]]]',
+            Siversk: '[[[38.017502,48.916633],[38.255081,48.945029],[38.217316,48.771968],[38.060074,48.679554],[37.784729,48.793747],[37.74147,48.900838],[38.017502,48.916633]]]',
             Lyman: '[[[38.017502,48.916633],[38.255081,48.945029],[37.97081,49.158282],[38.063507,49.313906],[37.97081,49.464089],[37.437973,49.426572],[37.544403,49.203229],[37.599335,49.105281],[37.719498,48.910332],[37.895966,48.877298],[38.017502,48.916633]]]',
             Kupiansk: '[[[37.659073,49.810979],[37.918625,50.038476],[37.97081,49.464089],[37.437973,49.426572],[37.397461,49.795332],[37.659073,49.810979]]]',
             Kharkiv: '[[[37.659073,49.810979],[37.918625,50.038476],[37.328796,50.417215],[36.649017,50.334916],[35.457001,50.522089],[35.003815,50.398858],[36.503448,50.007723],[37.397461,49.795332],[37.659073,49.810979]]]',
@@ -90,6 +90,7 @@ class AttackMapDashboard {
         this.radovOverlay = null;
         this.iswOverlay = null;
         this.suriyakOverlay = null;
+        this.creamyOverlay = null;
         this.russiaMergedPolygon = null; // Store merged Russia polygon for comparison
         this.ukraineMergedPolygon = null; // Store merged Ukraine polygon for comparison
         this.amkMergedPolygon = null; // Store the merged AMK polygon for comparison
@@ -198,6 +199,7 @@ class AttackMapDashboard {
      */
     init() {
         this.layers.initMap();
+        this.mapUmlEngine = new MapUMLEngine(this);
         this.uiBindings.init();
         this.buildRegionPolygonCache();
         this.addLegend();
@@ -264,6 +266,7 @@ class AttackMapDashboard {
             'russia-overlay',
             'ukraine-overlay',
             'amk-overlay',
+            'creamy-overlay',
             'owl-overlay',
             'compare-deep-amk',
             'compare-layer-1',
@@ -734,11 +737,11 @@ class AttackMapDashboard {
                 const coords = coordinates[0]; // Get the outer ring
                 console.log('\nReadable Format (lat, lng):');
                 coords.forEach((coord, index) => {
-                    console.log(`Point ${index + 1}: [${coord[1]}, ${coord[0]}]`);
+                    console.log(`Point ${index + 1}: [${coord[0]}, ${coord[1]}]`);
                 });
 
                 // Print as array for easy copy-paste
-                const latLngArray = coords.map(coord => [coord[1], coord[0]]);
+                const latLngArray = coords.map(coord => [coord[0], coord[1]]);
                 console.log('\nArray format for Leaflet:');
                 console.log(JSON.stringify(latLngArray, null, 2));
 
