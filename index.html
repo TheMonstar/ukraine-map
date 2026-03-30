@@ -638,18 +638,50 @@ ua note "Ambush" at Kryva Luka</pre>
                 </ul>
 
                 <b style="color:#f8fafc;">Tips:</b>
-                <p style="margin-top:5px;">If a name can't be resolved, inject manual coordinates: <code>[Alias: lat, lon]</code></p>
+                <ul style="padding-left:20px; margin-top:5px; margin-bottom:15px; color:#cbd5e1;">
+                    <li>If a name can't be resolved, inject manual coordinates: <code>[Alias: lat, lon]</code></li>
+                    <li>In <b>Edit Mode</b> with <b>Settlements</b> enabled, click any settlement on the map and press <b>Pick Location</b> to pin the exact coordinates into the script — useful when auto-resolution picks the wrong settlement.</li>
+                </ul>
                 <div style="height:1px; background:#334155; margin:15px 0;"></div>
                 
                 <b style="color:#f8fafc;">LLM Prompt Template:</b>
                 <p style="margin-top:5px; margin-bottom:5px;">Copy this into ChatGPT/Claude along with your source text:</p>
-                <textarea readonly style="width:100%; box-sizing:border-box; height:130px; background:#0f172a; color:#10b981; border:1px solid #334155; border-radius:4px; padding:10px; font-family:monospace; resize:none; font-size:11px;" onclick="this.select()">Convert the following military update into a MapUML script.
+                <textarea readonly style="width:100%; box-sizing:border-box; height:220px; background:#0f172a; color:#10b981; border:1px solid #334155; border-radius:4px; padding:10px; font-family:monospace; resize:none; font-size:11px;" onclick="this.select()">Convert the following military situation report into a MapUML script.
+
 Rules:
-1. Use commands: `title`, `regions`, `attacker`, `defender`, `settlement`.
-2. Use `ru advance A -> B -> NW` for Russian tracks, `ua advance` for Ukrainian.
-3. Use `ru note "X" at Y` or `ua note` for textual events.
-4. Keep names concise (use `*` for wildcarding long unit names).
-Update: [PASTE TEXT HERE]</textarea>
+1. Start with `title [Direction Name]` and `regions [comma-separated region names]`.
+2. Group forces and axes into `operation "Name" { ... }` blocks.
+3. Inside operations use:
+   - `attacker [Unit]` / `defender [Unit]` — one per line, use `*` to wildcard long names
+   - `settlement [Name]` — key towns referenced in advances
+   - `ru advance A -> B -> C` / `ua advance A -> B` — movement tracks, can use compass directions (N, NE, SW…) as final node
+   - `ru note "Text" at [Location]` / `ua note "Text" at [Location]` — short tactical annotations
+4. Separate force groupings (order of battle) from axis groupings.
+5. Keep unit names concise. Omit filler words.
+6. Output ONLY the MapUML script — no explanation.
+
+Example output structure:
+title Borova & Lyman Directions
+regions Kupiansk, Borova, Lyman, Siversk
+
+operation "Russian Forces (GW West)" {
+    attacker 1st Tank Army
+    attacker 20th Combined Arms Army
+    attacker 25th Combined Arms Army
+    attacker 2nd Motor Rifle Division*
+    note "Mobilized reserve + assault units widely used" at 20th Combined Arms Army
+}
+
+operation "Borova Axis" {
+    settlement Kruhliakivka
+    settlement Borova
+
+    ru advance Kruhliakivka -> Borova -> NE
+    ru note "Pushing to seize Borova" at Borova
+}
+
+Situation report:
+[PASTE TEXT HERE]</textarea>
             </div>
         </div>
     </div>
