@@ -1209,7 +1209,8 @@ class UiBindings {
                         });
 
                         const isChecked = dashboard.isChecked(checkboxId);
-                        if (addToMapOverride || isChecked) {
+                        const isUSFActive = side === 'ua' && dashboard.isChecked('filter-usf-units');
+                        if (addToMapOverride || isChecked || isUSFActive) {
                             dashboard[layerProp].addTo(dashboard.featureLayer);
                         }
 

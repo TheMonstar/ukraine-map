@@ -2590,7 +2590,7 @@ class AttackMapDashboard {
         this.eventsStale = false;
         this._eventsSetReloadBtn('loading');
 
-        const url = `http://localhost:8081/events?startDate=${this.formatDateYMD(start)}&endDate=${this.formatDateYMD(end)}`;
+        const url = `${API_BASE_URL}/events?startDate=${this.formatDateYMD(start)}&endDate=${this.formatDateYMD(end)}`;
         try {
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
