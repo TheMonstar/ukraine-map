@@ -2792,12 +2792,11 @@ class AttackMapDashboard {
 
             this.scheduleUpdateMap();
             this.syncDiffSliceRange();
-            if (this.updateDailyPositions) {
-                this.updateDailyPositions();
-            }
-            if (this.renderPositionChanges && this.isChecked('position-change')) {
-                this.renderPositionChanges();
-            }
+            if (this.dailyPositionsDebounce) clearTimeout(this.dailyPositionsDebounce);
+            this.dailyPositionsDebounce = setTimeout(() => {
+                if (this.updateDailyPositions) this.updateDailyPositions();
+                if (this.renderPositionChanges && this.isChecked('position-change')) this.renderPositionChanges();
+            }, 800);
             if (this.eventsRefreshDebounce) clearTimeout(this.eventsRefreshDebounce);
             this.eventsRefreshDebounce = setTimeout(() => this.refreshEvents(), 800);
             if (this.ditchesRefreshDebounce) clearTimeout(this.ditchesRefreshDebounce);
