@@ -36,6 +36,58 @@ class UiBindings {
             }
         });
 
+        // --- Hex Tiles ---
+        const hexTiles = new HexTiles();
+        let hexDebounce = null;
+
+        const scheduleHexUpdate = () => {
+            clearTimeout(hexDebounce);
+            hexDebounce = setTimeout(async () => {
+                if (!dashboard.isChecked('hex-tiles')) {
+                    hexTiles.remove(dashboard.map);
+                    return;
+                }
+                const cellSize = parseFloat(dashboard.getEl('hex-tile-size')?.value || 30);
+                let occupiedPolygons = null;
+                if (dashboard.isChecked('match-the-front')) {
+                    const deepUtils = new DeepUtils(null);
+                    const data = await deepUtils.addDeepMap(dashboard.endDate);
+                    occupiedPolygons = data.polygons;
+                }
+                let viewBbox = null;
+                if (dashboard.isChecked('hex-viewbox')) {
+                    const b = dashboard.map.getBounds();
+                    viewBbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+                }
+                await hexTiles.render(dashboard.map, dashboard.regionsData, cellSize, occupiedPolygons, viewBbox);
+            }, 500);
+        };
+
+        dashboard.hexTilesUpdate = scheduleHexUpdate;
+
+        dashboard.bindUI('hex-tiles', 'change', () => {
+            const controls = dashboard.getEl('hex-tiles-controls');
+            if (controls) controls.style.display = dashboard.isChecked('hex-tiles') ? 'block' : 'none';
+            scheduleHexUpdate();
+        });
+
+        dashboard.bindUI('hex-tile-size', 'input', () => {
+            const cellSize = parseFloat(dashboard.getEl('hex-tile-size')?.value || 30);
+            const label = dashboard.getEl('hex-tile-count-label');
+            if (label) label.textContent = `${cellSize}km (~${HexTiles.approxTileCount(cellSize)} tiles)`;
+            scheduleHexUpdate();
+        });
+
+        dashboard.bindUI('match-the-front', 'change', scheduleHexUpdate);
+        dashboard.bindUI('hex-viewbox', 'change', scheduleHexUpdate);
+
+        dashboard.map.on('moveend zoomend', () => {
+            if (dashboard.isChecked('hex-tiles') && dashboard.isChecked('hex-viewbox')) {
+                scheduleHexUpdate();
+            }
+        });
+        // --- End Hex Tiles ---
+
         dashboard.bindUI('diff-area', 'change', async () => {
             dashboard.deepLayer.clearLayers();
             const deepMap = new DeepUtils(dashboard.deepLayer);

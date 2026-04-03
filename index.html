@@ -180,6 +180,19 @@
                             <label class="small-label">Losses/km²: <input type="number" id="losses-input" min="0"
                                     max="5000" value="0" step="10" class="control-input-sm" /></label>
                         </div>
+                        <div class="toggle-row">
+                            <label class="toggle-label"><input type="checkbox" id="hex-tiles" /><span
+                                    class="toggle-switch"></span>Hex Tiles</label>
+                        </div>
+                        <div id="hex-tiles-controls" class="sub-controls" style="display:none;">
+                            <label class="small-label">Size: <span id="hex-tile-count-label">30km (~192 tiles)</span></label>
+                            <input type="range" id="hex-tile-size" min="5" max="100" value="30" step="5"
+                                style="width:100%; margin:4px 0;" />
+                            <label class="toggle-label"><input type="checkbox" id="match-the-front" /><span
+                                    class="toggle-switch"></span>Match the Front</label>
+                            <label class="toggle-label"><input type="checkbox" id="hex-viewbox" /><span
+                                    class="toggle-switch"></span>Viewbox</label>
+                        </div>
                     </div>
                 </div>
 
@@ -733,6 +746,7 @@ Situation report:
     <script src="https://unpkg.com/@tmcw/togeojson@4.4.1/dist/togeojson.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="js/utils.js?544"></script>
+    <script src="js/hex-tiles.js?544"></script>
     <script src="js/geometry-utils.js?544"></script>
     <script src="js/data-store.js?544"></script>
     <script src="js/map-layers.js?544"></script>
