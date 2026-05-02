@@ -1,2 +1,4 @@
 node_modules/
 .DS_Store
+AGENTS.md
+js/map-3d.js

@@ -1,6 +1,8 @@
 /**
  * Ukraine Frontline Map - Public Version
  * Based on Attack Map Dashboard
+ * 
+ * OIL: https://publicgemdata.nyc3.cdn.digitaloceanspaces.com/interim_maps/goit_map_2025-03.geojson
  */
 
 // GCP API base URL - update this to your GCP endpoint
@@ -8,6 +10,9 @@ const API_BASE_URL = 'https://europe-west1-high-electron-312820.cloudfunctions.n
 const APP_STATIC_URL = 'https://storage.googleapis.com/telegram-reader-static/static';
 
 class AttackMapDashboard {
+    /** @type {Function|null} */ updateDailyPositions = null;
+    /** @type {Function|null} */ renderPositionChanges = null;
+
     constructor() {
         this.regionCoordinates = {
             'Kharkiv': [49.9, 36.25],
@@ -32,8 +37,8 @@ class AttackMapDashboard {
         //[[[36.716309,47.739346],[36.303635,47.839905],[36.386719,48.173328],[37.043152,47.977058],[37.493196,47.936982],[36.716309,47.739346]]]
         //[[[36.997833,47.622827],[36.105194,47.89701],[36.386719,48.173328],[37.043152,47.977058],[37.493196,47.936982],[36.997833,47.622827]]]
         this.regionPolygons = {
-            Orikhiv: '[[[35.337524,47.463529],[35.175476,47.629421],[35.970612,47.750391],[36.142273,47.506997],[35.792084,47.372482],[35.337524,47.463529]]]',
-            Gulyaipole: '[[[36.997833,47.622827],[36.105194,47.89701],[35.970612,47.750391],[36.142273,47.506997],[36.557007,47.607042],[36.997833,47.622827]]]',
+            Orikhiv: '[[[35.337524,47.463529],[35.183716, 47.698209],[35.928726, 47.785019],[36.142273,47.506997],[35.792084,47.372482],[35.337524,47.463529]]]',
+            Gulyaipole: '[[[36.997833,47.622827],[36.105194,47.89701],[35.928726, 47.785019],[36.142273,47.506997],[36.557007,47.607042],[36.997833,47.622827]]]',
             Novopavlivka: '[[[36.997833,47.622827],[36.105194,47.89701],[36.386719,48.173328],[37.043152,47.977058],[37.493196,47.936982],[36.997833,47.622827]]]',
             Pokrovsk: '[[[37.493196,47.936982],[37.393341,48.203664],[37.738037,48.310618],[37.378235,48.595228],[36.702576,48.47379],[36.386719,48.173328],[37.043152,47.977058],[37.493196,47.936982]]]',
             Toretsk: '[[[38.004456,48.45834],[37.738037,48.310618],[37.378235,48.595228],[37.646027,48.563457],[38.004456,48.45834]]]',
@@ -437,6 +442,39 @@ class AttackMapDashboard {
 
             // Load settlements data - try API first, then local file
             this.settlementsData = await fetchJSON(`${APP_STATIC_URL}/settlements.json`, './settlements.json');
+
+            // Load corps-brigade OOB for linked-units filter
+            const [corpsBrigadeData, ruCorpsBrigadeData] = await Promise.all([
+                fetchJSON('./data/corps-brigade.json'),
+                fetchJSON('./data/ru-corps-brigade.json')
+            ]);
+            this.linkedUnitNames = new Set();
+            this.linkedUnitsByParent = new Map();
+            if (corpsBrigadeData) {
+                Object.values(corpsBrigadeData).forEach(corps => {
+                    corps.forEach(({ name, brigades }) => {
+                        this.linkedUnitNames.add(name);
+                        this.linkedUnitsByParent.set(name, new Set(brigades));
+                        brigades.forEach(b => this.linkedUnitNames.add(b));
+                    });
+                });
+            }
+            this.ruLinkedUnitNames = new Set();
+            this.ruLinkedUnitsByParent = new Map();
+            if (ruCorpsBrigadeData) {
+                Object.values(ruCorpsBrigadeData).forEach(corps => {
+                    corps.forEach(({ name, brigades }) => {
+                        this.ruLinkedUnitNames.add(name);
+                        this.ruLinkedUnitsByParent.set(name, new Set(brigades));
+                        brigades.forEach(b => this.ruLinkedUnitNames.add(b));
+                    });
+                });
+            }
+
+            // Re-apply filters that depend on OOB data now that it's loaded
+            if (this.isChecked('show-linked-units') && this.updateDailyPositions) {
+                this.updateDailyPositions();
+            }
 
             // Settlement boundaries loaded on demand from Nominatim
             this.settlementBoundariesData = null;
@@ -2590,7 +2628,9 @@ class AttackMapDashboard {
         this.eventsStale = false;
         this._eventsSetReloadBtn('loading');
 
-        const url = `${API_BASE_URL}/events?startDate=${this.formatDateYMD(start)}&endDate=${this.formatDateYMD(end)}`;
+        const apiKey = localStorage.getItem('apiKey');
+        const keyParam = apiKey ? `&key=${encodeURIComponent(apiKey)}` : '';
+        const url = `${API_BASE_URL}/events?startDate=${this.formatDateYMD(start)}&endDate=${this.formatDateYMD(end)}${keyParam}`;
         try {
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -2720,13 +2760,12 @@ class AttackMapDashboard {
         this.eventsData.forEach(e => {
             if (!this.eventsFilterEnabled[e.category]) return;
             if (nameTerms.length && !nameTerms.some(t => e.name.toLowerCase().includes(t))) return;
-            const marker = L.circleMarker([e.lat, e.lon], {
-                radius: 6,
-                color: '#fff',
-                weight: 1,
-                fillColor: '#e53935',
-                fillOpacity: 0.85
+            const eventIcon = L.icon({
+                iconUrl: `images/events/${e.category}.png`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
             });
+            const marker = L.marker([e.lat, e.lon], { icon: eventIcon });
             marker.bindPopup(`<strong>${e.name}</strong><br><em>${e.category}</em>`);
             marker.addTo(this.eventsLayer);
         });

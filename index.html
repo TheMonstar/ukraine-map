@@ -175,6 +175,10 @@
                             <label class="small-label">UA operational depth (km): <input type="number"
                                     id="shadow-depth-opposite" value="20" min="0" step="1"
                                     class="control-input-sm" /></label>
+                            <div class="toggle-row" style="margin-top:4px;">
+                                <label class="toggle-label"><input type="checkbox" id="shadow-gradient" /><span
+                                        class="toggle-switch"></span>Gradient</label>
+                            </div>
                         </div>
                         <div id="losses-input-container" style="display: none;" class="sub-controls">
                             <label class="small-label">Losses/km²: <input type="number" id="losses-input" min="0"
@@ -217,6 +221,21 @@
                             <label class="toggle-label"><input type="checkbox" id="position-change" /><span
                                     class="toggle-switch"></span>Position Changes</label>
                         </div>
+                        <div class="toggle-row">
+                            <label class="toggle-label"><input type="checkbox" id="filter-by-icon" /><span
+                                    class="toggle-switch"></span>Filter by Icon</label>
+                            <label class="toggle-label"><input type="checkbox" id="drag-units" /><span
+                                    class="toggle-switch"></span>Move Units</label>
+                            <label class="toggle-label"><input type="checkbox" id="show-linked-units" /><span
+                                    class="toggle-switch"></span>Linked Units</label>
+                            <label class="toggle-label"><input type="checkbox" id="show-unit-titles" /><span
+                                    class="toggle-switch"></span>Titles</label>
+                            <button id="reposition-units" title="Move each corps to the centroid of its subordinates"
+                                style="background:none;border:1px solid #555;border-radius:10px;color:#ccc;cursor:pointer;padding:2px 7px;font-size:12px;line-height:1.4;">&#x25CE; Reposition</button>
+                        </div>
+                        <div id="icon-filter-controls" style="display: none;">
+                            <div id="icon-filter-list" class="icon-filter-list"></div>
+                        </div>
                         <div id="position-change-controls" class="sub-controls" style="display: none;">
                             <label class="toggle-label"><input type="checkbox" id="filter-trace-distance" /><span
                                     class="toggle-switch"></span>Hide Moves &gt;</label>
@@ -226,15 +245,8 @@
                             <input type="number" id="trace-distance-limit-less" value="10" class="control-input-sm" />
                             km
                             <div class="toggle-row">
-                                <label class="toggle-label"><input type="checkbox" id="show-linked-units" /><span
-                                        class="toggle-switch"></span>Linked Units</label>
                                 <label class="toggle-label"><input type="checkbox" id="show-only-highlighted" /><span
                                         class="toggle-switch"></span>Only Highlighted</label>
-                            </div>
-                            <label class="toggle-label"><input type="checkbox" id="filter-by-icon" /><span
-                                    class="toggle-switch"></span>Filter by Icon</label>
-                            <div id="icon-filter-controls" style="display: none;">
-                                <div id="icon-filter-list" class="icon-filter-list"></div>
                             </div>
                             <div id="position-change-stats" class="stats-text"></div>
                         </div>
@@ -646,7 +658,8 @@ ua note "Ambush" at Kryva Luka</pre>
                     <li><code>title [Name]</code> - Sets the UI title</li>
                     <li><code>regions [Names]</code> - Optional comma-separated region constraint</li>
                     <li><code>attacker|defender|settlement [Name]</code> - Spawns entity. Supports <code>*</code> fuzzy matching</li>
-                    <li><code>[ru|ua] advance [A]->[B]->[Dir]</code> - Draws dashed advance line and arrow</li>
+                    <li><code>[ru|ua] advance [A]->[B]->[Dir]</code> - Draws dashed advance line and arrow. Compass dirs supported at start/end.</li>
+                    <li><code>[ru|ua] objective [A]->[B]</code> - Draws solid objective line</li>
                     <li><code>[ru|ua] note "Text" at [A]</code> - Places colored annotation at entity</li>
                 </ul>
 
@@ -659,7 +672,7 @@ ua note "Ambush" at Kryva Luka</pre>
                 
                 <b style="color:#f8fafc;">LLM Prompt Template:</b>
                 <p style="margin-top:5px; margin-bottom:5px;">Copy this into ChatGPT/Claude along with your source text:</p>
-                <textarea readonly style="width:100%; box-sizing:border-box; height:220px; background:#0f172a; color:#10b981; border:1px solid #334155; border-radius:4px; padding:10px; font-family:monospace; resize:none; font-size:11px;" onclick="this.select()">Convert the following military situation report into a MapUML script.
+                <textarea readonly style="width:100%; box-sizing:border-box; height:240px; background:#0f172a; color:#10b981; border:1px solid #334155; border-radius:4px; padding:10px; font-family:monospace; resize:none; font-size:11px;" onclick="this.select()">Convert the following military situation report into a MapUML script.
 
 Rules:
 1. Start with `title [Direction Name]` and `regions [comma-separated region names]`.
@@ -667,8 +680,9 @@ Rules:
 3. Inside operations use:
    - `attacker [Unit]` / `defender [Unit]` — one per line, use `*` to wildcard long names
    - `settlement [Name]` — key towns referenced in advances
-   - `ru advance A -> B -> C` / `ua advance A -> B` — movement tracks, can use compass directions (N, NE, SW…) as final node
-   - `ru note "Text" at [Location]` / `ua note "Text" at [Location]` — short tactical annotations
+   - `[ru/ua] advance A -> B -> C` — movement tracks, can use compass directions (N, SW…) at start or end
+   - `[ru/ua] objective A -> B` — projected or planned advance
+   - `[ru/ua] note "Text" at [Location]` — short tactical annotations
 4. Separate force groupings (order of battle) from axis groupings.
 5. Keep unit names concise. Omit filler words.
 6. Output ONLY the MapUML script — no explanation.
@@ -689,7 +703,8 @@ operation "Borova Axis" {
     settlement Kruhliakivka
     settlement Borova
 
-    ru advance Kruhliakivka -> Borova -> NE
+    ru advance E -> Kruhliakivka
+    ru objective Kruhliakivka -> Borova -> NE
     ru note "Pushing to seize Borova" at Borova
 }
 
@@ -756,9 +771,11 @@ Situation report:
     <script src="js/map-uml-engine.js?544"></script>
     <script src="js/app.js?544"></script>
     <script>
-        const dashboard = new AttackMapDashboard();
-        dashboard.init();
+        window.dashboard = new AttackMapDashboard();
+        window.dashboard.init();
     </script>
+    <!-- local-only 3D view, gitignored -->
+    <script src="js/map-3d.js" onerror="void 0"></script>
 </body>
 
 </html>

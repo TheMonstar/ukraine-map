@@ -1,0 +1,226 @@
+{
+  "Moscow Military District": [
+    {
+      "name": "1st Guards Tank Army",
+      "brigades": [
+        "2nd Motor Rifle Division",
+        "4th Tank Division",
+        "47th Tank Division",
+        "27th Motor Rifle Brigade",
+        "112th Missile Brigade",
+        "288th Artillery Brigade",
+        "49th Anti-Aircraft Missile Brigade",
+        "96th Recon Brigade",
+        "60th Control Brigade",
+        "45th Engineer Brigade",
+        "20th CBRN Regiment",
+        "7th UAV Battalion (added 2025)"
+      ]
+    }
+  ],
+  "Central Military District": [
+    {
+      "name": "2nd Combined Arms Army",
+      "brigades": [
+        "15th Motor Rifle Brigade",
+        "27th Motor Rifle Division (Ex-21st Motor Rifle Brigade)",
+        "30th Motor Rifle Brigade",
+        "92nd Rocket Artillery Brigade",
+        "385th Artillery Brigade",
+        "297th Anti-Aircraft Missile Brigade",
+        "2nd CBRN Regiment",
+        "39th Engineer-Sapper Regiment",
+        "105th Logistics Brigade",
+        "91st Control Brigade",
+        "950th Rocket Artillery Regiment",
+        "313rd Radiotechnical Regiment",
+        "71st Special Purpose Battalion",
+        "1210th Rifle Battalion",
+        "53rd EW Battalion",
+        "581st Artillery Recon Battalion",
+        "[UAV] 8th UAV Battalion"
+      ]
+    },
+    {
+      "name": "41st Combined Arms Army",
+      "brigades": [
+        "35th Motor Rifle Brigade",
+        "55th Mountain Motor Rifle Brigade",
+        "74th Motor Rifle Brigade",
+        "137th Assault Brigade (formed 2024)",
+        "119th Rocket Artillery Brigade",
+        "120th Artillery Brigade",
+        "61st Anti-Aircraft Missile Brigade",
+        "10th CBRN Regiment",
+        "72nd Special Purpose Battalion"
+      ]
+    }
+  ],
+  "Unknown": [
+    {
+      "name": "3rd Combined Arms Army",
+      "brigades": [
+        "4th Motor Rifle Brigade",
+        "6th Motor Rifle Brigade",
+        "7th Motor Rifle Brigade",
+        "85th Motor Rifle Brigade",
+        "88th Motor Rifle Brigade",
+        "123rd (Ex-LPR 2nd) Motorized Rifle Brigade",
+        "[Territorial] 1102nd Motor Rifle Regiment",
+        "[Territorial] 1443rd Motor Rifle Regiment",
+        "14th Tank Battalion",
+        "79th Recon Battalion",
+        "2nd Artillery Brigade",
+        "204th Special Purpose Akhmat Regiment",
+        "Akhmat Special Forces"
+      ]
+    },
+    {
+      "name": "6th Combined Arms Army",
+      "brigades": [
+        "68th Motor Rifle Division",
+        "69th Motor Rifle Division (Ex 138th Brigade)",
+        "9th Artillery Brigade",
+        "26th Missile Brigade",
+        "5th Anti Aircraft Brigade",
+        "95th Command Brigade",
+        "132nd Signals Brigade",
+        "6th CBRN Regiment"
+      ]
+    },
+    {
+      "name": "18th Combined Arms Army",
+      "brigades": [
+        "22nd Army Corps",
+        "40th Army Corps",
+        "70th Motor Rifle Division",
+        "74th Artillery Brigade"
+      ]
+    },
+    {
+      "name": "25th Combined Arms Army",
+      "brigades": [
+        "31st Motor Rifle Regiment",
+        "36th Motor Rifle Regiment",
+        "37th Motor Rifle Regiment",
+        "11th Tank Brigade",
+        "164th Motor Rifle Brigade",
+        "169th Motor Rifle Brigade в/ч 11741",
+        "73rd Artillery Brigade"
+      ]
+    },
+    {
+      "name": "29th Combined Arms Army",
+      "brigades": [
+        "36th Motor Rifle Brigade",
+        "200th Artillery Brigade",
+        "3rd Rocket Brigade",
+        "140th Anti-Aircraft Missile Brigade"
+      ]
+    },
+    {
+      "name": "51st Combined Arms Army (Ex-1st Army Corps DPR)",
+      "brigades": [
+        "1st Motor Rifle Brigade",
+        "5th Motor Rifle Brigade",
+        "9th Motor Rifle Brigade",
+        "110th (ex DPR 100th) Motorized Rifle Brigade",
+        "114th (Ex-11th Regiment of DPR) Motor Rifle Brigade",
+        "132nd (Ex-DPR 3rd) Motor Rifle Brigade",
+        "14th Artillery Brigade",
+        "56th Special Purpose Battalion",
+        "80th Recon Battalion Sparta",
+        "1-6th Territorial Defence Battalion",
+        "48th Engineer/Sapper Battalion"
+      ]
+    }
+  ],
+  "Eastern Military District": [
+    {
+      "name": "5th Combined Arms Army",
+      "brigades": [
+        "127th Motor Rifle Division",
+        "60th Motor Rifle Brigade",
+        "57th Motor Rifle Brigade",
+        "20th Missile Brigade",
+        "305th Artillery Brigade",
+        "8th Anti-Aircraft Missile Brigade",
+        "[Territorial] 186th Motor Rifle Regiment",
+        "35th Engineer Regiment",
+        "25th CBRN Regiment"
+      ]
+    },
+    {
+      "name": "35th Combined Arms Army",
+      "brigades": [
+        "38th Motor Rifle Brigade",
+        "64th Motor Rifle Brigade",
+        "69th Covering Brigade",
+        "107th Rocket Brigade",
+        "165th Artillery Brigade",
+        "71st Anti-Aircraft Missile Brigade",
+        "1295th Anti-Tank battalion"
+      ]
+    },
+    {
+      "name": "36th Combined Arms Army",
+      "brigades": [
+        "5th Tank Brigade",
+        "37th Motor Rifle Brigade",
+        "30th Artillery Brigade",
+        "103rd Rocket Brigade",
+        "26th NBC Protection Regiment",
+        "1723rd Anti-Aircraft Rocket Regiment",
+        "75th HQ Brigade"
+      ]
+    }
+  ],
+  "Southern Military District": [
+    {
+      "name": "8th Combined Arms Army",
+      "brigades": [
+        "20th Motor Rifle Division",
+        "150th Motor Rifle Division",
+        "238th Artillery Brigade",
+        "47th Missile Brigade",
+        "78th Anti-Aircraft Missile Brigade",
+        "464th Missile Brigade"
+      ]
+    },
+    {
+      "name": "49th Combined Arms Army",
+      "brigades": [
+        "34th Motor Rifle Brigade",
+        "205th Motor Rifle Brigade",
+        "227th Artillery Brigade",
+        "1st Guards Rocket Brigade",
+        "439th Rocket Artillery Brigade"
+      ]
+    },
+    {
+      "name": "58th Combined Arms Army",
+      "brigades": [
+        "19th Motor Rifle Division",
+        "42nd Motor Rifle Division",
+        "136th Motor Rifle Brigade",
+        "49th Air Assault Brigade",
+        "100th Recon Brigade",
+        "12th Rocket Brigade",
+        "291st Artillery Brigade",
+        "67th Anti-Aircraft Brigade"
+      ]
+    }
+  ],
+  "Western Military District": [
+    {
+      "name": "20th Combined Arms Army",
+      "brigades": [
+        "3rd Motor Rifle Division",
+        "144th Motor Rifle Division",
+        "236th Artillery Brigade",
+        "448th Rocket Brigade",
+        "11th CBRN Regiment"
+      ]
+    }
+  ]
+}

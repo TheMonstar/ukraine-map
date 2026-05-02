@@ -10,6 +10,7 @@ class UiBindings {
 
     register() {
         const dashboard = this.dashboard;
+        let selectedIcons = new Set();
 
         const updateDiffStats = (startDatePolygons, endDatePolygons) => {
             const totalGains = Object.values(endDatePolygons.statistics).reduce((acc, curr) => acc + curr, 0) -
@@ -25,6 +26,271 @@ class UiBindings {
             if (sliceStatsEl) sliceStatsEl.innerHTML = '';
         };
 
+        const polyCache = new Map();
+        const borderCache = new Map();
+
+        const getPolygons = async (date) => {
+            const shadowLine = document.getElementById('shadow-line')?.checked ? 1 : 0;
+            const occDepth = document.getElementById('shadow-depth-occupied')?.value || '';
+            const oppDepth = document.getElementById('shadow-depth-opposite')?.value || '';
+            const gradient = document.getElementById('shadow-gradient')?.checked ? 1 : 0;
+            const key = `${date.toLocaleDateString('en-CA')}:${shadowLine}:${occDepth}:${oppDepth}:${gradient}`;
+            if (!polyCache.has(key)) {
+                const utils = new DeepUtils(null);
+                polyCache.set(key, await utils.addDeepMap(date));
+            }
+            return polyCache.get(key);
+        };
+
+        const getBorder = async (code = 'ua') => {
+            if (!borderCache.has(code)) {
+                const utils = new DeepUtils(null);
+                borderCache.set(code, await utils.loadTheBorder(code));
+            }
+            return borderCache.get(code);
+        };
+
+        const safeUnion = (left, right) => {
+            if (!left) return right;
+            try {
+                return turf.union(left, right);
+            } catch (error) {
+                try {
+                    return turf.union(turf.cleanCoords(left), turf.cleanCoords(right));
+                } catch (cleanError) {
+                    console.warn('Union failed for diff slice polygon, skipping merge:', cleanError);
+                    return left;
+                }
+            }
+        };
+
+        const renderDeepLayer = async () => {
+            dashboard.deepLayer.clearLayers();
+            if (!dashboard.isChecked('diff-area')) {
+                dashboard.setText('settlements-in-diff', '0');
+                if (dashboard.casualtiesLayer) dashboard.casualtiesLayer.clearLayers();
+                if (dashboard.selectedPolygons.length > 0) dashboard.calculateSelectedAreaStatistics();
+                return;
+            }
+
+            const deepMap = new DeepUtils(dashboard.deepLayer);
+            const endDatePolygons = await getPolygons(dashboard.endDate);
+
+            if (dashboard.isChecked('shadow-ua')) {
+                const uaborder = await getBorder('ua');
+                const ruborder = await getBorder('ru');
+                const frame = turf.polygon([[[52.426188, 31.433755], [52.426188, 40.678473], [46.977225, 40.678473], [46.977225, 31.433755], [52.426188, 31.433755]].map(el => [el[1], el[0]])]);
+                const area = deepMap.unionList([...deepMap.normalizePolygon(endDatePolygons.polygons), turf.intersect(ruborder, frame)]);
+                const chunk = turf.difference(uaborder, area);
+                const shadow = deepMap.addShadow(area, dashboard.getEl('shadow-ua-size')?.value || 20);
+                const shadowOnly = turf.difference(shadow, area);
+                const shadowExclRu = turf.difference(shadowOnly, ruborder);
+                const zone = turf.difference(chunk, shadow);
+                const contested = turf.difference(uaborder, zone);
+                const areaExclRu = turf.difference(area, ruborder);
+                const contestedExclRu = turf.difference(contested, ruborder);
+                const shadowPolygonData = {
+                    polygons: [
+                        { geojson: areaExclRu, style: { color: '#a52714', fillColor: '#a52714', fillOpacity: 0.2, weight: 1 }, type: 'merged-start' },
+                        { geojson: shadowExclRu, style: { color: '#1b1a1a', fillColor: '#1b1a1a', fillOpacity: 0.3, weight: 1 }, type: 'shadow' },
+                        { geojson: contestedExclRu, style: { color: '#a52714', fillColor: '#a52714', fillOpacity: 0.2, weight: 1 }, type: 'merged-start' }
+                    ].filter(p => p.geojson)
+                };
+                const optimizedShadowData = dashboard.isChecked('optimize-polygons') ?
+                    dashboard.optimizePolygonsByColor(shadowPolygonData) : shadowPolygonData;
+                deepMap.renderMap(optimizedShadowData);
+
+            } else if (dashboard.isChecked('diff-highlight')) {
+                const startDatePolygons = await getPolygons(dashboard.startDate);
+                updateDiffStats(startDatePolygons, endDatePolygons);
+
+                const sliceDates = dashboard.getDiffSliceDates();
+                if (sliceDates.length) {
+                    const sliceColors = ['#ff5252', '#ff9800', '#ffeb3b', '#8bc34a', '#03a9f4', '#9c27b0'];
+                    const allDates = [dashboard.startDate, ...sliceDates, dashboard.endDate];
+                    const diffPolygons = [];
+                    let combinedDifference = null;
+
+                    const baseResult = deepMap.calculatePolygonDifference(startDatePolygons, endDatePolygons);
+                    baseResult.polygons
+                        .filter(polygon => polygon.type === 'merged-start')
+                        .forEach(polygon => diffPolygons.push(polygon));
+
+                    const sliceTerritoryStats = [];
+                    for (let i = 0; i < allDates.length - 1; i++) {
+                        const sliceStart = await getPolygons(allDates[i]);
+                        const sliceEnd = await getPolygons(allDates[i + 1]);
+                        const sliceDiff = deepMap.calculatePolygonDifference(sliceStart, sliceEnd);
+                        const color = sliceColors[i % sliceColors.length];
+                        let sliceGains = 0, sliceLosses = 0;
+
+                        sliceDiff.polygons
+                            .filter(polygon => polygon.type === 'difference')
+                            .forEach(polygon => {
+                                polygon.style = { ...polygon.style, color, fillColor: color };
+                                polygon.sliceIndex = i;
+                                diffPolygons.push(polygon);
+                                combinedDifference = safeUnion(combinedDifference, polygon.geojson);
+                                try { sliceGains += turf.area(polygon.geojson) / 1e6; } catch (e) { }
+                            });
+
+                        sliceDiff.polygons
+                            .filter(polygon => polygon.type === 'reverse-difference')
+                            .forEach(polygon => {
+                                polygon.style = { ...polygon.style, color: 'blue', fillColor: 'blue', fillOpacity: 0.5 };
+                                polygon.sliceIndex = i;
+                                polygon.isLoss = true;
+                                diffPolygons.push(polygon);
+                                try { sliceLosses += turf.area(polygon.geojson) / 1e6; } catch (e) { }
+                            });
+
+                        sliceTerritoryStats.push({
+                            from: dashboard.formatDate(allDates[i]),
+                            to: dashboard.formatDate(allDates[i + 1]),
+                            color, gains: sliceGains, losses: sliceLosses, net: sliceGains - sliceLosses
+                        });
+                    }
+
+                    const minAreaSqM = 1e6;
+                    const filteredDiffPolygons = diffPolygons.map(polygon => {
+                        if (!polygon.geojson) return polygon;
+                        try {
+                            const geom = polygon.geojson.geometry || polygon.geojson;
+                            if (geom.type === 'MultiPolygon') {
+                                const kept = geom.coordinates.filter(coords =>
+                                    turf.area(turf.polygon(coords)) >= minAreaSqM
+                                );
+                                if (kept.length === 0) return null;
+                                return {
+                                    ...polygon, geojson: kept.length === 1
+                                        ? turf.polygon(kept[0]) : turf.multiPolygon(kept)
+                                };
+                            }
+                            if (geom.type === 'Polygon') {
+                                return turf.area(polygon.geojson) >= minAreaSqM ? polygon : null;
+                            }
+                            return polygon;
+                        } catch (e) {
+                            return polygon;
+                        }
+                    }).filter(Boolean);
+
+                    const combinedResult = {
+                        polygons: filteredDiffPolygons,
+                        shadowPolygon: endDatePolygons.shadowPolygon || startDatePolygons.shadowPolygon,
+                        statistics: { ...startDatePolygons.statistics, ...endDatePolygons.statistics }
+                    };
+                    dashboard.currentDiffResult = combinedResult;
+
+                    const optimizedDiffResult = dashboard.isChecked('optimize-polygons') ?
+                        dashboard.optimizePolygonsByColor(combinedResult) : combinedResult;
+                    deepMap.renderMap(optimizedDiffResult);
+
+                    const statsEl = dashboard.getEl('slice-territory-stats');
+                    if (statsEl && sliceTerritoryStats.length) {
+                        const totalGains = sliceTerritoryStats.reduce((s, t) => s + t.gains, 0);
+                        const totalLosses = sliceTerritoryStats.reduce((s, t) => s + t.losses, 0);
+                        const totalNet = totalGains - totalLosses;
+                        let html = '<h3 style="margin:10px 0 5px">Slice Territory</h3>';
+                        sliceTerritoryStats.forEach(s => {
+                            html += `<p style="margin:2px 0;font-size:12px">` +
+                                `<span style="color:${s.color}">■</span> ${s.from} → ${s.to}: ` +
+                                `<b>${s.net >= 0 ? '+' : ''}${s.net.toFixed(1)}</b> km² ` +
+                                `(↑${s.gains.toFixed(1)} ↓${s.losses.toFixed(1)})</p>`;
+                        });
+                        html += `<p style="margin:4px 0 0;font-size:12px;border-top:1px solid #ddd;padding-top:4px">` +
+                            `<b>Total: ${totalNet >= 0 ? '+' : ''}${totalNet.toFixed(1)} km²</b> ` +
+                            `(↑${totalGains.toFixed(1)} ↓${totalLosses.toFixed(1)})</p>`;
+                        statsEl.innerHTML = html;
+                    } else if (statsEl) {
+                        statsEl.innerHTML = '';
+                    }
+
+                    if (dashboard.isChecked('regions-highlight') && combinedDifference) {
+                        const dirs = [];
+                        Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
+                            const res = turf.intersect(value, combinedDifference);
+                            if (!res) return;
+                            L.geoJSON(res, {
+                                style: { color: dashboard.getDirectionColor(key), weight: 2, fillOpacity: 0.7 }
+                            }).addTo(dashboard.featureLayer).bindTooltip(key);
+                            dirs.push({
+                                region: key, totalAttacks: res.geometry.coordinates.flatMap(item => item)
+                                    .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0)
+                            });
+                        });
+                        dashboard.updateStatistics(dashboard.calculateAttackStatistics(dirs));
+                    }
+
+                } else {
+                    const diffResult = deepMap.calculatePolygonDifference(startDatePolygons, endDatePolygons);
+                    dashboard.currentDiffResult = diffResult;
+
+                    const optimizedDiffResult = dashboard.isChecked('optimize-polygons') ?
+                        dashboard.optimizePolygonsByColor(diffResult) : diffResult;
+                    deepMap.renderMap(optimizedDiffResult);
+
+                    if (dashboard.isChecked('regions-highlight')) {
+                        const dirs = [];
+                        const gainsPolygon = diffResult.polygons.find(p => p.type === 'difference');
+                        const lossesPolygon = diffResult.polygons.find(p => p.type === 'reverse-difference');
+
+                        if (gainsPolygon?.geojson) {
+                            Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
+                                const res = turf.intersect(value, gainsPolygon.geojson);
+                                if (!res) return;
+                                L.geoJSON(res, {
+                                    style: { color: dashboard.getDirectionColor(key), weight: 2, fillOpacity: 0.7 }
+                                }).addTo(dashboard.featureLayer).bindTooltip(`${key} (gains)`);
+                                const area = res.geometry.coordinates.flatMap(item => item)
+                                    .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0);
+                                const existingDir = dirs.find(d => d.region === key);
+                                if (existingDir) existingDir.gains = area;
+                                else dirs.push({ region: key, totalAttacks: area, gains: area, losses: 0 });
+                            });
+                        }
+
+                        if (lossesPolygon?.geojson) {
+                            Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
+                                const res = turf.intersect(value, lossesPolygon.geojson);
+                                if (!res) return;
+                                L.geoJSON(res, {
+                                    style: { color: 'blue', weight: 2, fillOpacity: 0.5 }
+                                }).addTo(dashboard.featureLayer).bindTooltip(`${key} (losses)`);
+                                const area = res.geometry.coordinates.flatMap(item => item)
+                                    .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0);
+                                const existingDir = dirs.find(d => d.region === key);
+                                if (existingDir) existingDir.losses = area;
+                                else dirs.push({ region: key, totalAttacks: 0, gains: 0, losses: area });
+                            });
+                        }
+
+                        if (dirs.length > 0) {
+                            dashboard.updateStatistics(dashboard.calculateAttackStatistics(dirs));
+                        }
+                    }
+                }
+
+            } else {
+                // Base case: render only endDate polygons
+                dashboard.currentDiffResult = null;
+                const sliceStatsEl = dashboard.getEl('slice-territory-stats');
+                if (sliceStatsEl) sliceStatsEl.innerHTML = '';
+                const optimized = dashboard.isChecked('optimize-polygons') ?
+                    dashboard.optimizePolygonsByColor(endDatePolygons) : endDatePolygons;
+                deepMap.renderMap(optimized);
+            }
+
+            if (dashboard.isChecked('casualties-density')) {
+                dashboard.renderCasualtiesDensity();
+            }
+            if (dashboard.selectedPolygons.length > 0) {
+                dashboard.calculateSelectedAreaStatistics();
+            }
+        };
+
+        dashboard.renderDeepLayer = renderDeepLayer;
+
         dashboard.bindUI('map-style', 'change', (e) => {
             dashboard.layers.setBaseLayer(e.target.value);
         });
@@ -34,6 +300,13 @@ class UiBindings {
             if (shadowDepthControls) {
                 shadowDepthControls.style.display = dashboard.isChecked('shadow-line') ? 'block' : 'none';
             }
+            renderDeepLayer();
+        });
+
+        dashboard.bindUI('shadow-ua', 'change', () => renderDeepLayer());
+
+        dashboard.bindUI('shadow-ua-size', 'input', () => {
+            if (dashboard.isChecked('shadow-ua')) renderDeepLayer();
         });
 
         // --- Hex Tiles ---
@@ -88,429 +361,10 @@ class UiBindings {
         });
         // --- End Hex Tiles ---
 
-        dashboard.bindUI('diff-area', 'change', async () => {
-            dashboard.deepLayer.clearLayers();
-            const deepMap = new DeepUtils(dashboard.deepLayer);
-            if (dashboard.isChecked('diff-area')) {
-                const startDatePolygons = await deepMap.addDeepMap(dashboard.startDate);
-                const endDatePolygons = await deepMap.addDeepMap(dashboard.endDate);
-
-                updateDiffStats(startDatePolygons, endDatePolygons);
-
-                if (dashboard.isChecked('shadow-ua')) {
-                    const uaborder = await deepMap.loadTheBorder();
-                    const ruborder = await deepMap.loadTheBorder('ru');
-                    const frame = turf.polygon([[[52.426188, 31.433755], [52.426188, 40.678473], [46.977225, 40.678473], [46.977225, 31.433755], [52.426188, 31.433755]].map(el => [el[1], el[0]])]);
-                    const area = deepMap.unionList([...deepMap.normalizePolygon(endDatePolygons.polygons), turf.intersect(ruborder, frame)]);
-                    const chunk = turf.difference(uaborder, area);
-
-                    const shadow = deepMap.addShadow(area, dashboard.getEl('shadow-ua-size')?.value || 20);
-                    const shadowOnly = turf.difference(shadow, area);
-                    const shadowExclRu = turf.difference(shadowOnly, ruborder);
-                    const zone = turf.difference(chunk, shadow);
-                    const contested = turf.difference(uaborder, zone);
-
-                    const areaExclRu = turf.difference(area, ruborder);
-                    const contestedExclRu = turf.difference(contested, ruborder);
-
-                    const shadowPolygonData = {
-                        polygons: [
-                            { geojson: areaExclRu, style: { color: '#a52714', fillColor: '#a52714', fillOpacity: 0.2, weight: 1 }, type: 'merged-start' },
-                            { geojson: shadowExclRu, style: { color: '#1b1a1a', fillColor: '#1b1a1a', fillOpacity: 0.3, weight: 1 }, type: 'shadow' },
-                            { geojson: contestedExclRu, style: { color: '#a52714', fillColor: '#a52714', fillOpacity: 0.2, weight: 1 }, type: 'merged-start' }
-                        ].filter(p => p.geojson)
-                    };
-
-                    const optimizedShadowData = dashboard.isChecked('optimize-polygons') ?
-                        dashboard.optimizePolygonsByColor(shadowPolygonData) : shadowPolygonData;
-                    deepMap.renderMap(optimizedShadowData);
-                } else if (dashboard.isChecked('diff-highlight')) {
-                    const sliceDates = dashboard.getDiffSliceDates();
-                    if (sliceDates.length) {
-                        const sliceColors = ['#ff5252', '#ff9800', '#ffeb3b', '#8bc34a', '#03a9f4', '#9c27b0'];
-                        const allDates = [dashboard.startDate, ...sliceDates, dashboard.endDate];
-                        const diffPolygons = [];
-                        let combinedDifference = null;
-                        const sliceCache = new Map();
-                        sliceCache.set(dashboard.startDate.toISOString(), startDatePolygons);
-                        sliceCache.set(dashboard.endDate.toISOString(), endDatePolygons);
-                        const safeUnion = (left, right) => {
-                            if (!left) return right;
-                            try {
-                                return turf.union(left, right);
-                            } catch (error) {
-                                try {
-                                    return turf.union(turf.cleanCoords(left), turf.cleanCoords(right));
-                                } catch (cleanError) {
-                                    console.warn('Union failed for diff slice polygon, skipping merge:', cleanError);
-                                    return left;
-                                }
-                            }
-                        };
-
-                        const getSlicePolygons = async (date) => {
-                            const key = date.toISOString();
-                            if (sliceCache.has(key)) {
-                                return sliceCache.get(key);
-                            }
-                            const polygons = await deepMap.addDeepMap(date);
-                            sliceCache.set(key, polygons);
-                            return polygons;
-                        };
-
-                        const baseResult = deepMap.calculatePolygonDifference(startDatePolygons, endDatePolygons);
-                        baseResult.polygons
-                            .filter(polygon => polygon.type === 'merged-start')
-                            .forEach(polygon => diffPolygons.push(polygon));
-
-                        const sliceTerritoryStats = [];
-                        for (let i = 0; i < allDates.length - 1; i++) {
-                            const sliceStart = await getSlicePolygons(allDates[i]);
-                            const sliceEnd = await getSlicePolygons(allDates[i + 1]);
-                            const sliceDiff = deepMap.calculatePolygonDifference(sliceStart, sliceEnd);
-                            const color = sliceColors[i % sliceColors.length];
-                            let sliceGains = 0, sliceLosses = 0;
-
-                            // Add gains (difference) polygons in slice color
-                            sliceDiff.polygons
-                                .filter(polygon => polygon.type === 'difference')
-                                .forEach(polygon => {
-                                    polygon.style = {
-                                        ...polygon.style,
-                                        color,
-                                        fillColor: color
-                                    };
-                                    polygon.sliceIndex = i;
-                                    diffPolygons.push(polygon);
-                                    combinedDifference = safeUnion(combinedDifference, polygon.geojson);
-                                    try { sliceGains += turf.area(polygon.geojson) / 1e6; } catch (e) { }
-                                });
-
-                            // Add losses (reverse-difference) polygons in blue
-                            sliceDiff.polygons
-                                .filter(polygon => polygon.type === 'reverse-difference')
-                                .forEach(polygon => {
-                                    polygon.style = {
-                                        ...polygon.style,
-                                        color: 'blue',
-                                        fillColor: 'blue',
-                                        fillOpacity: 0.5
-                                    };
-                                    polygon.sliceIndex = i;
-                                    polygon.isLoss = true;
-                                    diffPolygons.push(polygon);
-                                    try { sliceLosses += turf.area(polygon.geojson) / 1e6; } catch (e) { }
-                                });
-
-                            sliceTerritoryStats.push({
-                                from: dashboard.formatDate(allDates[i]),
-                                to: dashboard.formatDate(allDates[i + 1]),
-                                color,
-                                gains: sliceGains,
-                                losses: sliceLosses,
-                                net: sliceGains - sliceLosses
-                            });
-                        }
-
-                        // Remove polygon parts smaller than 1 km²
-                        const minAreaSqM = 1e6; // 1 km² in m²
-                        const filteredDiffPolygons = diffPolygons.map(polygon => {
-                            if (!polygon.geojson) return polygon;
-                            try {
-                                const geom = polygon.geojson.geometry || polygon.geojson;
-                                if (geom.type === 'MultiPolygon') {
-                                    const kept = geom.coordinates.filter(coords =>
-                                        turf.area(turf.polygon(coords)) >= minAreaSqM
-                                    );
-                                    if (kept.length === 0) return null;
-                                    return {
-                                        ...polygon, geojson: kept.length === 1
-                                            ? turf.polygon(kept[0]) : turf.multiPolygon(kept)
-                                    };
-                                }
-                                if (geom.type === 'Polygon') {
-                                    return turf.area(polygon.geojson) >= minAreaSqM ? polygon : null;
-                                }
-                                return polygon;
-                            } catch (e) {
-                                return polygon;
-                            }
-                        }).filter(Boolean);
-
-                        const combinedResult = {
-                            polygons: filteredDiffPolygons,
-                            shadowPolygon: endDatePolygons.shadowPolygon || startDatePolygons.shadowPolygon,
-                            statistics: {
-                                ...startDatePolygons.statistics,
-                                ...endDatePolygons.statistics
-                            }
-                        };
-                        dashboard.currentDiffResult = combinedResult;
-
-                        const optimizedDiffResult = dashboard.isChecked('optimize-polygons') ?
-                            dashboard.optimizePolygonsByColor(combinedResult) : combinedResult;
-                        deepMap.renderMap(optimizedDiffResult);
-
-                        // Render slice territory stats
-                        const statsEl = dashboard.getEl('slice-territory-stats');
-                        if (statsEl && sliceTerritoryStats.length) {
-                            const totalGains = sliceTerritoryStats.reduce((s, t) => s + t.gains, 0);
-                            const totalLosses = sliceTerritoryStats.reduce((s, t) => s + t.losses, 0);
-                            const totalNet = totalGains - totalLosses;
-                            let html = '<h3 style="margin:10px 0 5px">Slice Territory</h3>';
-                            sliceTerritoryStats.forEach(s => {
-                                html += `<p style="margin:2px 0;font-size:12px">` +
-                                    `<span style="color:${s.color}">■</span> ${s.from} → ${s.to}: ` +
-                                    `<b>${s.net >= 0 ? '+' : ''}${s.net.toFixed(1)}</b> km² ` +
-                                    `(↑${s.gains.toFixed(1)} ↓${s.losses.toFixed(1)})</p>`;
-                            });
-                            html += `<p style="margin:4px 0 0;font-size:12px;border-top:1px solid #ddd;padding-top:4px">` +
-                                `<b>Total: ${totalNet >= 0 ? '+' : ''}${totalNet.toFixed(1)} km²</b> ` +
-                                `(↑${totalGains.toFixed(1)} ↓${totalLosses.toFixed(1)})</p>`;
-                            statsEl.innerHTML = html;
-                        } else if (statsEl) {
-                            statsEl.innerHTML = '';
-                        }
-
-                        if (dashboard.isChecked('regions-highlight') && combinedDifference) {
-                            const dirs = [];
-                            Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
-                                const res = turf.intersect(value, combinedDifference);
-                                if (!res) return;
-
-                                L.geoJSON(res, {
-                                    style: {
-                                        color: dashboard.getDirectionColor(key),
-                                        weight: 2,
-                                        fillOpacity: 0.7
-                                    }
-                                }).addTo(dashboard.featureLayer).bindTooltip(key);
-
-                                dirs.push({
-                                    region: key, totalAttacks: res.geometry.coordinates.flatMap(item => item)
-                                        .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0)
-                                });
-                            });
-                            dashboard.updateStatistics(dashboard.calculateAttackStatistics(dirs));
-                        }
-
-                        if (dashboard.selectedPolygons.length > 0) {
-                            dashboard.calculateSelectedAreaStatistics();
-                        }
-                    } else {
-                        // Check if diff-slices are enabled (without diff-highlight)
-                        const sliceDates = dashboard.getDiffSliceDates();
-                        if (sliceDates.length) {
-                            const sliceColors = ['#ff5252', '#ff9800', '#ffeb3b', '#8bc34a', '#03a9f4', '#9c27b0'];
-                            const allDates = [dashboard.startDate, ...sliceDates, dashboard.endDate];
-                            const diffPolygons = [];
-                            const sliceCache = new Map();
-                            sliceCache.set(dashboard.startDate.toISOString(), startDatePolygons);
-                            sliceCache.set(dashboard.endDate.toISOString(), endDatePolygons);
-
-                            const getSlicePolygons = async (date) => {
-                                const key = date.toISOString();
-                                if (sliceCache.has(key)) {
-                                    return sliceCache.get(key);
-                                }
-                                const polygons = await deepMap.addDeepMap(date);
-                                sliceCache.set(key, polygons);
-                                return polygons;
-                            };
-
-                            // Add start date polygons (base layer)
-                            const baseResult = deepMap.calculatePolygonDifference(startDatePolygons, endDatePolygons);
-                            baseResult.polygons
-                                .filter(polygon => polygon.type === 'merged-start')
-                                .forEach(polygon => diffPolygons.push(polygon));
-
-                            // Process each time slice
-                            for (let i = 0; i < allDates.length - 1; i++) {
-                                const sliceStart = await getSlicePolygons(allDates[i]);
-                                const sliceEnd = await getSlicePolygons(allDates[i + 1]);
-                                const sliceDiff = deepMap.calculatePolygonDifference(sliceStart, sliceEnd);
-                                const color = sliceColors[i % sliceColors.length];
-
-                                // Add gains (difference) polygons in slice color
-                                sliceDiff.polygons
-                                    .filter(polygon => polygon.type === 'difference')
-                                    .forEach(polygon => {
-                                        polygon.style = {
-                                            ...polygon.style,
-                                            color,
-                                            fillColor: color
-                                        };
-                                        polygon.sliceIndex = i;
-                                        diffPolygons.push(polygon);
-                                    });
-
-                                // Add losses (reverse-difference) polygons in blue
-                                sliceDiff.polygons
-                                    .filter(polygon => polygon.type === 'reverse-difference')
-                                    .forEach(polygon => {
-                                        polygon.style = {
-                                            ...polygon.style,
-                                            color: 'blue',
-                                            fillColor: 'blue',
-                                            fillOpacity: 0.5
-                                        };
-                                        polygon.sliceIndex = i;
-                                        polygon.isLoss = true;
-                                        diffPolygons.push(polygon);
-                                    });
-                            }
-
-                            const combinedResult = {
-                                polygons: diffPolygons,
-                                shadowPolygon: endDatePolygons.shadowPolygon || startDatePolygons.shadowPolygon,
-                                statistics: {
-                                    ...startDatePolygons.statistics,
-                                    ...endDatePolygons.statistics
-                                }
-                            };
-                            dashboard.currentDiffResult = combinedResult;
-
-                            const optimizedDiffResult = dashboard.isChecked('optimize-polygons') ?
-                                dashboard.optimizePolygonsByColor(combinedResult) : combinedResult;
-                            deepMap.renderMap(optimizedDiffResult);
-
-                            console.log(`📊 Rendered ${allDates.length - 1} diff slices with colors`);
-                        } else {
-                            // Original single diff logic (no slices)
-                            const diffResult = deepMap.calculatePolygonDifference(startDatePolygons, endDatePolygons);
-                            dashboard.currentDiffResult = diffResult;
-
-                            console.log('=== DIFF RESULT ===');
-                            console.log('Total polygons:', diffResult.polygons.length);
-                            console.log('Polygon types:', diffResult.polygons.map(p => `${p.type} (${p.style?.fillColor || 'no-color'})`));
-
-                            const optimizedDiffResult = dashboard.isChecked('optimize-polygons') ?
-                                dashboard.optimizePolygonsByColor(diffResult) : diffResult;
-
-                            console.log('After optimization:', optimizedDiffResult.polygons.length, 'polygons');
-                            deepMap.renderMap(optimizedDiffResult);
-
-                            // Log both gains and losses
-                            const gainsPolygon = diffResult.polygons.find(p => p.type === 'difference');
-                            const lossesPolygon = diffResult.polygons.find(p => p.type === 'reverse-difference');
-
-                            if (gainsPolygon?.geojson) {
-                                const gainsArea = deepMap.calculateGeoPolygonArea(
-                                    gainsPolygon.geojson.geometry?.coordinates || gainsPolygon.geojson.coordinates
-                                );
-                                console.log(`📈 Territorial gains (red): ${gainsArea.squareKilometers.toFixed(2)} km²`);
-                            }
-
-                            if (lossesPolygon?.geojson) {
-                                const lossesArea = deepMap.calculateGeoPolygonArea(
-                                    lossesPolygon.geojson.geometry?.coordinates || lossesPolygon.geojson.coordinates
-                                );
-                                console.log(`📉 Territorial losses (blue): ${lossesArea.squareKilometers.toFixed(2)} km²`);
-                            }
-
-                            if (dashboard.isChecked('regions-highlight')) {
-                                const dirs = [];
-
-                                // Process gains (red areas)
-                                if (gainsPolygon?.geojson) {
-                                    Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
-                                        const res = turf.intersect(value, gainsPolygon.geojson);
-                                        if (!res) return;
-
-                                        L.geoJSON(res, {
-                                            style: {
-                                                color: dashboard.getDirectionColor(key),
-                                                weight: 2,
-                                                fillOpacity: 0.7
-                                            }
-                                        }).addTo(dashboard.featureLayer).bindTooltip(`${key} (gains)`);
-
-                                        const area = res.geometry.coordinates.flatMap(item => item)
-                                            .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0);
-
-                                        const existingDir = dirs.find(d => d.region === key);
-                                        if (existingDir) {
-                                            existingDir.gains = area;
-                                        } else {
-                                            dirs.push({ region: key, totalAttacks: area, gains: area, losses: 0 });
-                                        }
-                                    });
-                                }
-
-                                // Process losses (blue areas)
-                                if (lossesPolygon?.geojson) {
-                                    Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
-                                        const res = turf.intersect(value, lossesPolygon.geojson);
-                                        if (!res) return;
-
-                                        L.geoJSON(res, {
-                                            style: {
-                                                color: 'blue',
-                                                weight: 2,
-                                                fillOpacity: 0.5
-                                            }
-                                        }).addTo(dashboard.featureLayer).bindTooltip(`${key} (losses)`);
-
-                                        const area = res.geometry.coordinates.flatMap(item => item)
-                                            .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0);
-
-                                        const existingDir = dirs.find(d => d.region === key);
-                                        if (existingDir) {
-                                            existingDir.losses = area;
-                                        } else {
-                                            dirs.push({ region: key, totalAttacks: 0, gains: 0, losses: area });
-                                        }
-                                    });
-                                }
-
-                                if (dirs.length > 0) {
-                                    dashboard.updateStatistics(dashboard.calculateAttackStatistics(dirs));
-                                }
-                            }
-
-                            if (dashboard.selectedPolygons.length > 0) {
-                                dashboard.calculateSelectedAreaStatistics();
-                            }
-                        }
-                    }
-                } else {
-                    dashboard.currentDiffResult = null;
-                    const combinedPolygons = {
-                        polygons: [
-                            ...startDatePolygons.polygons.filter(p => p.properties.stroke === "#a52714"),
-                            ...endDatePolygons.polygons
-                        ],
-                        shadowPolygon: endDatePolygons.shadowPolygon || startDatePolygons.shadowPolygon,
-                        statistics: {
-                            ...startDatePolygons.statistics,
-                            ...endDatePolygons.statistics
-                        }
-                    };
-
-                    const optimizedCombinedPolygons = dashboard.isChecked('optimize-polygons') ?
-                        dashboard.optimizePolygonsByColor(combinedPolygons) : combinedPolygons;
-                    deepMap.renderMap(optimizedCombinedPolygons);
-                }
-            } else {
-                dashboard.setText('settlements-in-diff', '0');
-                // Clear casualties layer when diff-area is unchecked
-                if (dashboard.casualtiesLayer) {
-                    dashboard.casualtiesLayer.clearLayers();
-                }
-            }
-
-            if (dashboard.selectedPolygons.length > 0) {
-                dashboard.calculateSelectedAreaStatistics();
-            }
-
-            // Update casualties density if enabled
-            if (dashboard.isChecked('diff-area') && dashboard.isChecked('casualties-density')) {
-                dashboard.renderCasualtiesDensity();
-            }
-
-        });
+        dashboard.bindUI('diff-area', 'change', () => renderDeepLayer());
 
         dashboard.bindUI('diff-highlight', 'change', async () => {
+            await renderDeepLayer();
             if (dashboard.isChecked('diff-highlight')) {
                 const overlaySources = [
                     { id: 'amk-overlay', key: 'AMK' },
@@ -1131,7 +985,11 @@ class UiBindings {
         });
 
 
+        const kmlCache = {}; // { 'ua:20240419': '<kml>...</kml>', ... }
+
         const updateDailyPositions = async (forceLoad = false, addToMapOverride = false) => {
+            dashboard._dailyIconIds = new Set();
+
             // Helper to load and render a layer
             const loadLayer = async (side) => { // side: 'ua' or 'ru'
                 const checkboxId = side === 'ua' ? 'feature-positions-ua' : 'feature-positions-ru';
@@ -1162,17 +1020,29 @@ class UiBindings {
                         : `russian_positions_${dateStr}.kml`;
 
                     const url = `${API_BASE_URL}/daily/${dateStr}/${filename}`;
+                    const cacheKey = `${side}:${dateStr}`;
 
-                    try {
-                        const response = await fetch(url);
-                        if (!response.ok) {
-                            if (response.status !== 404) {
-                                console.warn(`Failed to fetch ${url}: ${response.status}`);
+                    let text;
+                    if (!forceLoad && kmlCache[cacheKey]) {
+                        text = kmlCache[cacheKey];
+                    } else {
+                        try {
+                            const response = await fetch(url);
+                            if (!response.ok) {
+                                if (response.status !== 404) {
+                                    console.warn(`Failed to fetch ${url}: ${response.status}`);
+                                }
+                                return;
                             }
+                            text = await response.text();
+                            kmlCache[cacheKey] = text;
+                        } catch (err) {
+                            console.warn(`Failed to fetch ${url}:`, err);
                             return;
                         }
+                    }
 
-                        const text = await response.text();
+                    try {
                         const parser = new DOMParser();
                         const kml = parser.parseFromString(text, 'text/xml');
                         const geojson = toGeoJSON.kml(kml);
@@ -1180,14 +1050,13 @@ class UiBindings {
                         const color = side === 'ua' ? '#0057B7' : '#D0021B'; // Blue for UA, Red for RU
                         const isUSFFilterEnabled = dashboard.isChecked('filter-usf-units');
 
-                        // Parse icon from styleUrl: #icon-ci-57 -> 57 -> images/icon-57.png
+                        // Parse icon from styleUrl: #icon-ci-57 -> 57 -> images/ua/icon-57.png
                         const getUnitIcon = (feature, color) => {
                             const styleUrl = feature.properties?.styleUrl || '';
                             const match = styleUrl.match(/[\d]+/);
                             if (!match) return null;
-                            let iconId = parseInt(match[0]);
-                            if (side === 'ru') iconId += 57;
-                            const iconUrl = `./images/icon-${iconId}.png`;
+                            const iconId = parseInt(match[0]);
+                            const iconUrl = `./images/${side}/icon-${iconId}.png`;
                             return L.divIcon({
                                 className: 'unit-icon-marker',
                                 html: `<img src="${iconUrl}" style="width:100%;height:100%;border:2px solid ${color};border-radius:5px;background:rgba(255,255,255,0.7);box-sizing:border-box;">`,
@@ -1209,11 +1078,33 @@ class UiBindings {
                         dashboard[layerProp] = L.geoJSON(geojson, {
                             filter: (feature) => {
                                 const name = feature.properties.name?.trim() || '';
+
+                                // Collect icon IDs from original data before any filtering
+                                const rawStyleUrl = feature.properties?.styleUrl || styleMap[name] || '';
+                                const iconMatch = rawStyleUrl.match(/[\d]+/);
+                                if (iconMatch) {
+                                    dashboard._dailyIconIds.add(`${side}:${parseInt(iconMatch[0])}`);
+                                }
+
+                                // Prevent UA OOB units from appearing on the RU layer (same name in both KMLs)
+                                if (side === 'ru' && dashboard.linkedUnitNames?.has(name)) return false;
+
                                 const terms = dashboard.unitsNameFilter.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
                                 if (terms.length && !terms.some(t => name.toLowerCase().includes(t))) return false;
                                 if (side === 'ua' && isUSFFilterEnabled) {
                                     if (!dashboard.usfStats) return false;
                                     return dashboard.usfStats.hasOwnProperty(name);
+                                }
+                                if (dashboard.isChecked('show-linked-units')) {
+                                    const oob = side === 'ru' ? dashboard.ruLinkedUnitNames : dashboard.linkedUnitNames;
+                                    if (!oob || !oob.has(name)) return false;
+                                }
+                                if (dashboard.isChecked('show-only-highlighted') && window.highlightedUnits && window.highlightedUnits.size > 0) {
+                                    if (!window.highlightedUnits.has(name)) return false;
+                                }
+                                if (dashboard.isChecked('filter-by-icon') && selectedIcons.size > 0) {
+                                    if (!iconMatch) return false;
+                                    if (!selectedIcons.has(`${side}:${parseInt(iconMatch[0])}`)) return false;
                                 }
                                 return true;
                             },
@@ -1222,20 +1113,39 @@ class UiBindings {
                                 if (!feature.properties.styleUrl && feature.properties.name) {
                                     feature.properties.styleUrl = styleMap[feature.properties.name.trim()] || '';
                                 }
-                                const icon = getUnitIcon(feature, color);
+                                const name = feature.properties.name?.trim() || '';
+                                const isHighlighted = window.highlightedUnits && window.highlightedUnits.has(name);
+                                const markerColor = isHighlighted ? 'yellow' : color;
+                                const icon = getUnitIcon(feature, markerColor);
                                 if (icon) {
-                                    return L.marker(latlng, { icon });
+                                    const styleUrl = feature.properties.styleUrl || '';
+                                    const m = styleUrl.match(/[\d]+/);
+                                    if (m) {
+                                        dashboard._dailyIconIds.add(`${side}:${parseInt(m[0])}`);
+                                    }
+                                    const dragEnabled = dashboard.isChecked('drag-units');
+                                    if (!window.draggedCorpsPositions) window.draggedCorpsPositions = {};
+                                    const savedPos = window.draggedCorpsPositions[name];
+                                    const markerLatlng = savedPos ? L.latLng(savedPos[0], savedPos[1]) : latlng;
+                                    const marker = L.marker(markerLatlng, { icon, draggable: dragEnabled });
+                                    if (dragEnabled) {
+                                        marker.on('dragend', (e) => {
+                                            const ll = e.target.getLatLng();
+                                            window.draggedCorpsPositions[name] = [ll.lat, ll.lng];
+                                        });
+                                    }
+                                    return marker;
                                 }
                                 return L.circleMarker(latlng, {
-                                    radius: 4,
-                                    fillColor: color,
-                                    color: "#fff",
-                                    weight: 1,
+                                    radius: isHighlighted ? 6 : 4,
+                                    fillColor: isHighlighted ? 'yellow' : color,
+                                    color: isHighlighted ? 'yellow' : '#fff',
+                                    weight: isHighlighted ? 2 : 1,
                                     opacity: 1,
                                     fillOpacity: 0.8
                                 });
                             },
-                            style: (feature) => {
+                            style: () => {
                                 return {
                                     color: color,
                                     weight: 2,
@@ -1253,9 +1163,48 @@ class UiBindings {
                                     // Placeholder for stats
                                     popupContent += `<div id="stats-${feature.properties.name?.replace(/\s+/g, '-')}" class="usf-stats-container"></div>`;
 
+                                    let lat = 0, lon = 0;
+                                    if (feature.geometry && feature.geometry.type === 'Point') {
+                                        lon = feature.geometry.coordinates[0];
+                                        lat = feature.geometry.coordinates[1];
+                                    } else if (layer.getBounds) {
+                                        const center = layer.getBounds().getCenter();
+                                        lat = center.lat;
+                                        lon = center.lng;
+                                    }
+
+                                    popupContent += `
+                                        <div style="margin-top:10px; border-top: 1px solid #ccc; padding-top: 5px;">
+                                            ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
+                                            <button onclick="window.markerAdjuster && window.markerAdjuster.pickUnitLocation(${lat}, ${lon}, '${(feature.properties.name || '').replace(/'/g, "\\'")}')" style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; width: 100%; margin-top: 5px;">Pick Location</button>
+                                        </div>
+                                    `;
+
                                     if (popupContent) {
                                         layer.bindPopup(popupContent);
                                     }
+
+                                    const unitName = feature.properties.name?.trim() || '';
+
+                                    if (unitName && dashboard.isChecked('show-unit-titles')) {
+                                        const ordinal = unitName.match(/\d+(?:st|nd|rd|th)/i)?.[0] || unitName;
+                                        layer.bindTooltip(ordinal, {
+                                            permanent: true,
+                                            direction: 'top',
+                                            className: 'unit-title-tooltip',
+                                            offset: [0, -5]
+                                        });
+                                    }
+
+                                    layer.on('contextmenu', (e) => {
+                                        L.DomEvent.stopPropagation(e);
+                                        L.DomEvent.preventDefault(e);
+                                        const subordinates = dashboard.linkedUnitsByParent?.get(unitName)
+                                            || dashboard.ruLinkedUnitsByParent?.get(unitName);
+                                        if (!subordinates) return;
+                                        window.highlightedUnits = new Set([unitName, ...subordinates]);
+                                        updateDailyPositions();
+                                    });
                                 }
                             }
                         });
@@ -1277,6 +1226,44 @@ class UiBindings {
 
             await loadLayer('ua');
             await loadLayer('ru');
+
+            if (dashboard.isChecked('filter-by-icon')) {
+                const iconFilterList = dashboard.getEl('icon-filter-list');
+                if (iconFilterList && dashboard._dailyIconIds.size > 0) {
+                    const sortedIcons = Array.from(dashboard._dailyIconIds).sort((a, b) => {
+                        const [sa, ia] = a.split(':'); const [sb, ib] = b.split(':');
+                        return sa.localeCompare(sb) || parseInt(ia) - parseInt(ib);
+                    });
+                    iconFilterList.innerHTML = sortedIcons.map(key => {
+                        const [iconSide, iconId] = key.split(':');
+                        const isChecked = selectedIcons.has(key);
+                        const borderStyle = isChecked ? 'border: 3px solid red;' : 'border: 3px solid transparent;';
+                        return `<label style="display:inline-block;margin:4px;cursor:pointer;">
+                            <input type="checkbox" class="icon-filter-checkbox" data-icon-id="${key}" ${isChecked ? 'checked' : ''} style="display:none;">
+                            <img src="./images/${iconSide}/icon-${iconId}.png" alt="${iconSide} Icon ${iconId}" title="${iconSide.toUpperCase()} ${iconId}" style="width:40px;height:40px;${borderStyle}border-radius:4px;display:block;">
+                        </label>`;
+                    }).join('');
+
+                    iconFilterList.querySelectorAll('label').forEach(label => {
+                        label.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            const checkbox = label.querySelector('.icon-filter-checkbox');
+                            const iconId = checkbox.dataset.iconId;
+                            const img = label.querySelector('img');
+                            if (selectedIcons.has(iconId)) {
+                                selectedIcons.delete(iconId);
+                                checkbox.checked = false;
+                                img.style.border = '3px solid transparent';
+                            } else {
+                                selectedIcons.add(iconId);
+                                checkbox.checked = true;
+                                img.style.border = '3px solid red';
+                            }
+                            updateDailyPositions();
+                        });
+                    });
+                }
+            }
         };
 
         dashboard.updateDailyPositions = updateDailyPositions;
@@ -1726,6 +1713,13 @@ class UiBindings {
             updateUnitsAttribution();
         });
         dashboard.bindUI('show-unit-icons', 'change', () => { updateDailyPositions(); });
+        dashboard.bindUI('show-unit-titles', 'change', () => {
+            if (dashboard.isChecked('position-change')) {
+                renderPositionChanges();
+            } else {
+                updateDailyPositions();
+            }
+        });
 
         let unitsNameFilterDebounce = null;
         const unitsNameFilterEl = document.getElementById('units-name-filter');
@@ -1748,6 +1742,8 @@ class UiBindings {
         // We might need to hook this into slider update
         // We can expose this function to be called from slider update
         dashboard.updateDailyPositions = updateDailyPositions;
+
+        const positionChangesCache = {}; // { 'ua:20240410:20240419': {...data} }
 
         const renderPositionChanges = async () => {
             if (dashboard.isChecked('position-change')) {
@@ -1778,14 +1774,21 @@ class UiBindings {
                     }
 
                     const url = `${API_BASE_URL}/position-changes?startDate=${startDate}&endDate=${endDate}&side=${side}`;
-                    console.log(`Fetching position changes (${side}): ${startDate} -> ${endDate}`);
+                    const pcCacheKey = `${side}:${startDate}:${endDate}`;
 
-                    const response = await fetch(url);
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-                        throw new Error(errorData.error || `HTTP ${response.status}`);
+                    let rawData;
+                    if (positionChangesCache[pcCacheKey]) {
+                        rawData = positionChangesCache[pcCacheKey];
+                    } else {
+                        console.log(`Fetching position changes (${side}): ${startDate} -> ${endDate}`);
+                        const response = await fetch(url);
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+                            throw new Error(errorData.error || `HTTP ${response.status}`);
+                        }
+                        rawData = await response.json();
+                        positionChangesCache[pcCacheKey] = rawData;
                     }
-                    const rawData = await response.json();
 
                     // Clear existing layers first to avoid duplicates when re-rendering
                     dashboard.featureLayer.clearLayers();
@@ -1896,8 +1899,9 @@ class UiBindings {
 
 
                     const showIcons = true; // Icons always on
+                    const showTitles = dashboard.isChecked('show-unit-titles');
                     const showLinkedUnits = dashboard.isChecked('show-linked-units');
-                    const dragCorpsEnabled = dashboard.isChecked('drag-corps');
+                    const dragCorpsEnabled = dashboard.isChecked('drag-units');
                     const filterByIcon = dashboard.isChecked('filter-by-icon');
                     const showOnlyHighlighted = dashboard.isChecked('show-only-highlighted');
 
@@ -1907,9 +1911,6 @@ class UiBindings {
                     }
 
                     // Store for selected icons
-                    if (!window.selectedIcons) {
-                        window.selectedIcons = new Set();
-                    }
 
                     // Helper to extract icon ID from styleUrl
                     const getIconId = (item) => {
@@ -1942,6 +1943,12 @@ class UiBindings {
                         return connectedUnits.has(unitName); // Only show connected units
                     };
 
+                    const addTitleTooltip = (marker, name) => {
+                        if (!showTitles) return;
+                        const ordinal = name.match(/\d+(?:st|nd|rd|th)/i)?.[0] || name;
+                        marker.bindTooltip(ordinal, { permanent: true, direction: 'top', className: 'unit-title-tooltip', offset: [0, -5] });
+                    };
+
                     // Helper to check if unit should be shown based on highlighted filter
                     const shouldShowHighlighted = (unitName) => {
                         if (!showOnlyHighlighted) return true; // Show all if filter is off
@@ -1959,16 +1966,13 @@ class UiBindings {
 
                     const getIcon = (item, color, radius) => {
                         if (!item.styleUrl) return null;
-                        // Parse #icon-ci-57 -> 57 -> images/icon-57.png
+                        // Parse #icon-ci-57 -> 57 -> images/{side}/icon-57.png
                         const match = item.styleUrl.match(/[\d]+/);
                         if (!match) return null;
 
-                        let iconId = parseInt(match[0]);
-                        // Apply +57 offset for Russian positions
-                        if (item.side === 'RU') {
-                            iconId += 57;
-                        }
-                        const iconUrl = `./images/icon-${iconId}.png`;
+                        const iconId = parseInt(match[0]);
+                        const iconSide = item.side === 'RU' ? 'ru' : 'ua';
+                        const iconUrl = `./images/${iconSide}/icon-${iconId}.png`;
                         const size = radius * 3; // Icon size proportional to marker radius
 
                         return L.divIcon({
@@ -1985,8 +1989,7 @@ class UiBindings {
                     const collectIcons = (items) => {
                         if (!items || !Array.isArray(items)) return;
                         items.forEach(item => {
-                            let iconId = getIconId(item);
-                            if (item.side === 'RU') iconId = `${parseInt(iconId) + 57}`;
+                            const iconId = getIconId(item);
                             if (iconId) uniqueIcons.add(iconId);
                         });
                     };
@@ -2001,12 +2004,12 @@ class UiBindings {
                         if (iconFilterList && uniqueIcons.size > 0) {
                             const sortedIcons = Array.from(uniqueIcons).sort((a, b) => parseInt(a) - parseInt(b));
                             iconFilterList.innerHTML = sortedIcons.map(iconId => {
-                                const isChecked = window.selectedIcons.has(iconId);
+                                const isChecked = selectedIcons.has(iconId);
                                 const borderStyle = isChecked ? 'border: 3px solid red;' : 'border: 3px solid transparent;';
                                 return `
                                     <label style="display: inline-block; margin: 4px; cursor: pointer;">
                                         <input type="checkbox" class="icon-filter-checkbox" data-icon-id="${iconId}" ${isChecked ? 'checked' : ''} style="display: none;">
-                                        <img src="./images/icon-${iconId}.png" alt="Icon ${iconId}" title="Icon ${iconId}" style="width: 40px; height: 40px; ${borderStyle} border-radius: 4px; display: block;">
+                                        <img src="./images/ua/icon-${iconId}.png" alt="Icon ${iconId}" title="Icon ${iconId}" style="width: 40px; height: 40px; ${borderStyle} border-radius: 4px; display: block;">
                                     </label>
                                 `;
                             }).join('');
@@ -2020,12 +2023,12 @@ class UiBindings {
                                     const img = label.querySelector('img');
 
                                     // Toggle selection
-                                    if (window.selectedIcons.has(iconId)) {
-                                        window.selectedIcons.delete(iconId);
+                                    if (selectedIcons.has(iconId)) {
+                                        selectedIcons.delete(iconId);
                                         checkbox.checked = false;
                                         img.style.border = '3px solid transparent';
                                     } else {
-                                        window.selectedIcons.add(iconId);
+                                        selectedIcons.add(iconId);
                                         checkbox.checked = true;
                                         img.style.border = '3px solid red';
                                     }
@@ -2038,10 +2041,9 @@ class UiBindings {
 
                     // Icon filter helper
                     const shouldShowIcon = (item) => {
-                        if (!filterByIcon || window.selectedIcons.size === 0) return true;
-                        let iconId = getIconId(item);
-                        if (item.side === 'RU') iconId = `${parseInt(iconId) + 57}`; // Adjust for RU icons
-                        return iconId && window.selectedIcons.has(iconId);
+                        if (!filterByIcon || selectedIcons.size === 0) return true;
+                        const iconId = getIconId(item);
+                        return iconId && selectedIcons.has(iconId);
                     };
 
                     // Helper to add right-click handler to Corps markers (level 6)
@@ -2187,6 +2189,10 @@ class UiBindings {
                                 oldMarker.bindPopup(`
                                      <strong>${item.name}</strong> (Old Pos)<br>
                                      ${item.properties.description || ''}
+                                     <div style="margin-top:10px; border-top: 1px solid #ccc; padding-top: 5px;">
+                                        ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
+                                        <button onclick="window.markerAdjuster && window.markerAdjuster.pickUnitLocation(${item.oldPos.lat}, ${item.oldPos.lon}, '${(item.name || '').replace(/'/g, "\\'")}')" style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; width: 100%; margin-top: 5px;">Pick Location</button>
+                                     </div>
                                  `);
                                 oldMarker.on('click', highlightLine);
                             }
@@ -2260,8 +2266,13 @@ class UiBindings {
                                      Current: ${currentLatLng.lat.toFixed(6)}, ${currentLatLng.lng.toFixed(6)}<br>
                                      ${item.properties.description || ''}<br>
                                      <a href="${item.properties.Last_Known_Location}" target="_blank">Source</a>
+                                     <div style="margin-top:10px; border-top: 1px solid #ccc; padding-top: 5px;">
+                                        ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
+                                        <button onclick="window.markerAdjuster && window.markerAdjuster.pickUnitLocation(${currentLatLng.lat}, ${currentLatLng.lng}, '${(item.name || '').replace(/'/g, "\\'")}')" style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; width: 100%; margin-top: 5px;">Pick Location</button>
+                                     </div>
                                  `);
                                 newMarker.on('click', highlightLine);
+                                addTitleTooltip(newMarker, item.name);
                             }
 
                             // Draw line between positions
@@ -2347,7 +2358,12 @@ class UiBindings {
                                 Level: ${item.unitLevel || 'N/A'}<br>
                                 Current: ${currentLatLng.lat.toFixed(6)}, ${currentLatLng.lng.toFixed(6)}<br>
                                 ${item.properties?.description || ''}
+                                <div style="margin-top:10px; border-top: 1px solid #ccc; padding-top: 5px;">
+                                    ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
+                                    <button onclick="window.markerAdjuster && window.markerAdjuster.pickUnitLocation(${currentLatLng.lat}, ${currentLatLng.lng}, '${(item.name || '').replace(/'/g, "\\'")}')" style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; width: 100%; margin-top: 5px;">Pick Location</button>
+                                </div>
                             `);
+                            addTitleTooltip(marker, item.name);
                         });
                     }
 
@@ -2392,7 +2408,12 @@ class UiBindings {
                                 <strong>${item.name}</strong> (Missing)<br>
                                 Level: ${item.unitLevel || 'N/A'}<br>
                                 ${item.properties?.description || ''}
+                                <div style="margin-top:10px; border-top: 1px solid #ccc; padding-top: 5px;">
+                                    ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
+                                    <button onclick="window.markerAdjuster && window.markerAdjuster.pickUnitLocation(${item.lat}, ${item.lon}, '${(item.name || '').replace(/'/g, "\\'")}')" style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; width: 100%; margin-top: 5px;">Pick Location</button>
+                                </div>
                             `);
+                            addTitleTooltip(marker, item.name);
                         });
                     }
 
@@ -2470,7 +2491,12 @@ class UiBindings {
                                     Level: ${item.unitLevel || 'N/A'}<br>
                                     Current: ${currentLatLng.lat.toFixed(6)}, ${currentLatLng.lng.toFixed(6)}<br>
                                     ${item.properties?.description || ''}
+                                    <div style="margin-top:10px; border-top: 1px solid #ccc; padding-top: 5px;">
+                                        ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
+                                        <button onclick="window.markerAdjuster && window.markerAdjuster.pickUnitLocation(${currentLatLng.lat}, ${currentLatLng.lng}, '${(item.name || '').replace(/'/g, "\\'")}')" style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; width: 100%; margin-top: 5px;">Pick Location</button>
+                                    </div>
                                 `);
+                                addTitleTooltip(marker, item.name);
                             });
                         }
                     }
@@ -2589,9 +2615,9 @@ class UiBindings {
         dashboard.bindUI('feature-positions-ua', 'change', renderPositionChanges);
         dashboard.bindUI('feature-positions-ru', 'change', renderPositionChanges);
         dashboard.bindUI('show-unit-icons', 'change', renderPositionChanges);
-        dashboard.bindUI('show-linked-units', 'change', renderPositionChanges);
-        dashboard.bindUI('show-only-highlighted', 'change', renderPositionChanges);
-        dashboard.bindUI('drag-corps', 'change', renderPositionChanges);
+        dashboard.bindUI('show-linked-units', 'change', () => { updateDailyPositions(); if (dashboard.isChecked('position-change')) renderPositionChanges(); });
+        dashboard.bindUI('show-only-highlighted', 'change', () => { updateDailyPositions(); if (dashboard.isChecked('position-change')) renderPositionChanges(); });
+        dashboard.bindUI('drag-units', 'change', () => { updateDailyPositions(); if (dashboard.isChecked('position-change')) renderPositionChanges(); });
         dashboard.bindUI('filter-trace-distance', 'change', renderPositionChanges);
         dashboard.bindUI('trace-distance-limit', 'change', renderPositionChanges);
         dashboard.bindUI('filter-trace-distance-less', 'change', renderPositionChanges);
@@ -2604,7 +2630,50 @@ class UiBindings {
             if (filterControls) {
                 filterControls.style.display = dashboard.isChecked('filter-by-icon') ? 'block' : 'none';
             }
-            renderPositionChanges();
+            updateDailyPositions();
+            if (dashboard.isChecked('position-change')) renderPositionChanges();
+        });
+
+        dashboard.bindUI('reposition-units', 'click', () => {
+            if (!dashboard.linkedUnitsByParent && !dashboard.ruLinkedUnitsByParent) return;
+
+            // Build name → {latlng, layer} from current daily layers
+            const unitPositions = new Map();
+            const unitLayers = new Map();
+            [dashboard.dailyLayerUA, dashboard.dailyLayerRU].forEach(layer => {
+                if (!layer) return;
+                layer.getLayers().forEach(sub => {
+                    const name = sub.feature?.properties?.name?.trim();
+                    if (!name) return;
+                    const latlng = sub.getLatLng ? sub.getLatLng()
+                        : sub.getBounds ? sub.getBounds().getCenter() : null;
+                    if (latlng) {
+                        unitPositions.set(name, latlng);
+                        unitLayers.set(name, sub);
+                    }
+                });
+            });
+
+            if (!window.draggedCorpsPositions) window.draggedCorpsPositions = {};
+
+            const repositionCorps = (parentMap) => {
+                parentMap?.forEach((brigades, corpsName) => {
+                    const positions = [];
+                    brigades.forEach(brigade => {
+                        const pos = unitPositions.get(brigade);
+                        if (pos) positions.push(pos);
+                    });
+                    if (positions.length === 0) return;
+                    const lat = positions.reduce((s, p) => s + p.lat, 0) / positions.length;
+                    const lng = positions.reduce((s, p) => s + p.lng, 0) / positions.length;
+                    const centroid = L.latLng(lat, lng);
+                    window.draggedCorpsPositions[corpsName] = [lat, lng];
+                    const corpsMarker = unitLayers.get(corpsName);
+                    if (corpsMarker?.setLatLng) corpsMarker.setLatLng(centroid);
+                });
+            };
+            repositionCorps(dashboard.linkedUnitsByParent);
+            repositionCorps(dashboard.ruLinkedUnitsByParent);
         });
 
         dashboard.bindUI('export-dragged-positions', 'click', () => {

@@ -74,9 +74,10 @@ class Settlements {
                     ${props.population ? `<div class="settlement-info">Population: ${props.population.toLocaleString()}</div>` : ''}
                     <div class="settlement-info">Coordinates: ${coords[1].toFixed(6)}, ${coords[0].toFixed(6)}</div>
                     <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #ddd;">
+                        ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
                         <button
                             onclick="window.markerAdjuster && window.markerAdjuster.pickSettlementLocation(${coords[1]}, ${coords[0]}, '${(props.name || '').replace(/'/g, "\\'")}', '${(props['name:en'] || '').replace(/'/g, "\\'")}')"
-                            style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; width: 100%;"
+                            style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; width: 100%; margin-top: 5px;"
                         >
                             Pick Location
                         </button>
@@ -377,9 +378,10 @@ class Settlements {
                                     ${props.place ? `<div class="settlement-info">Type: ${props.place}</div>` : ''}
                                     ${props.population ? `<div class="settlement-info">Population: ${props.population.toLocaleString()}</div>` : ''}
                                     <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #ddd;">
+                                        ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
                                         <button
                                             onclick="window.markerAdjuster && window.markerAdjuster.pickSettlementLocation(${settlementLat}, ${settlementLng}, '${(props.name || '').replace(/'/g, "\\'")}', '${(props['name:en'] || '').replace(/'/g, "\\'")}')"
-                                            style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; width: 100%;"
+                                            style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; width: 100%; margin-top: 5px;"
                                         >
                                             Pick Location
                                         </button>

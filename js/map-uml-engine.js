@@ -76,6 +76,7 @@ class MapUMLEngine {
                 currentOperation = {
                     name: opMatch[1].trim(),
                     advances: [],
+                    objectives: [],
                     notes: [],
                     bounds: [] // Populated during render
                 };
@@ -93,6 +94,7 @@ class MapUMLEngine {
             if (cmdItem) {
                 if (currentOperation) {
                     if (cmdItem.type === 'advance') currentOperation.advances.push(cmdItem);
+                    else if (cmdItem.type === 'objective') currentOperation.objectives.push(cmdItem);
                     else if (cmdItem.type === 'note') currentOperation.notes.push(cmdItem);
                     else ast.items.push(cmdItem); // Let units/settlements remain global for easier bounds
                 } else {
@@ -121,6 +123,18 @@ class MapUMLEngine {
             const pathParts = advanceMatch[2].split('->').map(p => p.trim());
             return {
                 type: 'advance',
+                side: side,
+                path: pathParts
+            };
+        }
+
+        // objective A -> B -> C  or   ru objective A -> B
+        const objectiveMatch = line.match(/^(ru|ua)?\s*objective\s+(.+)$/i);
+        if (objectiveMatch) {
+            const side = objectiveMatch[1] ? objectiveMatch[1].toLowerCase() : null;
+            const pathParts = objectiveMatch[2].split('->').map(p => p.trim());
+            return {
+                type: 'objective',
                 side: side,
                 path: pathParts
             };
@@ -206,7 +220,7 @@ class MapUMLEngine {
 
                 if (activeRegions.length > 0) {
                     const coords = f.geometry.coordinates;
-                    const inRegion = activeRegions.some(r => 
+                    const inRegion = activeRegions.some(r =>
                         typeof this.dashboard.isSettlementInPredefinedRegion === 'function' &&
                         this.dashboard.isSettlementInPredefinedRegion(coords, r)
                     );
@@ -232,7 +246,7 @@ class MapUMLEngine {
                 if (foundUnit) return;
                 const props = layer.feature && layer.feature.properties ? layer.feature.properties : {};
                 const uName = String(props.Name || props.name || props.unit || props.designation || '').toLowerCase();
-                
+
                 let matchUnit = false;
                 if (searchName.includes('*')) {
                     const escaped = searchName.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
@@ -272,7 +286,7 @@ class MapUMLEngine {
     // ─── RENDERER ────────────────────────────────────────────
     draw(ast) {
         this.currentAst = ast;
-        
+
         let globalBounds = L.latLngBounds();
         let missingEntities = new Set();
         let errorsFound = false;
@@ -329,17 +343,41 @@ class MapUMLEngine {
             if (advance.side === 'ru') lineColor = this.colors.attacker;
             if (advance.side === 'ua') lineColor = this.colors.defender;
 
-            for (let i = 0; i < advance.path.length; i++) {
-                const nodeName = advance.path[i];
-                const loc = this.findCoordinates(nodeName);
+            // Pre-resolve all locations to allow look-ahead
+            const resolvedLocs = advance.path.map(nodeName => ({
+                nodeName,
+                loc: this.findCoordinates(nodeName)
+            }));
+
+            for (let i = 0; i < resolvedLocs.length; i++) {
+                const { nodeName, loc } = resolvedLocs[i];
 
                 if (loc) {
-                    if (loc.isDirection && lastValidLoc) {
-                        // Direction: move offset from last known location
-                        const offsetLat = lastValidLoc[0] + loc.offset[1];
-                        const offsetLng = lastValidLoc[1] + loc.offset[0];
-                        latlngs.push([offsetLat, offsetLng]);
-                        globalBounds.extend([offsetLat, offsetLng]);
+                    if (loc.isDirection) {
+                        if (lastValidLoc) {
+                            // Direction after a valid location (e.g., settlement -> W)
+                            const offsetLat = lastValidLoc[0] + loc.offset[1];
+                            const offsetLng = lastValidLoc[1] + loc.offset[0];
+                            latlngs.push([offsetLat, offsetLng]);
+                            globalBounds.extend([offsetLat, offsetLng]);
+                        } else {
+                            // Starting direction (e.g., NW -> settlement)
+                            // Look ahead for the first non-direction location
+                            let nextValidLoc = null;
+                            for (let j = i + 1; j < resolvedLocs.length; j++) {
+                                if (resolvedLocs[j].loc && !resolvedLocs[j].loc.isDirection) {
+                                    nextValidLoc = resolvedLocs[j].loc.latlng;
+                                    break;
+                                }
+                            }
+
+                            if (nextValidLoc) {
+                                const offsetLat = nextValidLoc[0] + loc.offset[1];
+                                const offsetLng = nextValidLoc[1] + loc.offset[0];
+                                latlngs.push([offsetLat, offsetLng]);
+                                globalBounds.extend([offsetLat, offsetLng]);
+                            }
+                        }
                     } else if (!loc.isDirection) {
                         latlngs.push(loc.latlng);
                         lastValidLoc = loc.latlng;
@@ -365,8 +403,95 @@ class MapUMLEngine {
             }
         };
 
+        const processObjective = (objective) => {
+            let latlngs = [];
+            let lastValidLoc = null;
+            let lineColor = this.colors.advance;
+
+            if (objective.side === 'ru') lineColor = this.colors.attacker;
+            if (objective.side === 'ua') lineColor = this.colors.defender;
+
+            const resolvedLocs = objective.path.map(nodeName => ({
+                nodeName,
+                loc: this.findCoordinates(nodeName)
+            }));
+
+            for (let i = 0; i < resolvedLocs.length; i++) {
+                const { nodeName, loc } = resolvedLocs[i];
+
+                if (loc) {
+                    if (loc.isDirection) {
+                        if (lastValidLoc) {
+                            const offsetLat = lastValidLoc[0] + loc.offset[1];
+                            const offsetLng = lastValidLoc[1] + loc.offset[0];
+                            latlngs.push([offsetLat, offsetLng]);
+                            globalBounds.extend([offsetLat, offsetLng]);
+                        } else {
+                            let nextValidLoc = null;
+                            for (let j = i + 1; j < resolvedLocs.length; j++) {
+                                if (resolvedLocs[j].loc && !resolvedLocs[j].loc.isDirection) {
+                                    nextValidLoc = resolvedLocs[j].loc.latlng;
+                                    break;
+                                }
+                            }
+
+                            if (nextValidLoc) {
+                                const offsetLat = nextValidLoc[0] + loc.offset[1];
+                                const offsetLng = nextValidLoc[1] + loc.offset[0];
+                                latlngs.push([offsetLat, offsetLng]);
+                                globalBounds.extend([offsetLat, offsetLng]);
+                            }
+                        }
+                    } else if (!loc.isDirection) {
+                        latlngs.push(loc.latlng);
+                        lastValidLoc = loc.latlng;
+                        globalBounds.extend(loc.latlng);
+                    }
+                } else {
+                    handleMissing(nodeName);
+                }
+            }
+
+            if (latlngs.length >= 2) {
+                // Draw solid line
+                L.polyline(latlngs, {
+                    color: lineColor,
+                    weight: 3
+                }).addTo(this.layerGroup);
+            }
+        };
+
+        let missingNoteIndex = 0;
+
         const processNote = (note) => {
-            const loc = this.findCoordinates(note.location);
+            let loc = this.findCoordinates(note.location);
+            
+            if (!loc && editMode) {
+                handleMissing(note.location);
+                let fallbackBounds = globalBounds.isValid() ? globalBounds : this.map.getBounds();
+                const se = fallbackBounds.getSouthEast();
+                const nw = fallbackBounds.getNorthWest();
+                
+                const height = Math.abs(nw.lat - se.lat);
+                const width = Math.abs(se.lng - nw.lng);
+                
+                const stepLat = Math.max(height * 0.05, 0.005);
+                const startLng = Math.max(width * 0.15, 0.02);
+
+                // Start near bottom right edge, and stack them UPWARDS
+                const tempLat = se.lat + stepLat + (missingNoteIndex * stepLat);
+                const tempLng = se.lng - startLng;
+                
+                loc = {
+                    latlng: [tempLat, tempLng],
+                    isDirection: false
+                };
+                missingNoteIndex++;
+            } else if (!loc) {
+                handleMissing(note.location);
+                return;
+            }
+
             if (loc && !loc.isDirection) {
                 globalBounds.extend(loc.latlng);
 
@@ -374,16 +499,18 @@ class MapUMLEngine {
                 if (note.side === 'ru') extraClass = ' map-uml-note-ru';
                 if (note.side === 'ua') extraClass = ' map-uml-note-ua';
 
+                const strippedContent = note.content.replace(/\[(.*?):\s*[-\d.]+\s*,\s*[-\d.]+\]/g, '$1');
+
                 const icon = L.divIcon({
                     className: 'map-uml-note' + extraClass,
-                    html: `<div>${note.content}</div>`,
-                    iconSize: [120, 40],
+                    html: `<div>${strippedContent}</div>`,
+                    iconSize: null,
                     iconAnchor: [-15, 20] // Placed to the right side of the node
                 });
 
-                const marker = L.marker(loc.latlng, { 
+                const marker = L.marker(loc.latlng, {
                     icon: icon,
-                    draggable: editMode 
+                    draggable: editMode
                 }).addTo(this.layerGroup);
 
                 if (editMode) {
@@ -392,24 +519,27 @@ class MapUMLEngine {
                         this.updateNoteLocation(note, newLatlng);
                     });
                 }
-            } else if (!loc) {
-                handleMissing(note.location);
             }
         };
 
         // Draw Global items
         ast.items.filter(i => ['attacker', 'defender', 'settlement'].includes(i.type)).forEach(processEntity);
         ast.items.filter(i => i.type === 'advance').forEach(processAdvance);
+        ast.items.filter(i => i.type === 'objective').forEach(processObjective);
         ast.items.filter(i => i.type === 'note').forEach(processNote);
 
         // Draw Operation groups
         ast.operations.forEach(op => {
             if (op.advances) op.advances.forEach(processAdvance);
+            if (op.objectives) op.objectives.forEach(processObjective);
             if (op.notes) op.notes.forEach(processNote);
         });
 
+        this.missingEntities = Array.from(missingEntities);
+
         if (errorsFound) {
-            alert("The following entities could not be resolved. Please check spelling or use manual coordinates like [Title:lat,lon]:\n\n- " + Array.from(missingEntities).join('\n- '));
+            console.error("The following entities could not be resolved. Please check spelling or use manual coordinates like [Title:lat,lon]:\n\n- " + Array.from(missingEntities).join('\n- '));
+            // Alert removed by user request to prevent blocking during interactive assignments
         }
 
         // Fit map
@@ -421,16 +551,16 @@ class MapUMLEngine {
     updateNoteLocation(note, latlng) {
         const el = this.dashboard.getEl('map-uml-input');
         if (!el) return;
-        
+
         let text = el.value;
         const matchContent = note.content.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
         const matchRawLoc = note.rawLocation.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-        
+
         // Match exact note line: e.g. note "Failed assault" at Kryva Luka
         const regex = new RegExp(`^(\\s*note\\s+["']${matchContent}["']\\s+at\\s+)${matchRawLoc}\\s*$`, 'im');
-        
+
         const newLocString = `[${note.location}: ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}]`;
-        
+
         if (regex.test(text)) {
             el.value = text.replace(regex, `$1${newLocString}`);
             note.rawLocation = newLocString; // update for subsequent drags
@@ -439,45 +569,92 @@ class MapUMLEngine {
         }
     }
 
-    pickSettlementLocation(lat, lon, localName, enName) {
+    getMissingEntitiesHTML() {
+        const editMode = this.dashboard.getEl('map-uml-edit-mode')?.checked;
+        if (!editMode || !this.missingEntities || this.missingEntities.length === 0) return '';
+
+        let options = '<option value="">-- Or Assign to Missing Entity --</option>';
+        this.missingEntities.forEach(ent => {
+            options += `<option value="${ent.replace(/"/g, '&quot;')}">${ent}</option>`;
+        });
+
+        return `
+            <div style="margin-top: 5px;">
+                <select class="map-uml-alias-select" style="width: 100%; padding: 4px; font-size: 11px; border: 1px solid #ccc; border-radius: 3px; background: white; color: black; box-sizing: border-box;">
+                    ${options}
+                </select>
+            </div>
+        `;
+    }
+
+    _applyLocationToScript(lat, lon, targetNames) {
         const editMode = this.dashboard.getEl('map-uml-edit-mode')?.checked;
         if (!editMode) return;
 
         const el = this.dashboard.getEl('map-uml-input');
         if (!el) return;
 
-        const preferredName = enName || localName;
+        let selectedAlias = '';
+        const selects = document.querySelectorAll('.leaflet-popup-content .map-uml-alias-select');
+        if (selects.length > 0) {
+            selectedAlias = Array.from(selects).map(s => s.value).find(v => v !== '') || '';
+        }
+
+        const fallbackName = targetNames.find(n => n) || 'Unknown';
+        const preferredName = selectedAlias || fallbackName;
         const coordStr = `[${preferredName}:${lat.toFixed(4)},${lon.toFixed(4)}]`;
 
-        // Replace name occurrences that are NOT already inside [...] brackets
-        const replaceOutsideBrackets = (text, name) => {
-            if (!name) return { text, replaced: false };
-            const escaped = name.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
-            let replaced = false;
-            const result = text.replace(regex, (match, offset) => {
-                const before = text.substring(0, offset);
-                const lastOpen = before.lastIndexOf('[');
-                const lastClose = before.lastIndexOf(']');
-                if (lastOpen > lastClose) return match; // already inside [...]
-                replaced = true;
-                return coordStr;
-            });
-            return { text: result, replaced };
-        };
-
         let text = el.value;
-        let result = replaceOutsideBrackets(text, enName);
-        if (!result.replaced) result = replaceOutsideBrackets(text, localName);
+        let replaced = false;
 
-        if (result.replaced) {
-            el.value = result.text;
+        if (selectedAlias) {
+            text = text.split(selectedAlias).join(coordStr);
+            replaced = true;
+        } else {
+            const replaceOutsideBrackets = (text, name) => {
+                if (!name) return { text, replaced: false };
+                const escaped = name.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+                
+                let resultReplaced = false;
+                const result = text.replace(regex, (match, offset) => {
+                    const before = text.substring(0, offset);
+                    const lastOpen = before.lastIndexOf('[');
+                    const lastClose = before.lastIndexOf(']');
+                    if (lastOpen > lastClose) return match; // already inside [...]
+                    resultReplaced = true;
+                    return coordStr;
+                });
+                return { text: result, replaced: resultReplaced };
+            };
+
+            for (const name of targetNames) {
+                const result = replaceOutsideBrackets(text, name);
+                if (result.replaced) {
+                    text = result.text;
+                    replaced = true;
+                    break;
+                }
+            }
+        }
+
+        if (replaced) {
+            el.value = text;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
             this.dashboard.map.closePopup();
             const btn = this.dashboard.getEl('btn-render-mapuml');
             if (btn) btn.click();
         } else {
-            console.warn(`MapUML: could not find "${localName}" / "${enName}" in script`);
+            console.warn(`MapUML: could not find any of [${namesToTarget.join(', ')}] in script`);
         }
+    }
+
+    pickSettlementLocation(lat, lon, localName, enName) {
+        this._applyLocationToScript(lat, lon, [enName, localName]);
+    }
+
+    pickUnitLocation(lat, lon, unitName) {
+        this._applyLocationToScript(lat, lon, [unitName]);
     }
 
     drawArrowhead(p1, p2, color) {
@@ -506,6 +683,7 @@ class MapUMLEngine {
             weight: 1
         }).addTo(this.layerGroup);
     }
+
 }
 
 window.MapUMLEngine = MapUMLEngine;

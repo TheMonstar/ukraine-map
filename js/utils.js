@@ -107,9 +107,11 @@ class DeepUtils {
                     const geojson = tempPolygon.toGeoJSON();
 
                     // Get depth values, default to clusterRadius if not set
-                    const defaultDepth = document.getElementById('clusterRadius')?.value || 20;
-                    const occupiedDepth = parseFloat(document.getElementById('shadow-depth-occupied')?.value || defaultDepth);
-                    const oppositeDepth = parseFloat(document.getElementById('shadow-depth-opposite')?.value || defaultDepth);
+                    const defaultDepth = parseFloat(document.getElementById('clusterRadius')?.value) || 20;
+                    const occupiedEl = document.getElementById('shadow-depth-occupied');
+                    const oppositeEl = document.getElementById('shadow-depth-opposite');
+                    const occupiedDepth = occupiedEl && occupiedEl.value !== '' ? parseFloat(occupiedEl.value) : defaultDepth;
+                    const oppositeDepth = oppositeEl && oppositeEl.value !== '' ? parseFloat(oppositeEl.value) : defaultDepth;
 
                     // Store both buffer zones with their depths
                     polis.push({
@@ -165,7 +167,8 @@ class DeepUtils {
                     combinedShadow = turf.union(occupiedShadow, oppositeShadow);
                 }
 
-                // Create gradient rings with exponential decay
+                // Create gradient rings with exponential decay (only if gradient toggle is on)
+                const gradientEnabled = document.getElementById('shadow-gradient')?.checked;
                 const gradientRings = [];
                 const numRings = 5;
 
@@ -180,7 +183,7 @@ class DeepUtils {
                 const avgOppositeDepth = polis.reduce((sum, p) => sum + p.oppositeDepth, 0) / polis.length;
 
                 // Generate rings from outermost to innermost
-                for (let i = 0; i < numRings; i++) {
+                for (let i = 0; gradientEnabled && i < numRings; i++) {
                     const depthPercent = depthPercentages[i];
                     const ringOccupiedDepth = avgOccupiedDepth * depthPercent;
                     const ringOppositeDepth = avgOppositeDepth * depthPercent;
@@ -226,7 +229,7 @@ class DeepUtils {
                     style: {
                         color: 'gray',
                         fillColor: 'gray',
-                        fillOpacity: 0.3
+                        fillOpacity: 0.4
                     },
                     gradientRings: gradientRings
                 };
@@ -281,7 +284,7 @@ class DeepUtils {
         // Render shadow polygon if it exists with gradient effect
         if (polygonData.shadowPolygon) {
             // Create gradient by rendering multiple buffer rings with decreasing opacity
-            if (polygonData.shadowPolygon.gradientRings) {
+            if (polygonData.shadowPolygon.gradientRings && polygonData.shadowPolygon.gradientRings.length) {
                 // Render gradient rings from outermost to innermost for proper layering
                 polygonData.shadowPolygon.gradientRings.forEach(ring => {
                     L.geoJSON(ring.geojson, {
