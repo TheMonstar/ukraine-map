@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FRONTLINE — Tactical Front</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="game.css"/>
+</head>
+<body>
+
+<!-- ── SETUP SCREEN ─────────────────────────────────────────────── -->
+<div id="setup-screen">
+  <div class="setup-box">
+    <div class="setup-logo">FRONTLINE</div>
+    <div class="setup-sub">Real battlefield · Real units · 20 turns</div>
+
+    <div class="setup-section">
+      <label>FACTION</label>
+      <div class="faction-choice">
+        <button class="faction-btn active" data-faction="ua">
+          <span class="faction-flag">🇺🇦</span>
+          <span class="faction-name">Ukraine</span>
+          <span class="faction-style">Precision · ISR · Elastic defence</span>
+        </button>
+        <button class="faction-btn" data-faction="ru">
+          <span class="faction-flag">⚔️</span>
+          <span class="faction-name">Russia</span>
+          <span class="faction-style">Mass · Attrition · EW dominance</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="setup-section">
+      <label>BATTLEFIELD</label>
+      <div class="coord-row">
+        <div>
+          <span>Lat</span>
+          <input id="input-lat" type="number" step="0.01" value="48.10" min="46" max="51"/>
+        </div>
+        <div>
+          <span>Lng</span>
+          <input id="input-lng" type="number" step="0.01" value="37.30" min="33" max="40"/>
+        </div>
+        <button id="btn-random-point" class="btn-secondary">Random Frontline Point</button>
+      </div>
+      <div class="preset-row">
+        <button class="preset-btn" data-lat="48.10" data-lng="37.30">Pokrovsk</button>
+        <button class="preset-btn" data-lat="48.58" data-lng="37.95">Toretsk</button>
+        <button class="preset-btn" data-lat="47.83" data-lng="35.16">Zaporizhzhia</button>
+        <button class="preset-btn" data-lat="49.00" data-lng="36.30">Kharkiv</button>
+        <button class="preset-btn" data-lat="48.38" data-lng="38.48">Luhansk</button>
+      </div>
+    </div>
+
+    <div class="setup-section">
+      <label>DIFFICULTY</label>
+      <div class="diff-choice">
+        <button class="diff-btn" data-diff="0.7">Easy</button>
+        <button class="diff-btn active" data-diff="1.0">Normal</button>
+        <button class="diff-btn" data-diff="1.3">Hard</button>
+      </div>
+    </div>
+
+    <button id="btn-start" class="btn-start">DEPLOY TO FRONT</button>
+    <div id="setup-status" class="setup-status"></div>
+  </div>
+</div>
+
+<!-- ── GAME SCREEN ──────────────────────────────────────────────── -->
+<div id="game-screen" style="display:none">
+
+  <!-- TOP HUD -->
+  <div id="hud-top">
+    <div id="hud-faction"></div>
+    <div id="hud-turn"></div>
+    <div id="hud-timer-wrap">
+      <svg id="timer-svg" width="44" height="44" viewBox="0 0 44 44">
+        <circle cx="22" cy="22" r="18" fill="none" stroke="#333" stroke-width="3"/>
+        <circle id="timer-ring" cx="22" cy="22" r="18" fill="none" stroke="#e8c84a" stroke-width="3"
+          stroke-dasharray="113.1" stroke-dashoffset="0" stroke-linecap="round"
+          transform="rotate(-90 22 22)"/>
+        <text id="timer-text" x="22" y="27" text-anchor="middle" fill="#e8c84a" font-size="12" font-weight="bold">20</text>
+      </svg>
+    </div>
+    <div id="hud-vp">
+      <span id="vp-player">—</span>
+      <span class="vp-sep">vs</span>
+      <span id="vp-ai">—</span>
+    </div>
+    <div id="hud-weather"></div>
+    <button id="btn-end-turn" class="btn-end-turn">END TURN</button>
+  </div>
+
+  <!-- INITIATIVE BAR -->
+  <div id="initiative-bar">
+    <span class="init-label">←</span>
+    <div id="init-track">
+      <div id="init-fill"></div>
+      <div id="init-marker"></div>
+    </div>
+    <span class="init-label">→</span>
+    <span id="init-value">5</span>
+  </div>
+
+  <!-- AP + CP ROW -->
+  <div id="hud-resources">
+    <div id="ap-display">
+      <span class="res-label">AP</span>
+      <span id="ap-pips"></span>
+    </div>
+    <div id="cp-display">
+      <span class="res-label">CP</span>
+      <span id="cp-pips"></span>
+    </div>
+    <div id="phase-label"></div>
+  </div>
+
+  <!-- MAP -->
+  <div id="map"></div>
+
+  <!-- BOTTOM PANEL: card hand + orders -->
+  <div id="bottom-panel">
+    <div id="hand-area">
+      <div class="panel-label">UNITS</div>
+      <div id="card-hand"></div>
+    </div>
+    <div id="orders-area">
+      <div class="panel-label">ORDERS</div>
+      <div id="orders-hand"></div>
+    </div>
+    <div id="commander-area">
+      <div class="panel-label">CMD</div>
+      <div id="commander-card"></div>
+    </div>
+  </div>
+
+  <!-- EVENT DISPLAY -->
+  <div id="event-popup" style="display:none">
+    <div id="event-title"></div>
+    <div id="event-desc"></div>
+  </div>
+
+  <!-- UNIT INFO PANEL — fully populated by _showUnitInfo() -->
+  <div id="unit-info" style="display:none"></div>
+  <!-- Global floating tooltip for .ab-chip hover -->
+  <div id="gtip"></div>
+
+  <!-- VICTORY SCREEN -->
+  <div id="victory-screen" style="display:none">
+    <div id="victory-box">
+      <div id="victory-label"></div>
+      <div id="victory-detail"></div>
+      <div id="victory-vp"></div>
+      <button id="btn-new-game">NEW GAME</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── SCRIPTS ──────────────────────────────────────────────────── -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script src="js/cards.js"></script>
+<script src="js/board.js"></script>
+<script src="js/terrain-loader.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/event-deck.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/game-engine.js"></script>
+<script src="js/ui.js"></script>
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    window.gameUI = new GameUI();
+    window.gameUI.initSetupScreen();
+});
+</script>
+</body>
+</html>
