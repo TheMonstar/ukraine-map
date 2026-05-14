@@ -146,6 +146,7 @@ class AttackMapDashboard {
         this.settlementBordersLayer = L.layerGroup();
         this.settlementBufferLayer = L.layerGroup();
         this.settlementLocalBoundariesLayer = L.layerGroup();
+        this.settlementPopupBoundariesLayer = L.layerGroup();
         this.settlementNamesLayer = L.layerGroup();
         this.filteredSettlements = [];
         this.currentPredefinedRegion = null;
@@ -4404,6 +4405,5 @@ class AttackMapDashboard {
 // Initialize the dashboard when the page loads
 window.onload = () => {
     window.dashboard = new AttackMapDashboard();
-    window.settlements = window.dashboard.settlements;
     window.dashboard.init();
 };

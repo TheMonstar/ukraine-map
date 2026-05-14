@@ -93,6 +93,7 @@ class MapLayers {
         dashboard.settlementBordersLayer.addTo(dashboard.map);
         dashboard.settlementBufferLayer.addTo(dashboard.map);
         dashboard.settlementLocalBoundariesLayer.addTo(dashboard.map);
+        dashboard.settlementPopupBoundariesLayer.addTo(dashboard.map);
         dashboard.settlementNamesLayer.addTo(dashboard.map);
 
         dashboard.map.on('zoomend moveend', () => {

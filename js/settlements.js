@@ -107,7 +107,6 @@ class Settlements {
             const escapedName = (props.name || '').replace(/'/g, "\\'");
             const escapedNameEn = (props['name:en'] || '').replace(/'/g, "\\'");
             const displayTitle = escapedNameEn || escapedName;
-
             let popupContent = `
                 <div class="settlement-popup">
                     <div class="settlement-name">${props['name:en'] || props.name || 'Unknown'}</div>
@@ -119,16 +118,16 @@ class Settlements {
                     <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
                         <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-bottom:4px;">
                             <input type="checkbox" ${this.popupTitleLayers.has(osmId) ? 'checked' : ''}
-                                onchange="window.settlements.togglePopupTitle(this, '${osmId}', ${coords[1]}, ${coords[0]}, '${displayTitle}')">
+                                onchange="window.dashboard.settlements.togglePopupTitle(this, '${osmId}', ${coords[1]}, ${coords[0]}, '${displayTitle}')">
                             Show title on map
                         </label>
                         <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
                             <input type="checkbox" ${this.popupBoundaryLayers.has(osmId) ? 'checked' : ''}
-                                onchange="window.settlements.togglePopupBoundary(this, '${osmId}')">
+                                onchange="window.dashboard.settlements.togglePopupBoundary(this, '${osmId}', '${props.osm_type}')">
                             Highlight boundary
                             <input type="color" value="${this.popupBoundaryLayers.get(osmId)?.options?.color || '#ff6600'}"
                                 style="width:28px;height:20px;padding:0;border:1px solid #ccc;cursor:pointer;border-radius:3px;"
-                                onchange="window.settlements.updatePopupBoundaryColor('${osmId}', this.value)">
+                                onchange="window.dashboard.settlements.updatePopupBoundaryColor('${osmId}', this.value)">
                         </label>
                     </div>
                     <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
@@ -495,20 +494,22 @@ class Settlements {
         }
     }
 
-    togglePopupBoundary(checkbox, osmId) {
+    async togglePopupBoundary(checkbox, osmId, osmType = 'nodes') {
         if (checkbox.checked) {
-            const key = `nodes_${osmId}`;
-            const data = this.dashboard.settlementBoundariesData?.[key];
-            if (!data?.boundary?.coordinates?.length) {
+            const color = checkbox.closest('label').querySelector('input[type=color]')?.value || '#ff6600';
+            const key = `${osmType}_${osmId}`;
+            const localEntry = this.dashboard.settlementBoundariesData?.[key];
+            const localOk = localEntry?.boundary?.coordinates?.length && localEntry.boundary.coordinates[0]?.length;
+            let geometry = localOk ? localEntry.boundary : await this.fetchSettlementBoundary(osmId, osmType);
+            if (!geometry?.coordinates?.length) {
                 checkbox.checked = false;
                 return;
             }
-            const color = checkbox.closest('label').querySelector('input[type=color]')?.value || '#ff6600';
-            this._renderPopupBoundary(osmId, data.boundary, color);
+            this._renderPopupBoundary(osmId, geometry, color);
         } else {
             const layer = this.popupBoundaryLayers.get(osmId);
             if (layer) {
-                this.dashboard.settlementLocalBoundariesLayer.removeLayer(layer);
+                this.dashboard.settlementPopupBoundariesLayer.removeLayer(layer);
                 this.popupBoundaryLayers.delete(osmId);
             }
         }
@@ -517,7 +518,7 @@ class Settlements {
     _renderPopupBoundary(osmId, geometry, color) {
         const existing = this.popupBoundaryLayers.get(osmId);
         if (existing) {
-            this.dashboard.settlementLocalBoundariesLayer.removeLayer(existing);
+            this.dashboard.settlementPopupBoundariesLayer.removeLayer(existing);
         }
         let polygonLayer;
         try {
@@ -532,7 +533,7 @@ class Settlements {
             console.error('Error rendering popup boundary', e);
         }
         if (polygonLayer) {
-            polygonLayer.addTo(this.dashboard.settlementLocalBoundariesLayer);
+            polygonLayer.addTo(this.dashboard.settlementPopupBoundariesLayer);
             this.popupBoundaryLayers.set(osmId, polygonLayer);
         }
     }
@@ -549,7 +550,6 @@ class Settlements {
             this.renderLocalBoundaries();
         } else {
             this.dashboard.settlementLocalBoundariesLayer.clearLayers();
-            this.popupBoundaryLayers.clear();
         }
     }
 
@@ -560,7 +560,6 @@ class Settlements {
         const minPop = this._getLocalBoundaryMinPop();
 
         this.dashboard.settlementLocalBoundariesLayer.clearLayers();
-        this.popupBoundaryLayers.clear();
 
         const color = this.dashboard.getEl('settlement-boundary-color')?.value || '#ff6600';
 
@@ -570,9 +569,17 @@ class Settlements {
             const pop = this.parsePopulation(entry.population);
             if (pop < minPop) continue;
 
-            const osmId = key.replace(/^[^_]+_/, '');
-            this._renderPopupBoundary(osmId, entry.boundary, color);
-            count++;
+            try {
+                const { type, coordinates } = entry.boundary;
+                let layer;
+                if (type === 'Polygon') {
+                    layer = L.polygon(coordinates[0].map(c => [c[1], c[0]]), { color, weight: 2, fillOpacity: 0.15, fillColor: color });
+                } else if (type === 'MultiPolygon') {
+                    layer = L.polygon(coordinates.map(p => p[0].map(c => [c[1], c[0]])), { color, weight: 2, fillOpacity: 0.15, fillColor: color });
+                }
+                if (layer) layer.addTo(this.dashboard.settlementLocalBoundariesLayer);
+                count++;
+            } catch (e) { /* skip invalid geometry */ }
         }
         console.log(`Rendered ${count} local boundaries (min pop: ${minPop})`);
     }
