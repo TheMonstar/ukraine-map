@@ -474,6 +474,97 @@
                     </div>
                 </div>
 
+                <!-- Air Defense Range -->
+                <div class="accordion-section" data-section="air-defense">
+                    <div class="accordion-header">
+                        <span class="accordion-arrow">&#9654;</span>
+                        Air Defense Range
+                    </div>
+                    <div class="accordion-body" style="display:none;">
+                        <div class="control-group">
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="air-defense-multiple" />
+                                    <span class="toggle-switch"></span>Multiple (up to 100)
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="air-defense-event-ranges" />
+                                    <span class="toggle-switch"></span>Show Event Ranges
+                                </label>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <div id="air-defense-grid" class="air-defense-grid"></div>
+                        </div>
+                        <div class="control-group" id="air-defense-round-group" style="display:none;">
+                            <label class="control-label">Missile / Round</label>
+                            <select id="air-defense-round" class="control-select"></select>
+                        </div>
+                        <div class="btn-row">
+                            <button id="air-defense-clear" class="btn btn-sm btn-danger">Clear All</button>
+                        </div>
+                        <div id="air-defense-hint" class="draw-hint"></div>
+                    </div>
+                </div>
+
+                <!-- Terrain Analysis -->
+                <div class="accordion-section" data-section="terrain">
+                    <div class="accordion-header">
+                        <span class="accordion-arrow">&#9654;</span>
+                        Terrain Analysis
+                    </div>
+                    <div class="accordion-body" style="display:none;">
+                        <div class="control-group">
+                            <label class="control-label">Forest Layer</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="forest-overlay" />
+                                    <span class="toggle-switch"></span>Tree Lines
+                                </label>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Line of Sight</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="los-p2p-mode" />
+                                    <span class="toggle-switch"></span>Point-to-Point
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="los-viewshed-mode" />
+                                    <span class="toggle-switch"></span>Viewshed 360°
+                                </label>
+                            </div>
+                            <div id="los-hint" class="draw-hint" style="display:none;"></div>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Parameters</label>
+                            <div class="control-row">
+                                <label class="small-label">Observer height (m):</label>
+                                <input type="number" id="los-observer-height" value="2" min="0" max="50" step="0.5" class="control-input-sm" />
+                            </div>
+                            <div class="control-row" id="los-target-height-row">
+                                <label class="small-label">Target height (m):</label>
+                                <input type="number" id="los-target-height" value="0" min="0" max="50" step="0.5" class="control-input-sm" />
+                            </div>
+                            <div class="control-row" id="los-radius-row" style="display:none;">
+                                <label class="small-label">Radius (km):</label>
+                                <input type="number" id="los-radius" value="5" min="1" max="30" step="1" class="control-input-sm" />
+                            </div>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="los-tree-bonus" checked />
+                                    <span class="toggle-switch"></span>+15m in forests
+                                </label>
+                            </div>
+                        </div>
+                        <div class="btn-row">
+                            <button id="los-clear" class="btn btn-sm btn-danger">Clear LoS</button>
+                        </div>
+                        <div id="los-status" class="stats-text" style="min-height:16px;"></div>
+                    </div>
+                </div>
+
                 <!-- MapUML Engine -->
                 <div class="accordion-section" data-section="map-uml">
                     <div class="accordion-header">
@@ -521,6 +612,20 @@
                             <label class="small-label">Min Population:</label>
                             <input id="clusterRadius" value="2000" class="control-input-sm" />
                         </div>
+                        <div class="toggle-row">
+                            <label class="toggle-label"><input type="checkbox" id="show-settlement-boundaries" /><span
+                                    class="toggle-switch"></span>Boundaries</label>
+                            <label class="toggle-label"><input type="checkbox" id="show-settlement-names" /><span
+                                    class="toggle-switch"></span>Names</label>
+                            <input type="color" id="settlement-boundary-color" value="#000000"
+                                title="Boundary color"
+                                style="width:28px;height:24px;padding:0;border:1px solid #555;cursor:pointer;border-radius:3px;vertical-align:middle;" />
+                        </div>
+                        <div class="control-row" style="flex-direction:column;align-items:flex-start;gap:2px;">
+                            <label class="small-label">Min Pop (boundaries/names): <span id="settlement-label-pop-value">20,000</span></label>
+                            <input type="range" id="settlement-label-pop-slider" min="10000" max="500000" step="5000" value="20000"
+                                style="width:100%;" />
+                        </div>
                         <div class="control-group">
                             <label class="control-label">Search</label>
                             <input type="text" id="settlement-search" placeholder="Settlement name..."
@@ -551,30 +656,8 @@
                     </div>
                 </div>
 
-                <!-- Settlement Legend -->
-                <div id="settlement-legend" class="sidebar-panel" style="display: none;">
-                    <h3 class="panel-title">Settlement Legend</h3>
-                    <div class="legend-content">
-                        <div class="legend-item">
-                            <div class="legend-color" style="background:#4a90e2;"></div><span>&lt; 1,000</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background:#7ed321;"></div><span>1k - 5k</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background:#f5a623;"></div><span>5k - 10k</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background:#d0021b;"></div><span>10k - 25k</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background:#9013fe;"></div><span>25k - 100k</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-color" style="background:#50e3c2;"></div><span>&ge; 100k</span>
-                        </div>
-                    </div>
-                </div>
+                <!-- Settlement Legend (populated dynamically by buildLegend()) -->
+                <div id="settlement-legend" class="sidebar-panel" style="display: none;"></div>
             </div>
 
             <!-- Donations -->
@@ -606,6 +689,14 @@
                     <div class="legend-item">
                         BS: <a href="https://bsky.app/profile/monstars.bsky.social"
                             target="_blank">@monstars.bsky.social</a></div>
+                </div>
+                <div class="control-group" style="margin-top:10px;">
+                    <label class="control-label">Mapbox Token</label>
+                    <div style="display:flex;gap:4px;">
+                        <input type="password" id="mapbox-token-input" class="control-input"
+                            placeholder="pk.eyJ1..." autocomplete="off" style="flex:1;min-width:0;margin: 0;" />
+                        <button id="mapbox-token-save" class="btn btn-sm">Save</button>
+                    </div>
                 </div>
             </div>
         </aside>
@@ -767,6 +858,7 @@ Situation report:
     <script src="js/map-layers.js?544"></script>
     <script src="js/settlements.js?544"></script>
     <script src="js/draw.js?544"></script>
+    <script src="js/terrain-analysis.js?544"></script>
     <script src="js/ui-bindings.js?544"></script>
     <script src="js/map-uml-engine.js?544"></script>
     <script src="js/app.js?544"></script>

@@ -66,6 +66,9 @@ class AttackMapDashboard {
         this.featureLayer = null;
 
         this.eventsLayer = null;
+        this.terrainAnalysis = null;
+        this.losLayer = null;
+        this.forestLayer = null;
         this.eventsData = [];
         this.eventsFilterEnabled = {};
         this.eventsNameFilter = '';
@@ -142,6 +145,8 @@ class AttackMapDashboard {
         this.settlementsLayer = L.layerGroup();
         this.settlementBordersLayer = L.layerGroup();
         this.settlementBufferLayer = L.layerGroup();
+        this.settlementLocalBoundariesLayer = L.layerGroup();
+        this.settlementNamesLayer = L.layerGroup();
         this.filteredSettlements = [];
         this.currentPredefinedRegion = null;
         this.settlementBoundariesCache = new Map(); // Cache for API responses
@@ -160,9 +165,10 @@ class AttackMapDashboard {
         this.playbackSpeed = 1000;
 
         // Add map style definitions
+        this.mapboxToken = localStorage.getItem('mapboxToken') || '';
         this.mapStyles = {
             mapbox: {
-                url: 'https://api.mapbox.com/styles/v1/mapbox/navigation-day-v1/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94LWtpcmsiLCJhIjoiY205czZlMHo2MWd5ajJwczQ3bXM1MGl2cyJ9.SFkXvR-QU3S-FIlcBxSX7w&language=en',
+                url: `https://api.mapbox.com/styles/v1/mapbox/navigation-day-v1/tiles/{z}/{x}/{y}?access_token=${this.mapboxToken}&language=en`,
                 attribution: '© <a href="https://www.mapbox.com/about/maps/">Mapbox</a>'
             },
             carto: {
@@ -205,7 +211,9 @@ class AttackMapDashboard {
     init() {
         this.layers.initMap();
         this.mapUmlEngine = new MapUMLEngine(this);
+        this.terrainAnalysis = new TerrainAnalysis(this);
         this.uiBindings.init();
+        this.terrainAnalysis._initLosCanvas();
         this.buildRegionPolygonCache();
         this.addLegend();
         this.initDates();
@@ -346,7 +354,19 @@ class AttackMapDashboard {
             'feature-events',
             'events-filter-list',
             'events-attribution',
-            'events-reload-btn'
+            'events-reload-btn',
+            'forest-overlay',
+            'los-p2p-mode',
+            'los-viewshed-mode',
+            'los-observer-height',
+            'los-target-height',
+            'los-target-height-row',
+            'los-radius',
+            'los-radius-row',
+            'los-tree-bonus',
+            'los-hint',
+            'los-status',
+            'los-clear'
         ];
         ids.forEach(id => {
             this.ui[id] = document.getElementById(id);
@@ -476,8 +496,8 @@ class AttackMapDashboard {
                 this.updateDailyPositions();
             }
 
-            // Settlement boundaries loaded on demand from Nominatim
-            this.settlementBoundariesData = null;
+            // Load local settlement boundaries data
+            this.settlementBoundariesData = await fetchJSON('./data/settlements_boundaries.json');
 
             if (this.settlementsData) {
                 console.log(`Loaded ${this.settlementsData.features?.length || 0} settlements`);
@@ -4261,6 +4281,22 @@ class AttackMapDashboard {
         return this.settlements.toggleSettlementBuffers();
     }
 
+    toggleLocalBoundaries() {
+        return this.settlements.toggleLocalBoundaries();
+    }
+
+    renderLocalBoundaries() {
+        return this.settlements.renderLocalBoundaries();
+    }
+
+    toggleSettlementNames() {
+        return this.settlements.toggleSettlementNames();
+    }
+
+    renderSettlementNames() {
+        return this.settlements.renderSettlementNames();
+    }
+
     /**
      * Show settlement boundaries loader
      */
@@ -4368,5 +4404,6 @@ class AttackMapDashboard {
 // Initialize the dashboard when the page loads
 window.onload = () => {
     window.dashboard = new AttackMapDashboard();
+    window.settlements = window.dashboard.settlements;
     window.dashboard.init();
 };

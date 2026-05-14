@@ -87,9 +87,13 @@ class MapLayers {
         dashboard.featureWireLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureDragonLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.eventsLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.losLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.forestLayer = null;
         dashboard.settlementsLayer.addTo(dashboard.map);
         dashboard.settlementBordersLayer.addTo(dashboard.map);
         dashboard.settlementBufferLayer.addTo(dashboard.map);
+        dashboard.settlementLocalBoundariesLayer.addTo(dashboard.map);
+        dashboard.settlementNamesLayer.addTo(dashboard.map);
 
         dashboard.map.on('zoomend moveend', () => {
             if (dashboard.isChecked('settlements-border')) {

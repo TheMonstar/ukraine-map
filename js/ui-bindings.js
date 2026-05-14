@@ -513,12 +513,14 @@ class UiBindings {
                 dashboard.featureDitchesLayer.clearLayers();
                 dashboard.featureDitchesStartLayer.clearLayers();
             }
+            if (window._map3DView) window._map3DView.updateDitches3D();
             updateFeaturesAttribution();
         });
 
         dashboard.bindUI('features-diff', 'change', async () => {
             if (dashboard.isChecked('feature-ditches')) {
                 await dashboard.refreshDitches();
+                if (window._map3DView) window._map3DView.updateDitches3D();
             }
         });
 
@@ -2993,6 +2995,20 @@ class UiBindings {
             console.log('Data sources refreshed');
         });
 
+        const mapboxInput = dashboard.getEl('mapbox-token-input');
+        if (mapboxInput) {
+            mapboxInput.value = localStorage.getItem('mapboxToken') || '';
+        }
+        dashboard.bindUI('mapbox-token-save', 'click', () => {
+            const token = dashboard.getEl('mapbox-token-input')?.value.trim() || '';
+            localStorage.setItem('mapboxToken', token);
+            dashboard.mapboxToken = token;
+            dashboard.mapStyles.mapbox.url = `https://api.mapbox.com/styles/v1/mapbox/navigation-day-v1/tiles/{z}/{x}/{y}?access_token=${token}&language=en`;
+            if (dashboard.getEl('map-style')?.value === 'mapbox') {
+                dashboard.changeMapStyle('mapbox');
+            }
+        });
+
         dashboard.bindUI('group-markers', 'change', () => {
             dashboard.updateMap();
         });
@@ -3025,6 +3041,26 @@ class UiBindings {
 
         dashboard.bindUI('settlements-border', 'change', () => {
             dashboard.toggleSettlementBoundaries();
+        });
+
+        dashboard.bindUI('show-settlement-boundaries', 'change', () => {
+            dashboard.toggleLocalBoundaries();
+        });
+
+        dashboard.bindUI('show-settlement-names', 'change', () => {
+            dashboard.toggleSettlementNames();
+        });
+
+        dashboard.bindUI('settlement-label-pop-slider', 'input', () => {
+            const val = parseInt(dashboard.getEl('settlement-label-pop-slider')?.value) || 20000;
+            const display = dashboard.getEl('settlement-label-pop-value');
+            if (display) display.textContent = val.toLocaleString();
+            if (dashboard.isChecked('show-settlement-boundaries')) dashboard.renderLocalBoundaries();
+            if (dashboard.isChecked('show-settlement-names')) dashboard.renderSettlementNames();
+        });
+
+        dashboard.bindUI('settlement-boundary-color', 'input', () => {
+            if (dashboard.isChecked('show-settlement-boundaries')) dashboard.renderLocalBoundaries();
         });
 
         dashboard.bindUI('settlement-buffers', 'change', () => {
@@ -3215,6 +3251,276 @@ class UiBindings {
         document.getElementById('map-uml-help-modal')?.addEventListener('click', (e) => {
             if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
         });
+
+        // Terrain Analysis
+        if (dashboard.terrainAnalysis) {
+            const ta = dashboard.terrainAnalysis;
+
+            dashboard.bindUI('forest-overlay', 'change', () => {
+                const on = dashboard.isChecked('forest-overlay');
+                ta.toggleForestLayer(on);
+                if (window._map3DView) window._map3DView.updateForest3D(on);
+            });
+
+            dashboard.bindUI('los-p2p-mode', 'change', () => {
+                if (dashboard.isChecked('los-p2p-mode')) {
+                    const vsEl = dashboard.getEl('los-viewshed-mode');
+                    if (vsEl) vsEl.checked = false;
+                    ta.enableMode('p2p');
+                } else {
+                    ta.disableMode();
+                }
+            });
+
+            dashboard.bindUI('los-viewshed-mode', 'change', () => {
+                if (dashboard.isChecked('los-viewshed-mode')) {
+                    const p2pEl = dashboard.getEl('los-p2p-mode');
+                    if (p2pEl) p2pEl.checked = false;
+                    ta.enableMode('viewshed');
+                } else {
+                    ta.disableMode();
+                }
+            });
+
+            dashboard.bindUI('los-clear', 'click', () => {
+                ta.clearLos();
+                const hint = dashboard.getEl('los-hint');
+                if (hint) hint.textContent = '';
+            });
+        }
+
+        // ---- Air Defense Range ----
+        {
+            const adLayer = L.layerGroup().addTo(dashboard.map);
+            let adWeapons = [];
+            let adSelected = null;
+            let adPlacedCount = 0;
+            let adClickHandler = null;
+
+            const adHint = () => dashboard.getEl('air-defense-hint');
+            const adRoundGroup = () => dashboard.getEl('air-defense-round-group');
+            const adRoundSelect = () => dashboard.getEl('air-defense-round');
+            const adGrid = () => dashboard.getEl('air-defense-grid');
+            const isMultiple = () => dashboard.isChecked('air-defense-multiple');
+
+            const setHint = (msg) => {
+                const el = adHint();
+                if (el) { el.textContent = msg; el.style.display = msg ? 'block' : 'none'; }
+            };
+
+            const detachMapClick = () => {
+                if (adClickHandler) {
+                    dashboard.map.off('click', adClickHandler);
+                    adClickHandler = null;
+                }
+                dashboard.map.getContainer().style.cursor = '';
+            };
+
+            const attachMapClick = () => {
+                detachMapClick();
+                adClickHandler = (e) => {
+                    if (!adSelected) return;
+                    const roundEl = adRoundSelect();
+                    const roundId = roundEl ? roundEl.value : null;
+                    const round = adSelected.rounds.find(r => r.id === roundId) || adSelected.rounds[0];
+                    if (!round) return;
+
+                    const maxAllowed = isMultiple() ? 100 : 1;
+                    if (adPlacedCount >= maxAllowed) {
+                        if (!isMultiple()) {
+                            adLayer.clearLayers();
+                            adPlacedCount = 0;
+                        } else {
+                            setHint(`Max ${maxAllowed} placements reached`);
+                            return;
+                        }
+                    }
+
+                    const radiusM = round.range.max;
+                    const circle = L.circle(e.latlng, {
+                        radius: radiusM,
+                        color: '#4fc3f7',
+                        fillColor: '#4fc3f7',
+                        fillOpacity: 0.08,
+                        weight: 1.5,
+                        dashArray: '6 4'
+                    });
+                    const label = adSelected.meta.title.en + (adSelected.rounds.length > 1 ? ` / ${round.name}` : '');
+                    circle.bindTooltip(`${label}<br>${(radiusM / 1000).toFixed(0)} km`, { sticky: false });
+                    circle.addTo(adLayer);
+                    adPlacedCount++;
+
+                    if (!isMultiple()) {
+                        detachMapClick();
+                        setHint(`${label}: ${(radiusM / 1000).toFixed(0)} km range`);
+                    } else {
+                        setHint(`Placed ${adPlacedCount}/100 — click to add more`);
+                    }
+                };
+                dashboard.map.on('click', adClickHandler);
+                dashboard.map.getContainer().style.cursor = 'crosshair';
+            };
+
+            const selectWeapon = (weapon) => {
+                adSelected = weapon;
+
+                document.querySelectorAll('.air-defense-item').forEach(el => {
+                    el.classList.toggle('selected', el.dataset.id === weapon.id);
+                });
+
+                const roundGroup = adRoundGroup();
+                const roundSel = adRoundSelect();
+                if (weapon.rounds.length > 1) {
+                    roundSel.innerHTML = weapon.rounds.map(r =>
+                        `<option value="${r.id}">${r.name} — ${(r.range.max / 1000).toFixed(0)} km</option>`
+                    ).join('');
+                    roundGroup.style.display = '';
+                } else {
+                    roundGroup.style.display = 'none';
+                }
+
+                if (!isMultiple()) {
+                    adLayer.clearLayers();
+                    adPlacedCount = 0;
+                }
+                attachMapClick();
+                setHint('Click on map to place range circle');
+            };
+
+            const buildGrid = (weapons) => {
+                const grid = adGrid();
+                if (!grid) return;
+                grid.innerHTML = '';
+                weapons.forEach(w => {
+                    const item = document.createElement('div');
+                    item.className = 'air-defense-item';
+                    item.dataset.id = w.id;
+                    item.title = `${w.meta.title.en}\nMax: ${(Math.max(...w.rounds.map(r => r.range.max)) / 1000).toFixed(0)} km`;
+
+                    const imgUrl = `https://deepstatemap.live/images/arty/${w.image}`;
+                    const img = document.createElement('img');
+                    img.src = imgUrl;
+                    img.alt = w.meta.title.en;
+                    img.onerror = () => {
+                        const ph = document.createElement('div');
+                        ph.className = 'ad-icon-placeholder';
+                        ph.textContent = '🛡';
+                        img.replaceWith(ph);
+                    };
+
+                    const label = document.createElement('span');
+                    label.textContent = w.meta.title.en;
+
+                    item.appendChild(img);
+                    item.appendChild(label);
+                    item.addEventListener('click', () => selectWeapon(w));
+                    grid.appendChild(item);
+                });
+            };
+
+            // ---- Event ranges overlay ----
+            const adEventLayer = L.layerGroup().addTo(dashboard.map);
+
+            // Order matters: more-specific patterns before less-specific ones
+            const AD_EVENT_MATCH = [
+                { keywords: ['s-300v4', 's300v4'],          weaponId: 'S-300V4' },
+                { keywords: ['s-300vm', 's300vm'],          weaponId: 'S-300V' },
+                { keywords: ['s-300v', 's300v'],            weaponId: 'S-300V' },
+                { keywords: ['s-400', 's400'],              weaponId: 'S-400' },
+                { keywords: ['s-300', 's300'],              weaponId: 'S-300' },
+                { keywords: ['buk-m3', 'buk m3'],          weaponId: 'Buk-M3' },
+                { keywords: ['buk-m2', 'buk m2', '9a316'], weaponId: 'Buk-M2' },
+                { keywords: ['buk-m1', 'buk m1'],          weaponId: 'Buk-M1' },
+                { keywords: ['tor-m2u', 'tor m2u'],        weaponId: 'Tor-M2' },
+                { keywords: ['tor-m2', 'tor m2'],          weaponId: 'Tor-M2' },
+                { keywords: ['tor-m1', 'tor m1'],          weaponId: 'Tor-M1' },
+                { keywords: ['pantsir'],                   weaponId: 'Pantsir-S1' },
+                { keywords: ['zu-23-2', 'zu-23', 'zu 23'], weaponId: 'ZU-23-2' },
+                { keywords: ['tunguska'],                  weaponId: '2K22 Tunguska' },
+                { keywords: ['strela-10', 'strela 10'],    weaponId: 'Strela-10' },
+            ];
+
+            const resolveEventWeapon = (name) => {
+                const lower = name.toLowerCase();
+                for (const entry of AD_EVENT_MATCH) {
+                    if (entry.keywords.some(k => lower.includes(k))) {
+                        return adWeapons.find(w => w.id === entry.weaponId) || null;
+                    }
+                }
+                return null;
+            };
+
+            const renderAdEventRanges = () => {
+                adEventLayer.clearLayers();
+                if (!dashboard.isChecked('air-defense-event-ranges')) return;
+                if (!dashboard.eventsData || !dashboard.eventsData.length) return;
+
+                dashboard.eventsData.forEach(e => {
+                    if (!dashboard.eventsFilterEnabled[e.category]) return;
+                    const weapon = resolveEventWeapon(e.name);
+                    if (!weapon) return;
+                    const round = weapon.rounds[0];
+                    const radiusM = round.range.max;
+                    L.circle([e.lat, e.lon], {
+                        radius: radiusM,
+                        color: '#ff7043',
+                        fillColor: '#ff7043',
+                        fillOpacity: 0.05,
+                        weight: 1,
+                        dashArray: '4 3',
+                        interactive: false
+                    })
+                    .bindTooltip(`${e.name}<br>${weapon.meta.title.en}: ${(radiusM / 1000).toFixed(0)} km`, { sticky: false })
+                    .addTo(adEventLayer);
+                });
+            };
+
+            // Patch renderEventsMarkers so event range circles stay in sync
+            const _origRenderEvents = dashboard.renderEventsMarkers.bind(dashboard);
+            dashboard.renderEventsMarkers = function () {
+                _origRenderEvents();
+                renderAdEventRanges();
+            };
+
+            dashboard.bindUI('air-defense-event-ranges', 'change', renderAdEventRanges);
+
+            fetch('./data/arty.json')
+                .then(r => r.json())
+                .then(data => {
+                    adWeapons = data;
+                    buildGrid(data);
+                })
+                .catch(err => console.warn('Failed to load arty.json', err));
+
+            dashboard.bindUI('air-defense-multiple', 'change', () => {
+                if (!isMultiple() && adPlacedCount > 1) {
+                    adLayer.clearLayers();
+                    adPlacedCount = 0;
+                    setHint('Single mode — click map to place');
+                }
+            });
+
+            dashboard.bindUI('air-defense-round', 'change', () => {
+                if (!isMultiple()) {
+                    adLayer.clearLayers();
+                    adPlacedCount = 0;
+                    attachMapClick();
+                    setHint('Click on map to place range circle');
+                }
+            });
+
+            dashboard.bindUI('air-defense-clear', 'click', () => {
+                adLayer.clearLayers();
+                adPlacedCount = 0;
+                detachMapClick();
+                if (adSelected) {
+                    attachMapClick();
+                    setHint('Click on map to place range circle');
+                } else {
+                    setHint('');
+                }
+            });
+        }
     }
 }
 

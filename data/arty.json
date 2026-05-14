@@ -1,0 +1,699 @@
+[
+  {
+    "id": "S-300",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "s300.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "S-300", "uk": "С-300" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/S-300_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%A1-300"
+      }
+    },
+    "rounds": [
+      {
+        "id": "5В55Р",
+        "capable": true,
+        "name": "5В55Р",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 90000 }
+      },
+      {
+        "id": "48Н6",
+        "capable": true,
+        "name": "48Н6",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 200000 }
+      }
+    ]
+  },
+  {
+    "id": "S-400",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "s400.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "S-400 Triumf", "uk": "С-400 Тріумф" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/S-400_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%A1-400"
+      }
+    },
+    "rounds": [
+      {
+        "id": "48N6DM",
+        "capable": true,
+        "name": "48N6DM",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 250000 }
+      },
+      {
+        "id": "40N6",
+        "capable": true,
+        "name": "40N6",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 400000 }
+      },
+      {
+        "id": "9M96E2",
+        "capable": true,
+        "name": "9M96E2",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 120000 }
+      }
+    ]
+  },
+  {
+    "id": "S-350",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "s350.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "S-350 Poliment-Redut", "uk": "С-350 Поліментредут" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/S-350E_Poliment-Redut",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%A1-350"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M96E2",
+        "capable": true,
+        "name": "9M96E2",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 120000 }
+      }
+    ]
+  },
+  {
+    "id": "S-300V",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "s300.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "S-300V (Antey)", "uk": "С-300В" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/S-300V_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%A1-300%D0%92"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M83",
+        "capable": true,
+        "name": "9M83",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 75000 }
+      },
+      {
+        "id": "9M82",
+        "capable": true,
+        "name": "9M82 (long-range)",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 100000 }
+      }
+    ]
+  },
+  {
+    "id": "S-300V4",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "s300.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "S-300V4", "uk": "С-300В4" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/S-300V_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%A1-300%D0%92"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M83M",
+        "capable": true,
+        "name": "9M83M",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 200000 }
+      },
+      {
+        "id": "9M82M",
+        "capable": true,
+        "name": "9M82M (long-range)",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 400000 }
+      }
+    ]
+  },
+  {
+    "id": "ZU-23-2",
+    "calibre": "23mm",
+    "capable": true,
+    "type": "aaa",
+    "image": "zsu234.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft gun", "uk": "ЗГУ" },
+      "title": { "en": "ZU-23-2", "uk": "ЗУ-23-2" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/ZU-23-2",
+        "uk": "https://uk.wikipedia.org/wiki/ZU-23-2"
+      }
+    },
+    "rounds": [
+      {
+        "id": "23×152mmB",
+        "capable": true,
+        "name": "23×152mmB",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 2500 }
+      }
+    ]
+  },
+  {
+    "id": "Buk-M1",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "buk.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Buk-M1", "uk": "Бук-М1" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/Buk_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%91%D1%83%D0%BA_(%D0%97%D0%A0%D0%9A)"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M38M1",
+        "capable": true,
+        "name": "9M38M1",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 35000 }
+      }
+    ]
+  },
+  {
+    "id": "Buk-M2",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "buk.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Buk-M2", "uk": "Бук-М2" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/Buk_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%91%D1%83%D0%BA_(%D0%97%D0%A0%D0%9A)"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M317",
+        "capable": true,
+        "name": "9M317",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 45000 }
+      }
+    ]
+  },
+  {
+    "id": "Buk-M3",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "buk.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Buk-M3", "uk": "Бук-М3" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/Buk_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%91%D1%83%D0%BA_(%D0%97%D0%A0%D0%9A)"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M317M",
+        "capable": true,
+        "name": "9M317M",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 70000 }
+      }
+    ]
+  },
+  {
+    "id": "Tor-M1",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "tor.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Tor-M1", "uk": "Тор-М1" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/Tor_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%A2%D0%BE%D1%80_(%D0%97%D0%A0%D0%9A)"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M330",
+        "capable": true,
+        "name": "9M330",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 12000 }
+      }
+    ]
+  },
+  {
+    "id": "Tor-M2",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "tor.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Tor-M2", "uk": "Тор-М2" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/Tor_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%A2%D0%BE%D1%80_(%D0%97%D0%A0%D0%9A)"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M338K",
+        "capable": true,
+        "name": "9M338K",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 16000 }
+      }
+    ]
+  },
+  {
+    "id": "Pantsir-S1",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "pantsir.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft CIWS", "uk": "ЗРПК" },
+      "title": { "en": "Pantsir-S1", "uk": "Панцир-С1" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/Pantsir_missile_system",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%9F%D0%B0%D0%BD%D1%86%D0%B8%D1%80"
+      }
+    },
+    "rounds": [
+      {
+        "id": "57E6 missile",
+        "capable": true,
+        "name": "57E6 missile",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 20000 }
+      },
+      {
+        "id": "30mm guns",
+        "capable": true,
+        "name": "30mm guns",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 4000 }
+      }
+    ]
+  },
+  {
+    "id": "2K22 Tunguska",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "tunguska.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft CIWS", "uk": "ЗРПК" },
+      "title": { "en": "2K22 Tunguska", "uk": "2К22 Тунгуска" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/2K22_Tunguska",
+        "uk": "https://uk.wikipedia.org/wiki/2%D0%9A22_%D0%A2%D1%83%D0%BD%D0%B3%D1%83%D1%81%D0%BA%D0%B0"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M311",
+        "capable": true,
+        "name": "9M311",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 8000 }
+      }
+    ]
+  },
+  {
+    "id": "ZSU-23-4 Shilka",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "zsu234.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft gun", "uk": "ЗСУ" },
+      "title": { "en": "ZSU-23-4 Shilka", "uk": "ЗСУ-23-4 Шилка" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/ZSU-23-4_Shilka",
+        "uk": "https://uk.wikipedia.org/wiki/%D0%A8%D0%B8%D0%BB%D0%BA%D0%B0"
+      }
+    },
+    "rounds": [
+      {
+        "id": "23mm AZP-23",
+        "capable": true,
+        "name": "23mm AZP-23",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 2500 }
+      }
+    ]
+  },
+  {
+    "id": "Osa-AKM",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "osa.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Osa-AKM (SA-8)", "uk": "Оса-АКМ" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/9K33_Osa",
+        "uk": "https://uk.wikipedia.org/wiki/9K33_%D0%9E%D1%81%D0%B0"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M33M3",
+        "capable": true,
+        "name": "9M33M3",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 10000 }
+      }
+    ]
+  },
+  {
+    "id": "Strela-10",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "strela10.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Strela-10 (SA-13)", "uk": "Стріла-10" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/9K35_Strela-10",
+        "uk": "https://uk.wikipedia.org/wiki/9%D0%9A35_%D0%A1%D1%82%D1%80%D1%96%D0%BB%D0%B0-10"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M37M",
+        "capable": true,
+        "name": "9M37M",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 5000 }
+      }
+    ]
+  },
+  {
+    "id": "Igla-S",
+    "calibre": "",
+    "capable": true,
+    "type": "manpads",
+    "image": "igla.png",
+    "meta": {
+      "type": { "en": "MANPADS", "uk": "ПЗРК" },
+      "title": { "en": "Igla-S (SA-24)", "uk": "Голка-С" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/9K338_Igla-S",
+        "uk": "https://uk.wikipedia.org/wiki/9%D0%9A38_%D0%86%D0%B3%D0%BB%D0%B0"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M342",
+        "capable": true,
+        "name": "9M342",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 6000 }
+      }
+    ]
+  },
+  {
+    "id": "Verba",
+    "calibre": "",
+    "capable": true,
+    "type": "manpads",
+    "image": "verba.png",
+    "meta": {
+      "type": { "en": "MANPADS", "uk": "ПЗРК" },
+      "title": { "en": "Verba (SA-25)", "uk": "Верба" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/9K333_Verba",
+        "uk": "https://uk.wikipedia.org/wiki/9%D0%9A333_%D0%92%D0%B5%D1%80%D0%B1%D0%B0"
+      }
+    },
+    "rounds": [
+      {
+        "id": "9M336",
+        "capable": true,
+        "name": "9M336",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 6500 }
+      }
+    ]
+  },
+  {
+    "id": "Patriot",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "patriot.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Patriot", "uk": "Patriot" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/MIM-104_Patriot",
+        "uk": "https://uk.wikipedia.org/wiki/MIM-104_Patriot"
+      }
+    },
+    "rounds": [
+      {
+        "id": "PAC-2",
+        "capable": true,
+        "name": "PAC-2",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 160000 }
+      },
+      {
+        "id": "PAC-3 MSE",
+        "capable": true,
+        "name": "PAC-3 MSE",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 45000 }
+      }
+    ]
+  },
+  {
+    "id": "NASAMS",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "nasams.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "NASAMS", "uk": "NASAMS" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/NASAMS",
+        "uk": "https://uk.wikipedia.org/wiki/NASAMS"
+      }
+    },
+    "rounds": [
+      {
+        "id": "AIM-120 AMRAAM",
+        "capable": true,
+        "name": "AIM-120 AMRAAM",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 160000 }
+      }
+    ]
+  },
+  {
+    "id": "IRIS-T",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "iris-t.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "IRIS-T", "uk": "IRIS-T" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/IRIS-T",
+        "uk": "https://uk.wikipedia.org/wiki/IRIS-T"
+      }
+    },
+    "rounds": [
+      {
+        "id": "IRIS-T SLM",
+        "capable": true,
+        "name": "IRIS-T SLM",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 40000 }
+      }
+    ]
+  },
+  {
+    "id": "SAMP/T",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "sampt.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "SAMP/T (Aster 30)", "uk": "SAMP/T" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/SAMP/T",
+        "uk": "https://uk.wikipedia.org/wiki/SAMP/T"
+      }
+    },
+    "rounds": [
+      {
+        "id": "Aster 30",
+        "capable": true,
+        "name": "Aster 30",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 120000 }
+      }
+    ]
+  },
+  {
+    "id": "Crotale",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "crotale.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "Crotale", "uk": "Crotale" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/Crotale_(missile)",
+        "uk": "https://uk.wikipedia.org/wiki/Crotale"
+      }
+    },
+    "rounds": [
+      {
+        "id": "Crotale Mk.3",
+        "capable": true,
+        "name": "Crotale Mk.3",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 16000 }
+      }
+    ]
+  },
+  {
+    "id": "MIM-23 Hawk",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "hawk.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "MIM-23 Hawk", "uk": "MIM-23 Hawk" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/MIM-23_Hawk",
+        "uk": "https://uk.wikipedia.org/wiki/MIM-23_Hawk"
+      }
+    },
+    "rounds": [
+      {
+        "id": "MIM-23 I-Hawk",
+        "capable": true,
+        "name": "MIM-23 I-Hawk",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 45000 }
+      }
+    ]
+  },
+  {
+    "id": "AN/TWQ-1 Avenger",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "avenger.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft", "uk": "ЗРК" },
+      "title": { "en": "AN/TWQ-1 Avenger", "uk": "AN/TWQ-1 Avenger" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/AN/TWQ-1_Avenger",
+        "uk": "https://uk.wikipedia.org/wiki/AN/TWQ-1_Avenger"
+      }
+    },
+    "rounds": [
+      {
+        "id": "FIM-92 Stinger",
+        "capable": true,
+        "name": "FIM-92 Stinger",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 8000 }
+      }
+    ]
+  },
+  {
+    "id": "FIM-92 Stinger",
+    "calibre": "",
+    "capable": true,
+    "type": "manpads",
+    "image": "stinger.png",
+    "meta": {
+      "type": { "en": "MANPADS", "uk": "ПЗРК" },
+      "title": { "en": "FIM-92 Stinger", "uk": "FIM-92 Стінгер" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/FIM-92_Stinger",
+        "uk": "https://uk.wikipedia.org/wiki/FIM-92_Stinger"
+      }
+    },
+    "rounds": [
+      {
+        "id": "FIM-92E",
+        "capable": true,
+        "name": "FIM-92E",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 4800 }
+      }
+    ]
+  },
+  {
+    "id": "Gepard",
+    "calibre": "",
+    "capable": true,
+    "type": "sam",
+    "image": "gepard.png",
+    "meta": {
+      "type": { "en": "Anti-aircraft gun", "uk": "ЗСУ" },
+      "title": { "en": "Gepard", "uk": "Гепард" },
+      "wikiLink": {
+        "en": "https://en.wikipedia.org/wiki/Flakpanzer_Gepard",
+        "uk": "https://uk.wikipedia.org/wiki/Flakpanzer_Gepard"
+      }
+    },
+    "rounds": [
+      {
+        "id": "35mm KDA",
+        "capable": true,
+        "name": "35mm KDA",
+        "wikiLink": { "en": null, "uk": null },
+        "range": { "min": 0, "max": 5500 }
+      }
+    ]
+  }
+]

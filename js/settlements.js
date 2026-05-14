@@ -2,12 +2,15 @@ class Settlements {
     constructor(dashboard) {
         this.dashboard = dashboard;
         this.filterCache = { key: null, settlements: null };
+        this.popupBoundaryLayers = new Map();
+        this.popupTitleLayers = new Map();
     }
 
     toggleSettlementsDisplay() {
         const settlementLegend = this.dashboard.getEl('settlement-legend');
         if (this.dashboard.isChecked('show-settlements')) {
             this.displaySettlements();
+            this.buildLegend();
             if (settlementLegend) {
                 settlementLegend.style.display = 'block';
             }
@@ -19,8 +22,13 @@ class Settlements {
         }
     }
 
+    parsePopulation(value) {
+        if (!value) return 0;
+        return parseInt(String(value).replace(/\D/g, '')) || 0;
+    }
+
     getSettlementStyle(population) {
-        const pop = parseInt(population) || 0;
+        const pop = this.parsePopulation(population);
 
         if (pop < 1000) {
             return { color: '#4a90e2', radius: 3, label: 'Small village' };
@@ -40,6 +48,36 @@ class Settlements {
         return { color: '#50e3c2', radius: 8, label: 'City' };
     }
 
+    buildLegend() {
+        const legendEl = this.dashboard.getEl('settlement-legend');
+        if (!legendEl || !this.dashboard.settlementsData?.features) return;
+
+        const brackets = [
+            { max: 1000,   color: '#4a90e2', label: '< 1,000',     count: 0 },
+            { max: 5000,   color: '#7ed321', label: '1k – 5k',     count: 0 },
+            { max: 10000,  color: '#f5a623', label: '5k – 10k',    count: 0 },
+            { max: 25000,  color: '#d0021b', label: '10k – 25k',   count: 0 },
+            { max: 100000, color: '#9013fe', label: '25k – 100k',  count: 0 },
+            { max: Infinity, color: '#50e3c2', label: '≥ 100k',    count: 0 },
+        ];
+
+        for (const f of this.dashboard.settlementsData.features) {
+            const pop = this.parsePopulation(f.properties.population);
+            const bracket = brackets.find(b => pop < b.max);
+            if (bracket) bracket.count++;
+        }
+
+        const rows = brackets.map(b =>
+            `<div class="legend-item">
+                <div class="legend-color" style="background:${b.color};"></div>
+                <span>${b.label}</span>
+                <span style="margin-left:auto;opacity:0.7;font-size:11px;">${b.count.toLocaleString()}</span>
+            </div>`
+        ).join('');
+
+        legendEl.innerHTML = `<h3 class="panel-title">Settlement Legend</h3><div class="legend-content">${rows}</div>`;
+    }
+
     displaySettlements() {
         if (!this.dashboard.settlementsData || !this.dashboard.settlementsData.features) {
             console.warn('No settlements data available');
@@ -53,7 +91,7 @@ class Settlements {
         settlementsToShow.forEach(settlement => {
             const coords = settlement.geometry.coordinates;
             const props = settlement.properties;
-            const population = parseInt(props.population) || 0;
+            const population = this.parsePopulation(props.population);
             const style = this.getSettlementStyle(population);
 
             const marker = L.circleMarker([coords[1], coords[0]], {
@@ -65,18 +103,38 @@ class Settlements {
                 fillOpacity: 0.8
             });
 
+            const osmId = props.osm_id;
+            const escapedName = (props.name || '').replace(/'/g, "\\'");
+            const escapedNameEn = (props['name:en'] || '').replace(/'/g, "\\'");
+            const displayTitle = escapedNameEn || escapedName;
+
             let popupContent = `
                 <div class="settlement-popup">
-                    <div class="settlement-name">${props.name || 'Unknown'}</div>
-                    ${props['name:en'] ? `<div class="settlement-info">English: ${props['name:en']}</div>` : ''}
+                    <div class="settlement-name">${props['name:en'] || props.name || 'Unknown'}</div>
+                    ${props.name ? `<div class="settlement-info">UA: ${props.name}</div>` : ''}
                     ${props.place ? `<div class="settlement-info">Type: ${props.place}</div>` : ''}
                     <div class="settlement-info">Category: ${style.label}</div>
-                    ${props.population ? `<div class="settlement-info">Population: ${props.population.toLocaleString()}</div>` : ''}
+                    ${props.population ? `<div class="settlement-info">Population: ${this.parsePopulation(props.population).toLocaleString()}</div>` : ''}
                     <div class="settlement-info">Coordinates: ${coords[1].toFixed(6)}, ${coords[0].toFixed(6)}</div>
-                    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #ddd;">
+                    <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
+                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-bottom:4px;">
+                            <input type="checkbox" ${this.popupTitleLayers.has(osmId) ? 'checked' : ''}
+                                onchange="window.settlements.togglePopupTitle(this, '${osmId}', ${coords[1]}, ${coords[0]}, '${displayTitle}')">
+                            Show title on map
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+                            <input type="checkbox" ${this.popupBoundaryLayers.has(osmId) ? 'checked' : ''}
+                                onchange="window.settlements.togglePopupBoundary(this, '${osmId}')">
+                            Highlight boundary
+                            <input type="color" value="${this.popupBoundaryLayers.get(osmId)?.options?.color || '#ff6600'}"
+                                style="width:28px;height:20px;padding:0;border:1px solid #ccc;cursor:pointer;border-radius:3px;"
+                                onchange="window.settlements.updatePopupBoundaryColor('${osmId}', this.value)">
+                        </label>
+                    </div>
+                    <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
                         ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
                         <button
-                            onclick="window.markerAdjuster && window.markerAdjuster.pickSettlementLocation(${coords[1]}, ${coords[0]}, '${(props.name || '').replace(/'/g, "\\'")}', '${(props['name:en'] || '').replace(/'/g, "\\'")}')"
+                            onclick="window.markerAdjuster && window.markerAdjuster.pickSettlementLocation(${coords[1]}, ${coords[0]}, '${escapedName}', '${escapedNameEn}')"
                             style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; width: 100%; margin-top: 5px;"
                         >
                             Pick Location
@@ -98,7 +156,7 @@ class Settlements {
         const clusterRadius = parseInt(this.dashboard.getEl('clusterRadius')?.value, 10) || 20;
 
         this.dashboard.filteredSettlements = this.dashboard.settlementsData.features.filter(settlement => {
-            const population = parseInt(settlement.properties.population) || 0;
+            const population = this.parsePopulation(settlement.properties.population);
             return population >= clusterRadius;
         });
 
@@ -304,7 +362,7 @@ class Settlements {
             let source = this.dashboard.settlementsData.features;
             if (this.dashboard.isChecked('filter-settlements-radius')) {
                 const clusterRadius = parseInt(this.dashboard.getEl('clusterRadius')?.value, 10) || 20;
-                source = source.filter(s => (parseInt(s.properties.population) || 0) >= clusterRadius);
+                source = source.filter(s => this.parsePopulation(s.properties.population) >= clusterRadius);
             }
             visibleSettlements = source.filter(settlement => {
                 const coords = settlement.geometry.coordinates;
@@ -413,6 +471,155 @@ class Settlements {
 
         this.hideBoundariesLoader();
         console.log('Settlement boundaries rendering complete');
+    }
+
+    togglePopupTitle(checkbox, osmId, lat, lng, name) {
+        if (checkbox.checked) {
+            const label = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div style="position:absolute;color:#fff;font-size:11px;white-space:nowrap;transform:translate(-50%,0);">${name}</div>`,
+                    iconSize: [0, 0],
+                    iconAnchor: [0, 0]
+                }),
+                interactive: false
+            });
+            label.addTo(this.dashboard.settlementNamesLayer);
+            this.popupTitleLayers.set(osmId, label);
+        } else {
+            const layer = this.popupTitleLayers.get(osmId);
+            if (layer) {
+                this.dashboard.settlementNamesLayer.removeLayer(layer);
+                this.popupTitleLayers.delete(osmId);
+            }
+        }
+    }
+
+    togglePopupBoundary(checkbox, osmId) {
+        if (checkbox.checked) {
+            const key = `nodes_${osmId}`;
+            const data = this.dashboard.settlementBoundariesData?.[key];
+            if (!data?.boundary?.coordinates?.length) {
+                checkbox.checked = false;
+                return;
+            }
+            const color = checkbox.closest('label').querySelector('input[type=color]')?.value || '#ff6600';
+            this._renderPopupBoundary(osmId, data.boundary, color);
+        } else {
+            const layer = this.popupBoundaryLayers.get(osmId);
+            if (layer) {
+                this.dashboard.settlementLocalBoundariesLayer.removeLayer(layer);
+                this.popupBoundaryLayers.delete(osmId);
+            }
+        }
+    }
+
+    _renderPopupBoundary(osmId, geometry, color) {
+        const existing = this.popupBoundaryLayers.get(osmId);
+        if (existing) {
+            this.dashboard.settlementLocalBoundariesLayer.removeLayer(existing);
+        }
+        let polygonLayer;
+        try {
+            if (geometry.type === 'Polygon') {
+                const coords = geometry.coordinates[0].map(c => [c[1], c[0]]);
+                polygonLayer = L.polygon(coords, { color, weight: 2, fillOpacity: 0.15, fillColor: color });
+            } else if (geometry.type === 'MultiPolygon') {
+                const allCoords = geometry.coordinates.map(p => p[0].map(c => [c[1], c[0]]));
+                polygonLayer = L.polygon(allCoords, { color, weight: 2, fillOpacity: 0.15, fillColor: color });
+            }
+        } catch (e) {
+            console.error('Error rendering popup boundary', e);
+        }
+        if (polygonLayer) {
+            polygonLayer.addTo(this.dashboard.settlementLocalBoundariesLayer);
+            this.popupBoundaryLayers.set(osmId, polygonLayer);
+        }
+    }
+
+    updatePopupBoundaryColor(osmId, color) {
+        const layer = this.popupBoundaryLayers.get(osmId);
+        if (layer) {
+            layer.setStyle({ color, fillColor: color });
+        }
+    }
+
+    toggleLocalBoundaries() {
+        if (this.dashboard.isChecked('show-settlement-boundaries')) {
+            this.renderLocalBoundaries();
+        } else {
+            this.dashboard.settlementLocalBoundariesLayer.clearLayers();
+            this.popupBoundaryLayers.clear();
+        }
+    }
+
+    renderLocalBoundaries() {
+        const data = this.dashboard.settlementBoundariesData;
+        if (!data) return;
+
+        const minPop = this._getLocalBoundaryMinPop();
+
+        this.dashboard.settlementLocalBoundariesLayer.clearLayers();
+        this.popupBoundaryLayers.clear();
+
+        const color = this.dashboard.getEl('settlement-boundary-color')?.value || '#ff6600';
+
+        let count = 0;
+        for (const [key, entry] of Object.entries(data)) {
+            if (!entry?.boundary?.coordinates?.length) continue;
+            const pop = this.parsePopulation(entry.population);
+            if (pop < minPop) continue;
+
+            const osmId = key.replace(/^[^_]+_/, '');
+            this._renderPopupBoundary(osmId, entry.boundary, color);
+            count++;
+        }
+        console.log(`Rendered ${count} local boundaries (min pop: ${minPop})`);
+    }
+
+    toggleSettlementNames() {
+        if (this.dashboard.isChecked('show-settlement-names')) {
+            this.renderSettlementNames();
+        } else {
+            this.dashboard.settlementNamesLayer.clearLayers();
+            this.popupTitleLayers.clear();
+        }
+    }
+
+    renderSettlementNames() {
+        this.dashboard.settlementNamesLayer.clearLayers();
+        this.popupTitleLayers.clear();
+
+        if (!this.dashboard.settlementsData?.features) return;
+
+        const minPop = this._getLocalBoundaryMinPop();
+
+        for (const feature of this.dashboard.settlementsData.features) {
+            const props = feature.properties;
+            const pop = this.parsePopulation(props.population);
+            if (pop < minPop) continue;
+
+            const [lng, lat] = feature.geometry.coordinates;
+            const name = props['name:en'] || props.name || '';
+            const osmId = props.osm_id;
+
+            const label = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div style="position:absolute;color:#fff;font-size:11px;white-space:nowrap;transform:translate(-50%,0);">${name}</div>`,
+                    iconSize: [0, 0],
+                    iconAnchor: [0, 0]
+                }),
+                interactive: false
+            });
+            label.addTo(this.dashboard.settlementNamesLayer);
+            this.popupTitleLayers.set(osmId, label);
+        }
+    }
+
+    _getLocalBoundaryMinPop() {
+        const slider = this.dashboard.getEl('settlement-label-pop-slider');
+        return Math.max(10000, parseInt(slider?.value) || 10000);
     }
 
     handleSettlementSearch(searchTerm) {
@@ -747,7 +954,7 @@ class Settlements {
         }
     }
     getBufferRadiusKm(population) {
-        const pop = parseInt(population) || 0;
+        const pop = this.parsePopulation(population);
         if (pop >= 50000) return 7;
         if (pop >= 25000) return 5;
         if (pop >= 10000) return 3;
@@ -770,7 +977,7 @@ class Settlements {
 
         if (this.dashboard.isChecked('filter-settlements-radius')) {
             const clusterRadius = parseInt(this.dashboard.getEl('clusterRadius')?.value, 10) || 20;
-            source = source.filter(s => (parseInt(s.properties.population) || 0) >= clusterRadius);
+            source = source.filter(s => this.parsePopulation(s.properties.population) >= clusterRadius);
         }
 
         // Collect settlements that qualify for a buffer and are in view
@@ -780,7 +987,7 @@ class Settlements {
             const latLng = L.latLng(coords[1], coords[0]);
             if (!bounds.contains(latLng)) continue;
 
-            const pop = parseInt(settlement.properties.population) || 0;
+            const pop = this.parsePopulation(settlement.properties.population);
             const radiusKm = this.getBufferRadiusKm(pop);
             if (radiusKm === 0) continue;
 

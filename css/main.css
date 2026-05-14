@@ -1131,3 +1131,73 @@ body {
     padding: 0;
     line-height: 1;
 }
+
+/* ---- Air Defense Range ---- */
+.air-defense-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    max-height: 210px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #475569 transparent;
+}
+
+.air-defense-grid::-webkit-scrollbar {
+    width: 4px;
+}
+
+.air-defense-grid::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 2px;
+}
+
+.air-defense-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 5px 3px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    transition: border-color 0.15s, background 0.15s;
+    min-width: 0;
+}
+
+.air-defense-item:hover {
+    background: var(--sidebar-hover);
+}
+
+.air-defense-item.selected {
+    border-color: #4fc3f7;
+    background: rgba(79, 195, 247, 0.12);
+}
+
+.air-defense-item img {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+    image-rendering: auto;
+}
+
+.air-defense-item .ad-icon-placeholder {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    opacity: 0.6;
+}
+
+.air-defense-item span {
+    font-size: 9px;
+    text-align: center;
+    margin-top: 3px;
+    color: var(--sidebar-text);
+    line-height: 1.2;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
