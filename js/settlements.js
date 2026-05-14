@@ -497,10 +497,7 @@ class Settlements {
     async togglePopupBoundary(checkbox, osmId, osmType = 'nodes') {
         if (checkbox.checked) {
             const color = checkbox.closest('label').querySelector('input[type=color]')?.value || '#ff6600';
-            const key = `${osmType}_${osmId}`;
-            const localEntry = this.dashboard.settlementBoundariesData?.[key];
-            const localOk = localEntry?.boundary?.coordinates?.length && localEntry.boundary.coordinates[0]?.length;
-            let geometry = localOk ? localEntry.boundary : await this.fetchSettlementBoundary(osmId, osmType);
+            let geometry = await this.fetchSettlementBoundary(osmId, osmType);
             if (!geometry?.coordinates?.length) {
                 checkbox.checked = false;
                 return;
