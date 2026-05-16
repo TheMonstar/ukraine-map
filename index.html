@@ -89,6 +89,8 @@
                                         class="toggle-switch"></span>DeepState</label>
                                 <label class="toggle-label"><input type="checkbox" id="diff-highlight" /><span
                                         class="toggle-switch"></span>Difference</label>
+                                <label class="toggle-label"><input type="checkbox" id="show-date-overlay" checked /><span
+                                        class="toggle-switch"></span>Date</label>
                             </div>
                         </div>
                         <div class="control-group">
@@ -620,6 +622,7 @@
                             <input type="color" id="settlement-boundary-color" value="#000000"
                                 title="Boundary color"
                                 style="width:28px;height:24px;padding:0;border:1px solid #555;cursor:pointer;border-radius:3px;vertical-align:middle;" />
+                            <button id="clear-manual-layers" class="btn btn-sm" title="Clear manual titles and boundaries" style="margin-left:auto;">Clear</button>
                         </div>
                         <div class="control-row" style="flex-direction:column;align-items:flex-start;gap:2px;">
                             <label class="small-label">Min Pop (boundaries/names): <span id="settlement-label-pop-value">20,000</span></label>

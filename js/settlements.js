@@ -542,6 +542,13 @@ class Settlements {
         }
     }
 
+    clearManualLayers() {
+        this.dashboard.settlementPopupBoundariesLayer.clearLayers();
+        this.popupBoundaryLayers.clear();
+        this.dashboard.settlementNamesLayer.clearLayers();
+        this.popupTitleLayers.clear();
+    }
+
     toggleLocalBoundaries() {
         if (this.dashboard.isChecked('show-settlement-boundaries')) {
             this.renderLocalBoundaries();

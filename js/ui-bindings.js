@@ -363,6 +363,11 @@ class UiBindings {
 
         dashboard.bindUI('diff-area', 'change', () => renderDeepLayer());
 
+        dashboard.bindUI('show-date-overlay', 'change', () => {
+            const el = dashboard.getEl('date');
+            if (el) el.style.display = dashboard.isChecked('show-date-overlay') ? '' : 'none';
+        });
+
         dashboard.bindUI('diff-highlight', 'change', async () => {
             await renderDeepLayer();
             if (dashboard.isChecked('diff-highlight')) {
@@ -3061,6 +3066,10 @@ class UiBindings {
 
         dashboard.bindUI('settlement-boundary-color', 'input', () => {
             if (dashboard.isChecked('show-settlement-boundaries')) dashboard.renderLocalBoundaries();
+        });
+
+        dashboard.bindUI('clear-manual-layers', 'click', () => {
+            dashboard.settlements.clearManualLayers();
         });
 
         dashboard.bindUI('settlement-buffers', 'change', () => {
