@@ -473,6 +473,8 @@
         }
 
         _createButton() {
+            if (!this.dashboard.mapboxToken) return;
+
             const btn = document.createElement('button');
             btn.id = 'btn-3d-view';
             btn.textContent = '3D';
