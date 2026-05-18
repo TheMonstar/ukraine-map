@@ -1049,46 +1049,31 @@
         }
 
         _addForest3D() {
-            const data    = this._getLayerGeoJSON(this.dashboard.forestLayer) || this._emptyFC();
-            const treePts = this._forestToTreePoints(data);
+            const data = this._getLayerGeoJSON(this.dashboard.forestLayer) || this._emptyFC();
 
             if (this.glMap.getSource('forest3d')) {
                 this.glMap.getSource('forest3d').setData(data);
-                this.glMap.getSource('forest3d-trees')?.setData(treePts);
                 return;
             }
 
-            this.glMap.addSource('forest3d',       { type: 'geojson', data });
-            this.glMap.addSource('forest3d-trees',  { type: 'geojson', data: treePts });
+            this.glMap.addSource('forest3d', { type: 'geojson', data });
 
-            // faint polygon fill so the area reads as forest even when zoomed out
+            // extruded canopy mass — gives vertical depth to the forest block
             this.glMap.addLayer({
-                id: 'forest3d-fill', type: 'fill', source: 'forest3d',
-                paint: { 'fill-color': '#1a3d1a', 'fill-opacity': 0.18 }
-            });
-
-            // individual tree crowns — pitch-aligned so they lie flat on the terrain
-            this.glMap.addLayer({
-                id: 'forest3d-crowns', type: 'circle', source: 'forest3d-trees',
+                id: 'forest3d-extrusion', type: 'fill-extrusion', source: 'forest3d',
                 paint: {
-                    'circle-radius':           ['interpolate', ['linear'], ['zoom'], 9, 2, 14, 8, 17, 18],
-                    'circle-color':            ['interpolate', ['linear'], ['zoom'], 9, '#2a5e2a', 15, '#3a7a3a'],
-                    'circle-opacity':          0.88,
-                    'circle-stroke-width':     ['interpolate', ['linear'], ['zoom'], 10, 0, 13, 0.6],
-                    'circle-stroke-color':     '#153d15',
-                    'circle-pitch-alignment':  'map',
-                    'circle-pitch-scale':      'map',
+                    'fill-extrusion-color':   '#1e4d1e',
+                    'fill-extrusion-height':  15,
+                    'fill-extrusion-base':    0,
+                    'fill-extrusion-opacity': 0.7,
                 }
             });
+
         }
 
         _removeForest3D() {
-            for (const id of ['forest3d-fill', 'forest3d-crowns', 'forest3d-extrusion']) {
-                if (this.glMap.getLayer(id)) this.glMap.removeLayer(id);
-            }
-            for (const id of ['forest3d', 'forest3d-trees']) {
-                if (this.glMap.getSource(id)) this.glMap.removeSource(id);
-            }
+            if (this.glMap.getLayer('forest3d-extrusion')) this.glMap.removeLayer('forest3d-extrusion');
+            if (this.glMap.getSource('forest3d'))          this.glMap.removeSource('forest3d');
         }
 
         updateForest3D(enabled) {
