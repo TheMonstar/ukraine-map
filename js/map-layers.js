@@ -86,6 +86,7 @@ class MapLayers {
         dashboard.featureDitchesStartLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureWireLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureDragonLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.featureMotorLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.eventsLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.losLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.forestLayer = null;
@@ -110,7 +111,13 @@ class MapLayers {
         if (dashboard.currentTileLayer) {
             dashboard.map.removeLayer(dashboard.currentTileLayer);
         }
-        dashboard.currentTileLayer = L.tileLayer(dashboard.mapStyles[style].url, {
+        let url = dashboard.mapStyles[style].url;
+        if (style === 'nasa-gibs' && dashboard.endDate) {
+            const d = dashboard.endDate;
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            url = url.replace(/\/\d{4}-\d{2}-\d{2}\//, `/${dateStr}/`);
+        }
+        dashboard.currentTileLayer = L.tileLayer(url, {
             attribution: dashboard.mapStyles[style].attribution
         }).addTo(dashboard.map);
     }

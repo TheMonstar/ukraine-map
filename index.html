@@ -80,6 +80,7 @@
                                 <option value="esri">ESRI Street</option>
                                 <option value="esri-elevation">ESRI Satellite</option>
                                 <option value="mapbox-kirk">OpenTopo</option>
+                                <option value="nasa-gibs">NASA Satellite</option>
                             </select>
                         </div>
                         <div class="control-group">
@@ -91,6 +92,7 @@
                                         class="toggle-switch"></span>Difference</label>
                                 <label class="toggle-label"><input type="checkbox" id="show-date-overlay" checked /><span
                                         class="toggle-switch"></span>Date</label>
+                                <button id="motorlines-by-diff-btn" style="font-size:11px; padding:2px 8px; cursor:pointer;">Road km in diff</button>
                             </div>
                         </div>
                         <div class="control-group">
@@ -160,6 +162,9 @@
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="shadow-ua" /><span
                                     class="toggle-switch"></span>UA Shadow</label>
+                        </div>
+                        <div class="toggle-row">
+                            <button id="motorlines-by-shadow-btn" style="font-size:11px; padding:2px 8px; cursor:pointer;">Road km in shadow</button>
                         </div>
                         <div class="control-row">
                             <label class="small-label">Shadow size (km):</label>
@@ -307,6 +312,15 @@
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-dragon" /><span
                                     class="toggle-switch"></span>Teeth</label>
+                        </div>
+                        <div class="toggle-row">
+                            <label class="toggle-label"><input type="checkbox" id="feature-motorlines" /><span
+                                    class="toggle-switch"></span>Motorlines</label>
+                        </div>
+                        <div id="motorlines-types" style="display:none; padding-left:12px;">
+                            <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="motorlines-type-highway" checked /><span class="toggle-switch"></span><span style="color:#d32f2f;">Highway</span></label>
+                            <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="motorlines-type-primary" /><span class="toggle-switch"></span><span style="color:#f57c00;">Primary</span></label>
+                            <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="motorlines-type-tertiary" /><span class="toggle-switch"></span><span style="color:#fbc02d;">Tertiary</span></label>
                         </div>
                         <div id="features-attribution" class="attribution" style="display:none;">
                             Data: <a href="https://x.com/Playfra0" target="_blank">@Playfra</a>

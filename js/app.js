@@ -191,6 +191,10 @@ class AttackMapDashboard {
             'mapbox-kirk': {
                 url: 'https://c.tile.opentopomap.org/{z}/{x}/{y}.png',
                 attribution: '© <a href="https://www.mapbox.com/about/maps/">Mapbox</a>'
+            },
+            'nasa-gibs': {
+                url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/2026-05-19/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpeg',
+                attribution: 'Imagery provided by GIBS, operated by the NASA/GSFC/Earth Science Data and Information System (ESDIS) project'
             }
         };
 
@@ -2851,6 +2855,8 @@ class AttackMapDashboard {
             }
 
             this.scheduleUpdateMap();
+            const mapStyleEl = this.getEl('map-style');
+            if (mapStyleEl?.value === 'nasa-gibs') this.layers.setBaseLayer('nasa-gibs');
             this.syncDiffSliceRange();
             if (this.dailyPositionsDebounce) clearTimeout(this.dailyPositionsDebounce);
             this.dailyPositionsDebounce = setTimeout(() => {

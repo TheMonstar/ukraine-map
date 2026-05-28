@@ -84,7 +84,8 @@ class UiBindings {
                 const chunk = turf.difference(uaborder, area);
                 const shadow = deepMap.addShadow(area, dashboard.getEl('shadow-ua-size')?.value || 20);
                 const shadowOnly = turf.difference(shadow, area);
-                const shadowExclRu = turf.difference(shadowOnly, ruborder);
+                const shadowExclRu = turf.intersect(turf.difference(shadowOnly, ruborder), uaborder);
+                dashboard.shadowUaPolygon = shadowExclRu;
                 const zone = turf.difference(chunk, shadow);
                 const contested = turf.difference(uaborder, zone);
                 const areaExclRu = turf.difference(area, ruborder);
@@ -274,6 +275,7 @@ class UiBindings {
             } else {
                 // Base case: render only endDate polygons
                 dashboard.currentDiffResult = null;
+                dashboard.currentDeepResult = endDatePolygons;
                 const sliceStatsEl = dashboard.getEl('slice-territory-stats');
                 if (sliceStatsEl) sliceStatsEl.innerHTML = '';
                 const optimized = dashboard.isChecked('optimize-polygons') ?
@@ -307,6 +309,37 @@ class UiBindings {
 
         dashboard.bindUI('shadow-ua-size', 'input', () => {
             if (dashboard.isChecked('shadow-ua')) renderDeepLayer();
+        });
+
+        const MAJOR_HIGHWAYS = new Set(['motorway', 'trunk', 'primary', 'secondary']);
+
+        dashboard.bindUI('motorlines-by-shadow-btn', 'click', async () => {
+            if (!dashboard.isChecked('shadow-ua') || !dashboard.shadowUaPolygon) {
+                console.warn('Enable UA Shadow first');
+                return;
+            }
+            const response = await fetch(`${APP_STATIC_URL}/motorlines.json`);
+            const data = await response.json();
+            const totals = {};
+            for (const feature of (data.features || [])) {
+                const highway = feature?.properties?.highway;
+                if (!MAJOR_HIGHWAYS.has(highway)) continue;
+                try {
+                    const clipped = turf.lineSplit(feature, dashboard.shadowUaPolygon);
+                    const inside = (clipped.features.length ? clipped.features : [feature]).filter(seg => {
+                        const mid = turf.midpoint(turf.getCoords(seg)[0], turf.getCoords(seg)[turf.getCoords(seg).length - 1]);
+                        return turf.booleanPointInPolygon(mid, dashboard.shadowUaPolygon);
+                    });
+                    const km = inside.reduce((sum, seg) => sum + turf.length(seg, { units: 'kilometers' }), 0);
+                    totals[highway] = (totals[highway] || 0) + km;
+                } catch {
+                    // skip malformed features
+                }
+            }
+            console.log('Road km within UA shadow zone:');
+            Object.entries(totals).sort((a, b) => b[1] - a[1]).forEach(([type, km]) => {
+                console.log(`  ${type}: ${km.toFixed(1)} km`);
+            });
         });
 
         // --- Hex Tiles ---
@@ -362,6 +395,75 @@ class UiBindings {
         // --- End Hex Tiles ---
 
         dashboard.bindUI('diff-area', 'change', () => renderDeepLayer());
+
+        dashboard.bindUI('motorlines-by-diff-btn', 'click', async () => {
+            try {
+            if (!motorlinesCache) {
+                const response = await fetch(`${APP_STATIC_URL}/motorlines.json`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                motorlinesCache = await response.json();
+            }
+            const visibleTypes = new Set([
+                ...(dashboard.isChecked('motorlines-type-highway')  ? ['motorway', 'trunk']      : []),
+                ...(dashboard.isChecked('motorlines-type-primary')   ? ['primary', 'secondary']   : []),
+                ...(dashboard.isChecked('motorlines-type-tertiary')  ? ['tertiary']               : []),
+            ]);
+            if (!visibleTypes.size) { console.warn('No motorline types selected'); return; }
+            const features = (motorlinesCache.features || []).filter(f => visibleTypes.has(f?.properties?.highway));
+
+            const unionAll = (polys) => polys.reduce((acc, p) => acc ? turf.union(acc, p.geojson) : p.geojson, null);
+
+            const calcByType = (polygon) => {
+                if (!polygon) return {};
+                const totals = {};
+                for (const feature of features) {
+                    const highway = feature.properties.highway;
+                    try {
+                        const clipped = turf.lineSplit(feature, polygon);
+                        const segs = clipped.features.length ? clipped.features : [feature];
+                        const inside = segs.filter(seg => {
+                            const coords = turf.getCoords(seg);
+                            const mid = turf.midpoint(coords[0], coords[coords.length - 1]);
+                            return turf.booleanPointInPolygon(mid, polygon);
+                        });
+                        const km = inside.reduce((sum, seg) => sum + turf.length(seg, { units: 'kilometers' }), 0);
+                        if (km > 0) totals[highway] = (totals[highway] || 0) + km;
+                    } catch { }
+                }
+                return totals;
+            };
+
+            if (dashboard.selectedPolygons.length > 0) {
+                const geoJsons = dashboard.selectedPolygons.map(p => p.toGeoJSON());
+                const polygon = geoJsons.reduce((acc, g) => acc ? turf.union(acc, g) : g, null);
+                const totals = calcByType(polygon);
+                console.log('Road km in selected polygon:');
+                Object.entries(totals).sort((a, b) => b[1] - a[1]).forEach(([t, km]) => console.log(`  ${t}: ${km.toFixed(1)} km`));
+            } else if (dashboard.currentDiffResult) {
+                const gainPolygons = dashboard.currentDiffResult.polygons.filter(p => p.type === 'difference' && p.geojson);
+                const lossPolygons = dashboard.currentDiffResult.polygons.filter(p => p.type === 'reverse-difference' && p.geojson);
+                const [gains, losses] = await Promise.all([calcByType(unionAll(gainPolygons)), calcByType(unionAll(lossPolygons))]);
+                console.log('Road km in GAINS (diff area):');
+                Object.entries(gains).sort((a, b) => b[1] - a[1]).forEach(([t, km]) => console.log(`  ${t}: ${km.toFixed(1)} km`));
+                console.log('Road km in LOSSES (diff area):');
+                Object.entries(losses).sort((a, b) => b[1] - a[1]).forEach(([t, km]) => console.log(`  ${t}: ${km.toFixed(1)} km`));
+            } else if (dashboard.currentDeepResult) {
+                const basePolygons = dashboard.currentDeepResult.polygons
+                    .filter(p => p.geojson || p.coordinates)
+                    .map(p => {
+                        if (p.geojson) return { geojson: p.geojson };
+                        const ring = p.coordinates.map(([lat, lng]) => [lng, lat]);
+                        if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) ring.push(ring[0]);
+                        return { geojson: turf.polygon([ring]) };
+                    });
+                const totals = await calcByType(unionAll(basePolygons));
+                console.log('Road km in DeepState painted area:');
+                Object.entries(totals).sort((a, b) => b[1] - a[1]).forEach(([t, km]) => console.log(`  ${t}: ${km.toFixed(1)} km`));
+            } else {
+                console.warn('Enable DeepState first');
+            }
+            } catch (e) { console.error('motorlines-by-diff error:', e); }
+        });
 
         dashboard.bindUI('show-date-overlay', 'change', () => {
             const el = dashboard.getEl('date');
@@ -506,7 +608,7 @@ class UiBindings {
         const updateFeaturesAttribution = () => {
             const el = document.getElementById('features-attribution');
             if (el) {
-                const any = dashboard.isChecked('feature-ditches') || dashboard.isChecked('feature-wire') || dashboard.isChecked('feature-dragon');
+                const any = dashboard.isChecked('feature-ditches') || dashboard.isChecked('feature-wire') || dashboard.isChecked('feature-dragon') || dashboard.isChecked('feature-motorlines');
                 el.style.display = any ? '' : 'none';
             }
         };
@@ -936,61 +1038,45 @@ class UiBindings {
             }
         });
 
-        dashboard.bindUI('feature-motorlines', 'change', async () => {
-            if (!dashboard.isChecked('feature-motorlines')) {
-                dashboard.featureLayer.clearLayers();
-                return;
-            }
+        let motorlinesCache = null;
+
+        const renderMotorlines = async () => {
+            dashboard.featureMotorLayer.clearLayers();
+            if (!dashboard.isChecked('feature-motorlines')) return;
             try {
-                const response = await fetch('./motorlines_overlay.json');
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                if (!motorlinesCache) {
+                    const response = await fetch(`${APP_STATIC_URL}/motorlines.json`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    motorlinesCache = await response.json();
                 }
-                const data = await response.json();
-                const features = data.features || [];
-                const groups = {
-                    major: new Set(['motorway', 'trunk']),
-                    mid: new Set(['primary', 'secondary']),
-                    minor: new Set(['tertiary'])
-                };
-
-                const makeCollection = (predicate) => ({
-                    type: 'FeatureCollection',
-                    features: features.filter(predicate)
-                });
-
-                L.geoJSON(makeCollection(feature => {
-                    const highway = feature?.properties?.highway;
-                    return groups.major.has(highway);
-                }), {
-                    style: function () {
-                        return { color: '#d32f2f', weight: 3 };
-                    }
-                }).addTo(dashboard.featureLayer);
-
-                L.geoJSON(makeCollection(feature => {
-                    const highway = feature?.properties?.highway;
-                    return groups.mid.has(highway);
-                }), {
-                    style: function () {
-                        return { color: '#f57c00', weight: 2 };
-                    }
-                }).addTo(dashboard.featureLayer);
-
-                L.geoJSON(makeCollection(feature => {
-                    const highway = feature?.properties?.highway;
-                    return groups.minor.has(highway);
-                }), {
-                    style: function () {
-                        return { color: '#fbc02d', weight: 1 };
-                    }
-                }).addTo(dashboard.featureLayer);
+                const features = motorlinesCache.features || [];
+                const ROAD_GROUPS = [
+                    { id: 'motorlines-type-highway', types: new Set(['motorway', 'trunk']),     color: '#d32f2f', weight: 3 },
+                    { id: 'motorlines-type-primary',  types: new Set(['primary', 'secondary']), color: '#f57c00', weight: 2 },
+                    { id: 'motorlines-type-tertiary', types: new Set(['tertiary']),              color: '#fbc02d', weight: 1 },
+                ];
+                for (const group of ROAD_GROUPS) {
+                    if (!dashboard.isChecked(group.id)) continue;
+                    L.geoJSON({
+                        type: 'FeatureCollection',
+                        features: features.filter(f => group.types.has(f?.properties?.highway))
+                    }, { style: () => ({ color: group.color, weight: group.weight }) }).addTo(dashboard.featureMotorLayer);
+                }
             } catch (error) {
                 console.error('Error loading motorlines:', error);
-                alert('Failed to load motorlines data.');
             }
+        };
+
+        dashboard.bindUI('feature-motorlines', 'change', async () => {
+            const typesEl = document.getElementById('motorlines-types');
+            if (typesEl) typesEl.style.display = dashboard.isChecked('feature-motorlines') ? '' : 'none';
+            await renderMotorlines();
+            updateFeaturesAttribution();
         });
 
+        ['motorlines-type-highway', 'motorlines-type-primary', 'motorlines-type-tertiary'].forEach(id => {
+            dashboard.bindUI(id, 'change', renderMotorlines);
+        });
 
         const kmlCache = {}; // { 'ua:20240419': '<kml>...</kml>', ... }
 
