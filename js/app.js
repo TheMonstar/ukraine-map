@@ -133,6 +133,9 @@ class AttackMapDashboard {
         // Image overlay
         this.customImageOverlay = null;
         this.imageResizeMode = false;
+        this.imageFreeShapeMode = false;
+        this.imageFreeCorners = null;
+        this._updateFreeTransformBound = null;
         this.imageCornerMarkers = [];
         this.currentImageBounds = null;
         this.customImageObjectUrl = null;
@@ -1151,6 +1154,16 @@ class AttackMapDashboard {
      * Clear image overlay
      */
     clearImageOverlay() {
+        // Clean up free shape state
+        if (this._updateFreeTransformBound) {
+            this.map.off('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+            this._updateFreeTransformBound = null;
+        }
+        this.imageFreeShapeMode = false;
+        this.imageFreeCorners = null;
+        const freeShapeToggle = this.getEl('enable-image-free-shape');
+        if (freeShapeToggle) freeShapeToggle.checked = false;
+
         // Remove overlay
         if (this.customImageOverlay) {
             this.map.removeLayer(this.customImageOverlay);
@@ -1198,6 +1211,13 @@ class AttackMapDashboard {
         } else {
             console.log('Image resize mode disabled');
 
+            // If free shape was active, disable it first
+            if (this.imageFreeShapeMode) {
+                const freeShapeToggle = this.getEl('enable-image-free-shape');
+                if (freeShapeToggle) freeShapeToggle.checked = false;
+                this.toggleImageFreeShapeMode();
+            }
+
             // Re-enable map dragging
             this.map.dragging.enable();
 
@@ -1240,8 +1260,16 @@ class AttackMapDashboard {
 
         centerMarker.on('dragend', () => {
             this.moveImageOverlay(centerMarker);
-            // Update original bounds for next drag
-            centerMarker.originalBounds = JSON.parse(JSON.stringify(this.currentImageBounds));
+            // Update original bounds so the next drag starts from the current position
+            if (this.imageFreeShapeMode && this.imageFreeCorners) {
+                const lats = this.imageFreeCorners.map(c => c.lat);
+                const lngs = this.imageFreeCorners.map(c => c.lng);
+                const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+                const cLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+                centerMarker.originalBounds = [[cLat, cLng], [cLat, cLng]];
+            } else {
+                centerMarker.originalBounds = JSON.parse(JSON.stringify(this.currentImageBounds));
+            }
             this.logImageCoordinates();
         });
 
@@ -1271,11 +1299,23 @@ class AttackMapDashboard {
 
             // Add drag event listener for corners
             marker.on('drag', () => {
-                this.resizeImageOverlay(marker);
+                if (this.imageFreeShapeMode) {
+                    this.imageFreeCorners[marker.cornerIndex] = marker.getLatLng();
+                    this._updateFreeShapeCenterMarker();
+                    this.updateFreeShapeTransform();
+                } else {
+                    this.resizeImageOverlay(marker);
+                }
             });
 
             marker.on('dragend', () => {
-                this.resizeImageOverlay(marker);
+                if (this.imageFreeShapeMode) {
+                    this.imageFreeCorners[marker.cornerIndex] = marker.getLatLng();
+                    this._updateFreeShapeCenterMarker();
+                    this.updateFreeShapeTransform();
+                } else {
+                    this.resizeImageOverlay(marker);
+                }
                 this.logImageCoordinates();
             });
 
@@ -1300,34 +1340,44 @@ class AttackMapDashboard {
         const newCenter = centerMarker.getLatLng();
         const [[origSouth, origWest], [origNorth, origEast]] = centerMarker.originalBounds;
 
-        // Calculate original center
         const origCenterLat = (origSouth + origNorth) / 2;
         const origCenterLng = (origWest + origEast) / 2;
 
-        // Calculate offset
         const offsetLat = newCenter.lat - origCenterLat;
         const offsetLng = newCenter.lng - origCenterLng;
 
-        // Apply offset to all corners
-        const south = origSouth + offsetLat;
-        const north = origNorth + offsetLat;
-        const west = origWest + offsetLng;
-        const east = origEast + offsetLng;
+        if (this.imageFreeShapeMode && this.imageFreeCorners) {
+            // Translate all 4 free corners by the same offset
+            this.imageFreeCorners = this.imageFreeCorners.map(c =>
+                L.latLng(c.lat + offsetLat, c.lng + offsetLng)
+            );
+            this.updateFreeShapeTransform();
 
-        // Update bounds
-        this.currentImageBounds = [[south, west], [north, east]];
+            // Update corner markers (skip center at index 0)
+            if (this.imageCornerMarkers.length === 5) {
+                this.imageCornerMarkers[1].setLatLng(this.imageFreeCorners[0]); // SW
+                this.imageCornerMarkers[2].setLatLng(this.imageFreeCorners[1]); // SE
+                this.imageCornerMarkers[3].setLatLng(this.imageFreeCorners[2]); // NE
+                this.imageCornerMarkers[4].setLatLng(this.imageFreeCorners[3]); // NW
+            }
+        } else {
+            const south = origSouth + offsetLat;
+            const north = origNorth + offsetLat;
+            const west = origWest + offsetLng;
+            const east = origEast + offsetLng;
 
-        // Update image overlay
-        if (this.customImageOverlay) {
-            this.customImageOverlay.setBounds(this.currentImageBounds);
-        }
+            this.currentImageBounds = [[south, west], [north, east]];
 
-        // Update corner markers (skip center marker at index 0)
-        if (this.imageCornerMarkers.length === 5) {
-            this.imageCornerMarkers[1].setLatLng([south, west]); // SW
-            this.imageCornerMarkers[2].setLatLng([south, east]); // SE
-            this.imageCornerMarkers[3].setLatLng([north, east]); // NE
-            this.imageCornerMarkers[4].setLatLng([north, west]); // NW
+            if (this.customImageOverlay) {
+                this.customImageOverlay.setBounds(this.currentImageBounds);
+            }
+
+            if (this.imageCornerMarkers.length === 5) {
+                this.imageCornerMarkers[1].setLatLng([south, west]); // SW
+                this.imageCornerMarkers[2].setLatLng([south, east]); // SE
+                this.imageCornerMarkers[3].setLatLng([north, east]); // NE
+                this.imageCornerMarkers[4].setLatLng([north, west]); // NW
+            }
         }
     }
 
@@ -1393,6 +1443,140 @@ class AttackMapDashboard {
             this.imageCornerMarkers[3].setLatLng([newNorth, newEast]); // NE
             this.imageCornerMarkers[4].setLatLng([newNorth, newWest]); // NW
         }
+    }
+
+    toggleImageFreeShapeMode() {
+        this.imageFreeShapeMode = this.isChecked('enable-image-free-shape');
+
+        if (this.imageFreeShapeMode) {
+            if (!this.customImageOverlay || !this.currentImageBounds) {
+                alert('Please load an image overlay and enable Resize Mode first');
+                const toggle = this.getEl('enable-image-free-shape');
+                if (toggle) toggle.checked = false;
+                this.imageFreeShapeMode = false;
+                return;
+            }
+            if (!this.imageResizeMode) {
+                // Auto-enable resize mode so corner markers are visible
+                const resizeToggle = this.getEl('enable-image-resize');
+                if (resizeToggle) resizeToggle.checked = true;
+                this.toggleImageResizeMode();
+            }
+
+            const [[south, west], [north, east]] = this.currentImageBounds;
+            this.imageFreeCorners = [
+                L.latLng(south, west), // SW (index 0)
+                L.latLng(south, east), // SE (index 1)
+                L.latLng(north, east), // NE (index 2)
+                L.latLng(north, west)  // NW (index 3)
+            ];
+
+            this._updateFreeTransformBound = () => this.updateFreeShapeTransform();
+            this.map.on('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+            this.updateFreeShapeTransform();
+        } else {
+            if (this._updateFreeTransformBound) {
+                this.map.off('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+                this._updateFreeTransformBound = null;
+            }
+
+            // Restore image to bounding box of current free corners
+            if (this.imageFreeCorners && this.customImageOverlay) {
+                const lats = this.imageFreeCorners.map(c => c.lat);
+                const lngs = this.imageFreeCorners.map(c => c.lng);
+                this.currentImageBounds = [
+                    [Math.min(...lats), Math.min(...lngs)],
+                    [Math.max(...lats), Math.max(...lngs)]
+                ];
+                const el = this.customImageOverlay.getElement();
+                if (el) el.style.transform = '';
+                this.customImageOverlay.setBounds(this.currentImageBounds);
+            }
+
+            this.imageFreeCorners = null;
+
+            if (this.imageResizeMode) {
+                this.showImageCornerMarkers();
+            }
+        }
+    }
+
+    updateFreeShapeTransform() {
+        if (!this.customImageOverlay || !this.imageFreeCorners || !this.currentImageBounds) return;
+
+        const el = this.customImageOverlay.getElement();
+        if (!el) return;
+
+        // Use layer points (pane coordinate system) — Leaflet positions the element via
+        // translate3d(layerPoint.x, layerPoint.y, 0), so the CSS transform we apply must
+        // also use absolute layer coordinates to include the positioning translation.
+        const [[south, west], [north, east]] = this.currentImageBounds;
+        const nwPt = this.map.latLngToLayerPoint(L.latLng(north, west));
+        const sePt = this.map.latLngToLayerPoint(L.latLng(south, east));
+
+        const srcW = sePt.x - nwPt.x;
+        const srcH = sePt.y - nwPt.y;
+        if (srcW <= 0 || srcH <= 0) return;
+
+        // Destination in absolute layer coordinates — matrix3d replaces Leaflet's translate,
+        // so it must encode the full position (not relative to element top-left).
+        const toLayers = (latlng) => {
+            const pt = this.map.latLngToLayerPoint(latlng);
+            return [pt.x, pt.y];
+        };
+
+        const [sw, se, ne, nw] = this.imageFreeCorners;
+        const tlPt = toLayers(nw); // NW → top-left
+        const trPt = toLayers(ne); // NE → top-right
+        const brPt = toLayers(se); // SE → bottom-right
+        const blPt = toLayers(sw); // SW → bottom-left
+
+        el.style.transformOrigin = '0 0';
+        el.style.transform = this._computeMatrix3d(srcW, srcH, tlPt, trPt, brPt, blPt);
+    }
+
+    _computeMatrix3d(srcW, srcH, tl, tr, br, bl) {
+        function adj(m) {
+            return [
+                m[4]*m[8]-m[5]*m[7], m[2]*m[7]-m[1]*m[8], m[1]*m[5]-m[2]*m[4],
+                m[5]*m[6]-m[3]*m[8], m[0]*m[8]-m[2]*m[6], m[2]*m[3]-m[0]*m[5],
+                m[3]*m[7]-m[4]*m[6], m[1]*m[6]-m[0]*m[7], m[0]*m[4]-m[1]*m[3]
+            ];
+        }
+        function multmm(a, b) {
+            const c = Array(9);
+            for (let i = 3; i--;)
+                for (let j = 3; j--;) {
+                    let v = 0;
+                    for (let k = 3; k--;) v += a[3*i+k] * b[3*k+j];
+                    c[3*i+j] = v;
+                }
+            return c;
+        }
+        function multmv(m, v) {
+            return [m[0]*v[0]+m[1]*v[1]+m[2]*v[2], m[3]*v[0]+m[4]*v[1]+m[5]*v[2], m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];
+        }
+        function basisToPoints(x1,y1,x2,y2,x3,y3,x4,y4) {
+            const m = [x1,x2,x3, y1,y2,y3, 1,1,1];
+            const v = multmv(adj(m), [x4,y4,1]);
+            return multmm(m, [v[0],0,0, 0,v[1],0, 0,0,v[2]]);
+        }
+        const src = basisToPoints(0,0, srcW,0, srcW,srcH, 0,srcH);
+        const dst = basisToPoints(tl[0],tl[1], tr[0],tr[1], br[0],br[1], bl[0],bl[1]);
+        const m = multmm(dst, adj(src));
+        for (let i = 0; i < 9; i++) m[i] /= m[8];
+        // CSS matrix3d is column-major 4x4 embedding of 3x3 homography
+        return `matrix3d(${m[0]},${m[3]},0,${m[6]}, ${m[1]},${m[4]},0,${m[7]}, 0,0,1,0, ${m[2]},${m[5]},0,1)`;
+    }
+
+    _updateFreeShapeCenterMarker() {
+        if (!this.imageFreeCorners || this.imageCornerMarkers.length < 1) return;
+        const lats = this.imageFreeCorners.map(c => c.lat);
+        const lngs = this.imageFreeCorners.map(c => c.lng);
+        const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+        const cLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+        this.imageCornerMarkers[0].setLatLng([cLat, cLng]);
+        this.imageCornerMarkers[0].originalBounds = [[cLat, cLng], [cLat, cLng]];
     }
 
     /**

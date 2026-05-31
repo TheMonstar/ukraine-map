@@ -419,8 +419,8 @@ class DeepUtils {
 
         // Add difference polygons highlighted in red (gains: start -> end)
         if (difference) {
-            const diffArea = this.calculateGeoPolygonArea(difference.geometry?.coordinates || difference.coordinates);
-            console.log(`Gains (start → end): ${diffArea.squareKilometers.toFixed(2)} km²`);
+            const diffArea = turf.area(difference) / 1000000;
+            console.log(`Gains (start → end): ${diffArea.toFixed(2)} km²`);
 
             result.polygons.push({
                 geojson: difference,
@@ -436,8 +436,8 @@ class DeepUtils {
 
         // Add reverse difference polygons highlighted in blue (losses: end -> start)
         if (reverseDifference) {
-            const reverseDiffArea = this.calculateGeoPolygonArea(reverseDifference.geometry?.coordinates || reverseDifference.coordinates);
-            console.log(`📉 Losses (end → start): ${reverseDiffArea.squareKilometers.toFixed(2)} km²`);
+            const reverseDiffArea = turf.area(reverseDifference) / 1000000;
+            console.log(`📉 Losses (end → start): ${reverseDiffArea.toFixed(2)} km²`);
             console.log('Blue polygon added to result:', {
                 type: 'reverse-difference',
                 hasGeojson: !!reverseDifference,

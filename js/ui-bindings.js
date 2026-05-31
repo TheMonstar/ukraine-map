@@ -105,6 +105,10 @@ class UiBindings {
                 const startDatePolygons = await getPolygons(dashboard.startDate);
                 updateDiffStats(startDatePolygons, endDatePolygons);
 
+                const noGray = (data) => dashboard.isChecked('diff-no-base')
+                    ? { ...data, polygons: data.polygons.filter(p => p.properties?.fill !== '#bcaaa4') }
+                    : data;
+
                 const sliceDates = dashboard.getDiffSliceDates();
                 if (sliceDates.length) {
                     const sliceColors = ['#ff5252', '#ff9800', '#ffeb3b', '#8bc34a', '#03a9f4', '#9c27b0'];
@@ -112,7 +116,7 @@ class UiBindings {
                     const diffPolygons = [];
                     let combinedDifference = null;
 
-                    const baseResult = deepMap.calculatePolygonDifference(startDatePolygons, endDatePolygons);
+                    const baseResult = deepMap.calculatePolygonDifference(noGray(startDatePolygons), noGray(endDatePolygons));
                     baseResult.polygons
                         .filter(polygon => polygon.type === 'merged-start')
                         .forEach(polygon => diffPolygons.push(polygon));
@@ -121,7 +125,7 @@ class UiBindings {
                     for (let i = 0; i < allDates.length - 1; i++) {
                         const sliceStart = await getPolygons(allDates[i]);
                         const sliceEnd = await getPolygons(allDates[i + 1]);
-                        const sliceDiff = deepMap.calculatePolygonDifference(sliceStart, sliceEnd);
+                        const sliceDiff = deepMap.calculatePolygonDifference(noGray(sliceStart), noGray(sliceEnd));
                         const color = sliceColors[i % sliceColors.length];
                         let sliceGains = 0, sliceLosses = 0;
 
@@ -224,7 +228,7 @@ class UiBindings {
                     }
 
                 } else {
-                    const diffResult = deepMap.calculatePolygonDifference(startDatePolygons, endDatePolygons);
+                    const diffResult = deepMap.calculatePolygonDifference(noGray(startDatePolygons), noGray(endDatePolygons));
                     dashboard.currentDiffResult = diffResult;
 
                     const optimizedDiffResult = dashboard.isChecked('optimize-polygons') ?
@@ -469,6 +473,8 @@ class UiBindings {
             const el = dashboard.getEl('date');
             if (el) el.style.display = dashboard.isChecked('show-date-overlay') ? '' : 'none';
         });
+
+        dashboard.bindUI('diff-no-base', 'change', () => renderDeepLayer());
 
         dashboard.bindUI('diff-highlight', 'change', async () => {
             await renderDeepLayer();
@@ -1098,6 +1104,9 @@ class UiBindings {
                 if (side === 'ua' && dashboard.isChecked('filter-usf-units')) {
                     shouldLoad = true;
                 }
+                if (side === 'ru' && dashboard.isChecked('show-linked-units')) {
+                    shouldLoad = true;
+                }
 
                 if (shouldLoad) {
                     if (!dashboard.endDate) return;
@@ -1292,10 +1301,26 @@ class UiBindings {
                                     layer.on('contextmenu', (e) => {
                                         L.DomEvent.stopPropagation(e);
                                         L.DomEvent.preventDefault(e);
+                                        const highlight = new Set([unitName]);
                                         const subordinates = dashboard.linkedUnitsByParent?.get(unitName)
                                             || dashboard.ruLinkedUnitsByParent?.get(unitName);
-                                        if (!subordinates) return;
-                                        window.highlightedUnits = new Set([unitName, ...subordinates]);
+                                        if (subordinates) {
+                                            // Clicked a corps — add all its subordinates
+                                            subordinates.forEach(s => highlight.add(s));
+                                        } else {
+                                            // Clicked a subordinate — find parent and full family
+                                            const maps = [dashboard.linkedUnitsByParent, dashboard.ruLinkedUnitsByParent];
+                                            maps.forEach(map => {
+                                                if (!map) return;
+                                                map.forEach((brigades, corpsName) => {
+                                                    if (brigades.has(unitName)) {
+                                                        highlight.add(corpsName);
+                                                        brigades.forEach(s => highlight.add(s));
+                                                    }
+                                                });
+                                            });
+                                        }
+                                        window.highlightedUnits = highlight;
                                         updateDailyPositions();
                                     });
                                 }
@@ -2139,34 +2164,35 @@ class UiBindings {
                         return iconId && selectedIcons.has(iconId);
                     };
 
-                    // Helper to add right-click handler to Corps markers (level 6)
+                    // Helper to add right-click handler to unit markers
+                    // Corps (level 6): highlights corps + all subordinates
+                    // Subordinates: highlights unit + its parent corps
                     const addCorpsRightClickHandler = (marker, unitName, unitLevel) => {
-                        if (unitLevel !== 6) return; // Only Corps
-
                         marker.on('contextmenu', function (e) {
                             L.DomEvent.stopPropagation(e);
                             L.DomEvent.preventDefault(e);
 
-                            // Find subordinates of this Corps
-                            const connectedToHighlight = new Set([unitName]); // Include the Corps itself
+                            const connectedToHighlight = new Set([unitName]);
 
-                            if (data.statistics && data.statistics.subordinateUnits) {
-                                const addSubordinates = (list) => {
-                                    if (!list || !Array.isArray(list)) return;
-                                    list.forEach(({ unit, parent }) => {
-                                        if (parent === unitName) {
-                                            connectedToHighlight.add(unit);
+                            if (unitLevel === 6) {
+                                // Corps: add all direct subordinates from the pre-built map
+                                const subordinates = dashboard.linkedUnitsByParent?.get(unitName)
+                                    || dashboard.ruLinkedUnitsByParent?.get(unitName);
+                                if (subordinates) subordinates.forEach(s => connectedToHighlight.add(s));
+                            } else {
+                                // Subordinate: find parent corps and highlight the full family
+                                const maps = [dashboard.linkedUnitsByParent, dashboard.ruLinkedUnitsByParent];
+                                maps.forEach(map => {
+                                    if (!map) return;
+                                    map.forEach((brigades, corpsName) => {
+                                        if (brigades.has(unitName)) {
+                                            connectedToHighlight.add(corpsName);
+                                            brigades.forEach(s => connectedToHighlight.add(s));
                                         }
                                     });
-                                };
-
-                                addSubordinates(data.statistics.subordinateUnits.moved);
-                                addSubordinates(data.statistics.subordinateUnits.new);
-                                addSubordinates(data.statistics.subordinateUnits.missing);
-                                addSubordinates(data.statistics.subordinateUnits.unchanged);
+                                });
                             }
 
-                            // Store highlighted units and re-render
                             window.highlightedUnits = connectedToHighlight;
                             renderPositionChanges();
                         });
@@ -2753,6 +2779,7 @@ class UiBindings {
                 parentMap?.forEach((brigades, corpsName) => {
                     const positions = [];
                     brigades.forEach(brigade => {
+                        if (brigade.includes('Artillery Brigade')) return;
                         const pos = unitPositions.get(brigade);
                         if (pos) positions.push(pos);
                     });
@@ -3017,6 +3044,10 @@ class UiBindings {
 
         dashboard.bindUI('enable-image-resize', 'change', () => {
             dashboard.toggleImageResizeMode();
+        });
+
+        dashboard.bindUI('enable-image-free-shape', 'change', () => {
+            dashboard.toggleImageFreeShapeMode();
         });
 
         dashboard.bindUI('image-opacity-slider', 'input', (e) => {
