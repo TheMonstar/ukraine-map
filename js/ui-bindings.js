@@ -2775,13 +2775,18 @@ class UiBindings {
 
             if (!window.draggedCorpsPositions) window.draggedCorpsPositions = {};
 
+            const repoBounds = L.latLngBounds(
+                L.latLng(46.09034063760397, 31.928531085733255),
+                L.latLng(52.324983525342205, 40.38061609411399)
+            );
+
             const repositionCorps = (parentMap) => {
                 parentMap?.forEach((brigades, corpsName) => {
                     const positions = [];
                     brigades.forEach(brigade => {
                         if (brigade.includes('Artillery Brigade')) return;
                         const pos = unitPositions.get(brigade);
-                        if (pos) positions.push(pos);
+                        if (pos && repoBounds.contains(pos)) positions.push(pos);
                     });
                     if (positions.length === 0) return;
                     const lat = positions.reduce((s, p) => s + p.lat, 0) / positions.length;
