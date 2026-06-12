@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Terrain Viewer — Ukraine Frontline Map</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/view-3d.css" />
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+
+<body>
+    <div id="error-banner"></div>
+
+    <canvas id="scene-canvas"></canvas>
+
+    <div class="panel">
+        <a class="back-link" href="index.html">&larr; Back to map</a>
+        <h1>3D Terrain Viewer</h1>
+        <div class="info-row" id="info-coords">--</div>
+        <div class="info-row" id="info-date">--</div>
+
+        <div class="control-row">
+            <label>Elevation exaggeration: <span id="exaggeration-value">1.5</span>x</label>
+            <input type="range" id="exaggeration-slider" min="0.5" max="4" step="0.1" value="1.5" />
+        </div>
+
+        <div class="control-row">
+            <label>Time of day: <span id="time-value">13:00</span></label>
+            <input type="range" id="time-slider" min="5" max="21" step="0.5" value="13" />
+        </div>
+
+        <div class="control-row">
+            <label for="shadow-quality">Shadow quality</label>
+            <select id="shadow-quality">
+                <option value="off">Off</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+            </select>
+        </div>
+
+        <div class="control-row">
+            <label>Move speed: <span id="speed-value">1.0</span>x</label>
+            <input type="range" id="speed-slider" min="0.5" max="10" step="0.5" value="1" />
+        </div>
+
+        <div class="control-row">
+            <label class="layer-toggle"><input type="checkbox" id="walk-mode"> Walk mode (WASD)</label>
+            <label class="layer-toggle"><input type="checkbox" id="drone-mode"> Drone mode (WASD + R/F)</label>
+            <label class="layer-toggle"><input type="checkbox" id="freecam-mode"> Free camera (WASD + R/F)</label>
+        </div>
+
+        <div class="control-row">
+            <label>Hide &amp; seek</label>
+            <div class="game-controls">
+                <select id="game-count">
+                    <option value="3">3 soldiers</option>
+                    <option value="5" selected>5 soldiers</option>
+                    <option value="10">10 soldiers</option>
+                </select>
+                <button id="game-start">Start</button>
+            </div>
+        </div>
+
+        <div class="control-row">
+            <label class="layer-toggle"><input type="checkbox" id="layer-roads" checked> Roads</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-water" checked> Water</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-ditches" checked> Ditches</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-buildings" checked> Buildings</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-vegetation" checked> Vegetation</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-grass" checked> Grass</label>
+        </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><span class="swatch" style="background:#5a7a3a;"></span>Low elevation</div>
+        <div class="legend-item"><span class="swatch" style="background:#c9b896;"></span>High elevation</div>
+        <div class="legend-item"><span class="swatch" style="background:#4a4540;"></span>Roads</div>
+        <div class="legend-item"><span class="swatch" style="background:#3b6ea5;"></span>Water</div>
+        <div class="legend-item"><span class="swatch" style="background:#3d2f1f;"></span>Ditches</div>
+        <div class="legend-item"><span class="swatch" style="background:#b0a090;"></span>Buildings</div>
+        <div class="legend-item"><span class="swatch" style="background:#3a5a32;"></span>Vegetation</div>
+        <div class="legend-item"><span class="swatch" style="background:#6f9a3e;"></span>Grass</div>
+    </div>
+
+    <div id="walk-hint" class="hidden">WASD / Arrow keys to move &middot; drag to look &middot; scroll to zoom</div>
+
+    <div id="game-hud" class="hidden">Found 0/0 &middot; 00:00</div>
+    <div id="game-hint" class="hidden">Press T to tag</div>
+    <div id="game-over" class="hidden">
+        <div id="game-over-text"></div>
+        <button id="game-over-close">Close</button>
+    </div>
+
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-steps">
+            <div class="step" data-step="dem">DEM elevation</div>
+            <div class="step" data-step="mesh">Terrain mesh</div>
+            <div class="step" data-step="satellite">Satellite imagery</div>
+            <div class="step" data-step="vectors">Roads, water &amp; ditches</div>
+            <div class="step" data-step="scene">Building scene</div>
+        </div>
+    </div>
+
+    <script type="module" src="js/3d/main.js"></script>
+</body>
+
+</html>
