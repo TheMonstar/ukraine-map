@@ -13,7 +13,7 @@
 <div id="setup-screen">
   <div class="setup-box">
     <div class="setup-logo">FRONTLINE</div>
-    <div class="setup-sub">Real battlefield · Real units · 20 turns</div>
+    <div class="setup-sub">Real battlefield · Real units · 24 turns</div>
 
     <div class="setup-section">
       <label>FACTION</label>
@@ -32,6 +32,16 @@
     </div>
 
     <div class="setup-section">
+      <label>BATTLEGROUP</label>
+      <div class="diff-choice" id="bg-choice"></div>
+    </div>
+
+    <div class="setup-section">
+      <label>DOCTRINE</label>
+      <div class="diff-choice" id="doc-choice"></div>
+    </div>
+
+    <div class="setup-section">
       <label>BATTLEFIELD</label>
       <div class="coord-row">
         <div>
@@ -45,11 +55,12 @@
         <button id="btn-random-point" class="btn-secondary">Random Frontline Point</button>
       </div>
       <div class="preset-row">
-        <button class="preset-btn" data-lat="48.10" data-lng="37.30">Pokrovsk</button>
-        <button class="preset-btn" data-lat="48.58" data-lng="37.95">Toretsk</button>
-        <button class="preset-btn" data-lat="47.83" data-lng="35.16">Zaporizhzhia</button>
-        <button class="preset-btn" data-lat="49.00" data-lng="36.30">Kharkiv</button>
-        <button class="preset-btn" data-lat="48.38" data-lng="38.48">Luhansk</button>
+        <button class="preset-btn" data-lat="49.71" data-lng="37.62">Kupiansk axis</button>
+        <button class="preset-btn" data-lat="48.99" data-lng="37.80">Lyman axis</button>
+        <button class="preset-btn" data-lat="48.53" data-lng="37.71">Kostiantynivka</button>
+        <button class="preset-btn" data-lat="48.10" data-lng="37.30">Pokrovsk axis</button>
+        <button class="preset-btn" data-lat="47.62" data-lng="35.98">Zaporizhzhia</button>
+        <button class="preset-btn" data-lat="46.70" data-lng="32.80">Kherson</button>
       </div>
     </div>
 
@@ -80,7 +91,7 @@
         <circle id="timer-ring" cx="22" cy="22" r="18" fill="none" stroke="#e8c84a" stroke-width="3"
           stroke-dasharray="113.1" stroke-dashoffset="0" stroke-linecap="round"
           transform="rotate(-90 22 22)"/>
-        <text id="timer-text" x="22" y="27" text-anchor="middle" fill="#e8c84a" font-size="12" font-weight="bold">20</text>
+        <text id="timer-text" x="22" y="27" text-anchor="middle" fill="#e8c84a" font-size="12" font-weight="bold">30</text>
       </svg>
     </div>
     <div id="hud-vp">
@@ -89,8 +100,12 @@
       <span id="vp-ai">—</span>
     </div>
     <div id="hud-weather"></div>
+    <button id="btn-legend" class="btn-legend" title="Rules & legend">?</button>
     <button id="btn-end-turn" class="btn-end-turn">END TURN</button>
   </div>
+
+  <!-- LEGEND / RULES OVERLAY -->
+  <div id="legend-overlay" style="display:none"></div>
 
   <!-- INITIATIVE BAR -->
   <div id="initiative-bar">
@@ -119,6 +134,12 @@
   <!-- MAP -->
   <div id="map"></div>
 
+  <!-- ACTION BAR: all actions for the selected unit -->
+  <div id="action-bar" style="display:none"></div>
+
+  <!-- TERRAIN INFO CHIP (hover) -->
+  <div id="terrain-info" style="display:none"></div>
+
   <!-- BOTTOM PANEL: card hand + orders -->
   <div id="bottom-panel">
     <div id="hand-area">
@@ -133,6 +154,15 @@
       <div class="panel-label">CMD</div>
       <div id="commander-card"></div>
     </div>
+  </div>
+
+  <!-- ATTACK ODDS PREVIEW (hover) -->
+  <div id="atk-preview" style="display:none"></div>
+
+  <!-- BATTLE LOG -->
+  <div id="battle-log">
+    <div id="log-head">BATTLE LOG <span id="log-toggle">▾</span></div>
+    <div id="log-entries"></div>
   </div>
 
   <!-- EVENT DISPLAY -->

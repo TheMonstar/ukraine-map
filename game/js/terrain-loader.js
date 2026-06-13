@@ -7,17 +7,23 @@ class TerrainLoader {
 
     // Main entry: classify all hexes in a HexBoard using OSM data.
     // Returns Map<hexId, terrainData> and mutates board.hexes in place.
-    async classifyAll(board) {
+    async classifyAll(board, opts = {}) {
         const [minLng, minLat, maxLng, maxLat] = board.bbox;
         const statusEl = document.getElementById('setup-status');
-        if (statusEl) statusEl.textContent = 'Loading terrain from OSM…';
+        if (statusEl && !opts.forceProcedural) statusEl.textContent = 'Loading terrain from OSM…';
 
         let osmData = null;
-        try {
-            osmData = await this._fetchOverpass(minLat, minLng, maxLat, maxLng);
-        } catch (e) {
-            console.warn('Overpass fetch failed, using procedural terrain:', e.message);
+        if (!opts.forceProcedural) {
+            try {
+                osmData = await this._fetchOverpass(minLat, minLng, maxLat, maxLng);
+            } catch (e) {
+                console.warn('Overpass fetch failed, using procedural terrain:', e.message);
+            }
         }
+
+        // Random per-board noise phase — without it the fixed-coefficient noise
+        // always clusters settlements toward the north-east (one side's rear)
+        this._noisePhase = [Math.random() * 6.283, Math.random() * 6.283];
 
         board.hexes.forEach((hex, hexId) => {
             const [lng, lat] = hex.centroid;
@@ -32,9 +38,105 @@ class TerrainLoader {
         this._flagRoadJunctions(board);
         // Mark bridge hexes
         this._flagBridges(board, osmData);
+        // Guarantee contested objectives spread across the middle of the map
+        this._ensureSpreadObjectives(board);
 
         if (statusEl) statusEl.textContent = 'Terrain ready.';
         return board.hexes;
+    }
+
+    // ── Real frontline classification ────────────────────────────────────────
+    // Splits the board into 'ua' / 'ru' sides using the territory-control
+    // GeoJSON (same Flask endpoint as the main app). Falls back to a synthetic
+    // front when data is unavailable or the board lies too deep in one rear.
+    // Cached territory-control GeoJSON (yesterday's date — today may not exist)
+    static async fetchControlGeo() {
+        if (TerrainLoader._controlGeo) return TerrainLoader._controlGeo;
+        const dateStr = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+        const res = await fetch(
+            `https://flask-app-kibakefmpq-ew.a.run.app/geojson-by-date?date=${dateStr}`,
+            { signal: AbortSignal.timeout(15000) }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        TerrainLoader._controlGeo = await res.json();
+        return TerrainLoader._controlGeo;
+    }
+
+    async classifyFront(board, opts = {}) {
+        const statusEl = document.getElementById('setup-status');
+        let assigned = false;
+        board.frontNote = null;
+
+        if (!opts.forceProcedural) {
+            try {
+                if (statusEl) statusEl.textContent = 'Loading real frontline…';
+                assigned = this._applyControlPolygons(board, await TerrainLoader.fetchControlGeo());
+                if (!assigned) {
+                    board.frontNote = 'Point lies deep inside one side\'s territory — using a synthetic front. Try "Random Frontline Point".';
+                }
+            } catch (e) {
+                console.warn('Frontline fetch failed, using synthetic front:', e.message);
+                board.frontNote = 'Frontline data unavailable — using a synthetic front.';
+            }
+        }
+
+        if (!assigned) this._syntheticFront(board);
+
+        // Frontline hexes: any hex with an opposite-side neighbour
+        board.hexes.forEach(h => {
+            h.isFrontline = h.neighbours.some(nid => {
+                const n = board.hexes.get(nid);
+                return n && n.side !== h.side;
+            });
+        });
+    }
+
+    _applyControlPolygons(board, geo) {
+        const OCCUPIED_FILLS = new Set(['#a52714', '#880e4f']);
+        const [minX, minY, maxX, maxY] = board.bbox;
+
+        const polys = (geo.features || []).filter(f => {
+            if (f.geometry?.type !== 'Polygon' || !OCCUPIED_FILLS.has(f.properties?.fill)) return false;
+            const b = turf.bbox(f);
+            return b[0] <= maxX && b[2] >= minX && b[1] <= maxY && b[3] >= minY;
+        });
+        if (!polys.length) return false;
+
+        let union = polys[0];
+        for (let i = 1; i < polys.length; i++) {
+            try { union = turf.union(union, polys[i]); } catch (e) { /* skip bad geometry */ }
+        }
+        let simple = union;
+        try { simple = turf.simplify(union, { tolerance: 0.01, highQuality: false }); } catch (e) {}
+
+        let ru = 0, ua = 0;
+        board.hexes.forEach(h => {
+            h.side = turf.booleanPointInPolygon(turf.point(h.centroid), simple) ? 'ru' : 'ua';
+            if (h.side === 'ru') ru++; else ua++;
+        });
+
+        // Board too one-sided (point deep in a rear) — let the fallback split it
+        if (ru < 20 || ua < 20) return false;
+
+        // Render only the control BOUNDARY crossing the board — clip the line
+        // (not the polygon, which would close along the bbox and draw a frame).
+        try {
+            board.frontGeo = turf.bboxClip(turf.polygonToLine(simple), board.bbox);
+        } catch (e) { board.frontGeo = null; }
+        return true;
+    }
+
+    // Synthetic front: latitude split with a sine wiggle (RU north, UA south).
+    // Split at the MEDIAN hex latitude so both sides get equal hex counts —
+    // splitting at centerLat skews ~10 hexes to one side (grid row alignment).
+    _syntheticFront(board) {
+        const lats = [...board.hexes.values()].map(h => h.centroid[1]).sort((a, b) => a - b);
+        const median = lats[Math.floor(lats.length / 2)];
+        board.hexes.forEach(h => {
+            const [lng, lat] = h.centroid;
+            h.side = lat > median + 0.02 * Math.sin(lng * 90) ? 'ru' : 'ua';
+        });
+        board.frontGeo = null;
     }
 
     // ── Overpass query ───────────────────────────────────────────────────────
@@ -96,7 +198,10 @@ class TerrainLoader {
 
             const t = el.tags || {};
             if (t.natural === 'wood' || t.landuse === 'forest') forest = true;
-            if (t.landuse === 'residential' || t.place) settled = true;
+            // Settlements: no pad — centroid must fall inside the residential
+            // area itself, otherwise villages smear across neighbouring hexes
+            const inBbox = lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+            if ((t.landuse === 'residential' || t.place) && inBbox) settled = true;
             if (t.landuse === 'industrial') industrial = true;
             if (t.natural === 'wetland') wetland = true;
             if (t.waterway === 'river' || t.waterway === 'canal') hasRiver = true;
@@ -110,7 +215,7 @@ class TerrainLoader {
             if (el.type !== 'node') return;
             if (!el.tags?.place) return;
             const d = Math.sqrt((el.lat - lat) ** 2 + (el.lon - lng) ** 2);
-            if (d < 0.025) settled = true;
+            if (d < 0.012) settled = true;
         });
 
         // Classify
@@ -143,8 +248,9 @@ class TerrainLoader {
         // Deterministic noise from position
         const nx = (lng - centerLng) * 7.3;
         const ny = (lat - centerLat) * 9.1;
-        const n1 = Math.sin(nx * 1.7 + ny * 2.3) * 0.5 + 0.5;
-        const n2 = Math.sin(nx * 3.1 - ny * 1.9) * 0.5 + 0.5;
+        const [p1, p2] = this._noisePhase || [0, 0];
+        const n1 = Math.sin(nx * 1.7 + ny * 2.3 + p1) * 0.5 + 0.5;
+        const n2 = Math.sin(nx * 3.1 - ny * 1.9 + p2) * 0.5 + 0.5;
         const v = (n1 + n2) / 2;
 
         if (v > 0.82) {
@@ -184,6 +290,33 @@ class TerrainLoader {
                 hex.objectiveType = hex.objectiveType || 'road_junction';
             }
         });
+    }
+
+    // Ensure each longitudinal third of the contested middle band (between the
+    // spawn zones) holds at least one objective, so fronts form in several places.
+    _ensureSpreadObjectives(board) {
+        const hexList = [...board.hexes.values()];
+        const lats = hexList.map(h => h.centroid[1]);
+        const lngs = hexList.map(h => h.centroid[0]);
+        const minLat = Math.min(...lats), latRange = Math.max(...lats) - minLat;
+        const minLng = Math.min(...lngs), lngRange = Math.max(...lngs) - minLng;
+
+        for (let third = 0; third < 3; third++) {
+            const inSector = hexList.filter(h => {
+                const normLat = (h.centroid[1] - minLat) / latRange;
+                const normLng = (h.centroid[0] - minLng) / lngRange;
+                return normLat > 0.25 && normLat < 0.75 &&
+                       normLng >= third / 3 && normLng < (third + 1) / 3;
+            });
+            if (!inSector.length || inSector.some(h => h.isObjective)) continue;
+
+            // Promote the most defensible/valuable hex: settlement > road > central
+            const pick = inSector.find(h => h.terrainType.startsWith('settlement')) ||
+                         inSector.find(h => h.hasRoad) ||
+                         inSector[Math.floor(inSector.length / 2)];
+            pick.isObjective = true;
+            pick.objectiveType = 'key_position';
+        }
     }
 
     _flagBridges(board, osmData) {

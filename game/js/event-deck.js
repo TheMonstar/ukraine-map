@@ -84,9 +84,9 @@ class EventDeck {
                 break;
 
             case 'reset_commanders':
-                gameState.playerCommanderUsed = false;
-                gameState.aiCommanderUsed = false;
-                log.push('Both Commander cards re-enabled');
+                if (gameState.playerDoctrine) gameState.playerDoctrine.charges = Math.min(3, gameState.playerDoctrine.charges + 1);
+                if (gameState.aiDoctrine) gameState.aiDoctrine.charges = Math.min(3, gameState.aiDoctrine.charges + 1);
+                log.push('Both doctrines regain 1 charge');
                 break;
 
             case 'ua_free_order':
@@ -203,7 +203,9 @@ class EventDeck {
     }
 
     _aiPlaceFreeCommon(gameState) {
-        const aiSpawnHexes = gameState.spawnHexIds.aiHexes;
+        // Free reinforcements arrive in the rear when available
+        const aiSpawnHexes = gameState.rearHexIds?.ai?.length
+            ? gameState.rearHexIds.ai : gameState.spawnHexIds.aiHexes;
         if (!aiSpawnHexes.length) return;
         const hexId = aiSpawnHexes[Math.floor(Math.random() * aiSpawnHexes.length)];
         const tokenId = `ai_wave_${Date.now()}`;

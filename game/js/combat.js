@@ -9,7 +9,10 @@ class CombatResolver {
 
     // ── Main Attack ──────────────────────────────────────────────────────────
 
-    // Returns { damage, statusApplied[], log } and mutates units + hexes
+    // Dice pipeline: roll a d6 per effective ATK point; each die hits on
+    // hitTarget+, the defender saves each hit on saveTarget+ (7 = no save).
+    // Unsaved hit = 1 HP; a natural 6 that wounds = 2 HP (crit) + Suppressed.
+    // Returns { damage, statusApplied[], log, dice } and mutates units + hexes
     resolveAttack(attacker, defender, gameState) {
         const attackerCard = CARD_CATALOG[attacker.cardId];
         const defenderCard = CARD_CATALOG[defender.cardId];
@@ -17,160 +20,34 @@ class CombatResolver {
         const defenderHex = this.board.hexes.get(defender.hexId);
         const log = [];
 
-        let atk = attacker.atk + (attacker.statBonus?.atk || 0);
-        let def = defender.def + (defender.statBonus?.def || 0);
-
-        // ── ATK modifiers ──────────────────────────────────────────────────
-
-        // Suppressed attacker
-        if (attacker.status.has(STATUS.SUPPRESSED)) {
-            atk = Math.max(0, atk - 2);
-            log.push('Attacker suppressed −2 ATK');
-        }
-
-        // Flanking status on target
-        if (defender.status.has(STATUS.FLANKING)) {
-            atk += 1;
-            log.push('+1 ATK (flanking)');
-        }
-
-        // Ambush: ignore DEF entirely
-        const hasAmbush = attacker.status.has(STATUS.AMBUSH) || attacker.ambushReady;
-        if (hasAmbush) {
-            def = 0;
-            attacker.ambushReady = false;
-            attacker.status.delete(STATUS.AMBUSH);
-            log.push('Ambush: DEF ignored');
-        }
-
-        // Anti-armor vs tracked
-        if (attackerCard?.abilities?.includes('anti_armor') &&
-            (defenderCard?.unitClass === UNIT_CLASS.TRACKED || defenderCard?.unitClass === UNIT_CLASS.VEHICLE)) {
-            atk += 3;
-            log.push('+3 ATK anti-armor');
-        }
-
-        // Sniper ignores light forest cover
-        if (attackerCard?.abilities?.includes('ignore_light_cover') && defenderHex?.terrainType === 'forest_light') {
-            def = Math.max(0, def - 1);
-            log.push('Sniper: light cover ignored');
-        }
-
-        // Precision fire: ignore terrain DEF if spotted
-        if (attackerCard?.abilities?.includes('precision_fire') && defender.status.has(STATUS.RECON_SPOTTED)) {
-            const terrainDef = TERRAIN_RULES[defenderHex?.terrainType]?.defMod || 0;
-            def = Math.max(0, def - terrainDef);
-            log.push('Precision fire: terrain DEF ignored');
-        }
-
-        // Pack bonus (RU assault group): +1 ATK if 3+ adjacent friendly inf
-        if (attackerCard?.abilities?.includes('pack_bonus')) {
-            const adjFriendly = this._countAdjacentFriendlyInf(attacker, gameState);
-            if (adjFriendly >= 3) { atk += 1; log.push('+1 ATK pack bonus'); }
-        }
-
-        // Night modifier
-        const timeBonus = gameState.timeOfDay === 'night' ? -1 : 0;
-        if (timeBonus !== 0 && attacker.faction !== 'player') {
-            atk += timeBonus;
-            log.push(`${timeBonus} ATK night`);
-        }
-
-        // Adjacency: Infantry + Armor → armor +1 ATK
-        if (attackerCard?.unitClass === UNIT_CLASS.TRACKED) {
-            if (this._hasAdjacentClass(attacker, UNIT_CLASS.INFANTRY, attacker.faction, gameState)) {
-                atk += 1;
-                log.push('+1 ATK infantry+armor adjacency');
-            }
-        }
-
-        // NATO ammo vs tracked targets
-        if (attackerCard?.abilities?.includes('nato_ammo') &&
-            defenderCard?.unitClass === UNIT_CLASS.TRACKED) {
-            atk += 1;
-            log.push('+1 ATK NATO ammo');
-        }
-
         // Artillery miss chance
         if (attackerCard?.unitClass === UNIT_CLASS.VEHICLE &&
             attackerCard?.abilities?.includes('indirect_fire')) {
-
-            let missChance = 0;
-            if (attacker.hexId && gameState.ewZones?.has(attacker.hexId)) {
-                const ewFactions = gameState.ewZones.get(attacker.hexId);
-                const enemyFaction = attacker.faction === 'player' ? 'ai' : 'player';
-                if (ewFactions.has(enemyFaction)) missChance += 0.30;
-            }
-            if (gameState.eventFlags?.arty_miss_30) missChance += 0.30;
-            if (gameState.weather === 'rain') missChance += 0.20;
-            if (gameState.timeOfDay === 'night') missChance += 0.30;
-
+            const missChance = this._artilleryMissChance(attacker, gameState);
             if (Math.random() < missChance) {
                 log.push(`Artillery MISSED (${Math.round(missChance * 100)}% miss chance)`);
                 return { damage: 0, statusApplied: [], log, missed: true };
             }
         }
 
-        // ── DEF modifiers ──────────────────────────────────────────────────
+        const p = this._attackParams(attacker, defender, gameState, { commit: true, log });
+        const dice = this._rollDice(p.numDice, p.hitTarget, p.saveTarget);
+        const damage = dice.damage;
+        log.push(`${attacker.displayName}: ${p.numDice} dice → ${dice.hits} hit${dice.hits === 1 ? '' : 's'} → ${dice.saved} saved → ${damage} dmg${dice.crits ? ` (${dice.crits} crit)` : ''}`);
 
-        // Terrain defence
-        const terrainDef = TERRAIN_RULES[defenderHex?.terrainType]?.defMod || 0;
-        def += terrainDef;
-
-        // Fortified
-        const fortBonus = defenderCard?.faction === 'ua' ? 2 : 1;
-        if (defender.status.has(STATUS.FORTIFIED)) {
-            def += fortBonus;
-            log.push(`+${fortBonus} DEF fortified`);
-        }
-
-        // Infantry + Armor: inf gets +1 DEF
-        if (defenderCard?.unitClass === UNIT_CLASS.INFANTRY) {
-            if (this._hasAdjacentClass(defender, UNIT_CLASS.TRACKED, defender.faction, gameState)) {
-                def += 1;
-                log.push('+1 DEF infantry+armor adjacency');
-            }
-        }
-
-        // Hull-down on ridgeline (UA tank)
-        if (defenderCard?.abilities?.includes('hull_down') && defenderHex?.terrainType === 'ridgeline') {
-            def += 2;
-            log.push('+2 DEF hull-down');
-        }
-
-        // TeroDef home ground on settlement
-        if (defenderCard?.abilities?.includes('home_ground') &&
-            defenderHex?.terrainType?.startsWith('settlement')) {
-            def += 1;
-            log.push('+1 DEF home ground');
-        }
-
-        // Mech Brigade aura: adjacent UA units +1 DEF
-        if (defender.faction === 'player') {
-            if (this._hasMechBrigadeAdjacent(defender, gameState)) {
-                def += 1;
-                log.push('+1 DEF mech brigade aura');
-            }
-        }
-
-        // Reactive armor (T-90): first incoming ATK halved
-        if (defenderCard?.abilities?.includes('reactive_armor') && !defender.status.has(STATUS.REACTIVE_ARMOR_USED)) {
-            atk = Math.ceil(atk / 2);
-            defender.status.add(STATUS.REACTIVE_ARMOR_USED);
-            log.push('Reactive armor: ATK halved');
-        }
-
-        // ── Final damage ───────────────────────────────────────────────────
-
-        const damage = Math.max(0, atk - def);
-        log.push(`Damage: ${atk}−${def} = ${damage}${damage === 0 ? ' (blocked)' : ''}`);
-
-        // Apply damage
         defender.hp = Math.max(0, defender.hp - damage);
         const statusApplied = [];
 
-        // Sniper suppresses on hit
-        if (attackerCard?.abilities?.includes('suppress_on_hit') && damage > 0) {
+        // Crit suppresses
+        if (dice.crits > 0) {
+            this._applySuppress(defender);
+            statusApplied.push('suppressed');
+            log.push('Critical hit: target Suppressed');
+        }
+
+        // Sniper suppresses on any wound
+        if (attackerCard?.abilities?.includes('suppress_on_hit') && damage > 0 &&
+            !statusApplied.includes('suppressed')) {
             this._applySuppress(defender);
             statusApplied.push('suppressed');
             log.push('Suppressed on hit (sniper)');
@@ -185,23 +62,20 @@ class CombatResolver {
             log.push(`Mine: −${mineDmg} HP + Suppressed`);
         }
 
-        // Overwatch trigger on defender: defender fires back if has OVERWATCH
+        // Overwatch trigger on defender: same dice pipeline at −1 die
         let overwatchReturn = null;
         if (defender.hp > 0 && defender.status.has(STATUS.OVERWATCH)) {
-            // Check if attacker in range
             const dist = this.board.hexDistance(attacker.hexId, defender.hexId);
             if (dist <= defender.rng) {
                 defender.status.delete(STATUS.OVERWATCH);
-                const owAtk = Math.max(0, defender.atk - 1);
-                const owDef = attacker.def + (TERRAIN_RULES[attackerHex?.terrainType]?.defMod || 0);
-                const owDmg = Math.max(0, owAtk - owDef);
-                attacker.hp = Math.max(0, attacker.hp - owDmg);
-                overwatchReturn = owDmg;
-                log.push(`Overwatch return fire: ${owDmg} dmg`);
+                const owDice = Math.max(0, defender.atk - 1);
+                const owSave = this._saveTarget(attacker, attackerHex, null, gameState);
+                const ow = this._rollDice(owDice, 4, owSave);
+                attacker.hp = Math.max(0, attacker.hp - ow.damage);
+                overwatchReturn = ow.damage;
+                log.push(`Overwatch return fire: ${ow.damage} dmg`);
             }
         }
-
-        // Breakthrough: T-72/T-90 ignores Overwatch (already handled — skip)
 
         // Veteran XP tracking
         if (damage > 0) {
@@ -209,13 +83,223 @@ class CombatResolver {
             defender.engagements = (defender.engagements || 0) + 1;
         }
 
-        // One-shot: FPV destroyed after attacking
-        if (attackerCard?.abilities?.includes('one_shot') && damage > 0) {
-            attacker.hp = 0;
-            log.push('FPV: one-shot (self-destructs)');
+        // Balance-sim stats (separate from veteran `kills` counter)
+        attacker.damageDealt = (attacker.damageDealt || 0) + damage;
+        if (damage > 0 && defender.hp <= 0) {
+            attacker.statKills = (attacker.statKills || 0) + 1;
         }
 
-        return { damage, statusApplied, log, overwatchReturn };
+        // One-shot munitions are expended whether or not they connect
+        if (attackerCard?.abilities?.includes('one_shot')) {
+            attacker.hp = 0;
+            log.push('One-shot munition expended');
+        }
+
+        return {
+            damage, statusApplied, log, overwatchReturn,
+            dice: { ...dice, numDice: p.numDice, hitTarget: p.hitTarget, saveTarget: p.saveTarget }
+        };
+    }
+
+    // Shared attack parameters for resolveAttack (commit: true — consumes
+    // ambush, marks reactive armor) and previewAttack (commit: false).
+    _attackParams(attacker, defender, gameState, opts = {}) {
+        const commit = !!opts.commit;
+        const log = opts.log || [];
+        const attackerCard = CARD_CATALOG[attacker.cardId];
+        const defenderCard = CARD_CATALOG[defender.cardId];
+        const defenderHex = this.board.hexes.get(defender.hexId);
+
+        // ── Dice count = effective ATK (bonuses capped at +3, per 1b) ──
+        let dice = attacker.atk + (attacker.statBonus?.atk || 0);
+        const baseDice = dice;
+        if (attackerCard?.abilities?.includes('anti_armor') &&
+            (defenderCard?.unitClass === UNIT_CLASS.TRACKED || defenderCard?.unitClass === UNIT_CLASS.VEHICLE)) {
+            dice += 2;
+            log.push('+2 dice anti-armor');
+        }
+        if (attackerCard?.abilities?.includes('nato_ammo') && defenderCard?.unitClass === UNIT_CLASS.TRACKED) {
+            dice += 1;
+            log.push('+1 die NATO ammo');
+        }
+        const packThreshold = this._doctrine(attacker, gameState) === 'ru_mass' ? 2 : 3;
+        if (attackerCard?.abilities?.includes('pack_bonus') &&
+            this._countAdjacentFriendlyInf(attacker, gameState) >= packThreshold) {
+            dice += 1;
+            log.push('+1 die pack bonus');
+        }
+        if (attackerCard?.abilities?.includes('wave_bonus')) {
+            const waveDice = Math.floor(this._countAdjacentFriendlyInf(attacker, gameState) / 2);
+            if (waveDice > 0) { dice += waveDice; log.push(`+${waveDice} dice wave bonus`); }
+        }
+        if (attackerCard?.unitClass === UNIT_CLASS.INFANTRY &&
+            this._hasAdjacentAbility(attacker, 'human_wave_aura', gameState)) {
+            dice += 1;
+            log.push('+1 die human wave aura');
+        }
+        if (attacker._humanWaveBonus) {
+            dice += 2;
+            log.push('+2 dice human wave order');
+        }
+        if (attackerCard?.unitClass === UNIT_CLASS.TRACKED &&
+            this._hasAdjacentClass(attacker, UNIT_CLASS.INFANTRY, attacker.faction, gameState)) {
+            dice += 1;
+            log.push('+1 die infantry+armor adjacency');
+        }
+        if (attackerCard?.abilities?.includes('indirect_fire') &&
+            this._doctrine(attacker, gameState) === 'ru_fires') {
+            dice += 1;
+            log.push('+1 die fires doctrine');
+        }
+        dice = Math.min(dice, baseDice + 3);
+
+        // Reactive armor (T-90): first incoming attack each turn at half dice
+        if (defenderCard?.abilities?.includes('reactive_armor') && !defender.status.has(STATUS.REACTIVE_ARMOR_USED)) {
+            dice = Math.ceil(dice / 2);
+            if (commit) {
+                defender.status.add(STATUS.REACTIVE_ARMOR_USED);
+                log.push('Reactive armor: dice halved');
+            }
+        }
+
+        // ── To-hit threshold (base 4+) ──
+        let hitTarget = 4;
+        if ((attacker.experience || 0) >= 3) { hitTarget -= 1; log.push('Veteran: −1 to-hit'); }
+        if (defender.status.has(STATUS.FLANKING)) {
+            hitTarget -= 1; log.push('Flanked target: −1 to-hit');
+            if (attackerCard?.abilities?.includes('flanking_bonus')) {
+                hitTarget -= 1; log.push('Flanking bonus: −1 to-hit');
+            }
+        }
+        if (defender.status.has(STATUS.RECON_SPOTTED)) { hitTarget -= 1; log.push('Spotted target: −1 to-hit'); }
+        if (attacker.status.has(STATUS.SUPPRESSED)) { hitTarget += 1; log.push('Suppressed attacker: +1 to-hit'); }
+        if (gameState.timeOfDay === 'night' && !(defenderHex?.illuminatedTurns > 0)) {
+            if (attackerCard?.abilities?.includes('night_hunter')) {
+                hitTarget -= 1; log.push('Night hunter: −1 to-hit');
+            } else if (attacker.faction !== 'player') {
+                hitTarget += 1; log.push('Night: +1 to-hit');
+            }
+        }
+        hitTarget = Math.max(2, Math.min(6, hitTarget));
+
+        // ── Save threshold ──
+        const hasAmbush = attacker.status.has(STATUS.AMBUSH) || attacker.ambushReady;
+        if (commit && hasAmbush) {
+            attacker.ambushReady = false;
+            attacker.status.delete(STATUS.AMBUSH);
+        }
+        const precision = attackerCard?.abilities?.includes('precision_fire') &&
+                          defender.status.has(STATUS.RECON_SPOTTED);
+        let saveTarget;
+        if (hasAmbush || precision) {
+            saveTarget = 7; // no save
+            log.push(hasAmbush ? 'Ambush: no save' : 'Precision fire: no save');
+        } else {
+            saveTarget = this._saveTarget(defender, defenderHex, attackerCard, gameState);
+        }
+
+        return { numDice: Math.max(0, dice), hitTarget, saveTarget };
+    }
+
+    // Save target = 7 − (DEF tier + situational bonuses), clamped 2+..6+.
+    // Returns 7 when the unit gets no save at all.
+    _saveTarget(unit, hex, attackerCard, gameState) {
+        const card = CARD_CATALOG[unit.cardId];
+        const defBase = unit.def + (unit.statBonus?.def || 0);
+        const tier = defBase <= 1 ? 0 : defBase <= 3 ? 1 : defBase <= 5 ? 2 : 3;
+
+        let bonus = TERRAIN_RULES[hex?.terrainType]?.defMod || 0;
+        if (attackerCard?.abilities?.includes('ignore_light_cover') && hex?.terrainType === 'forest_light') {
+            bonus = Math.max(0, bonus - 1);
+        }
+        if (unit.status.has(STATUS.FORTIFIED)) bonus += card?.faction === 'ua' ? 2 : 1;
+        if (card?.unitClass === UNIT_CLASS.INFANTRY &&
+            this._hasAdjacentClass(unit, UNIT_CLASS.TRACKED, unit.faction, gameState)) bonus += 1;
+        if (card?.abilities?.includes('hull_down') && hex?.terrainType === 'ridgeline') bonus += 2;
+        if (card?.abilities?.includes('home_ground') && hex?.terrainType?.startsWith('settlement')) bonus += 1;
+        if (unit.faction === 'player' && this._hasMechBrigadeAdjacent(unit, gameState)) bonus += 1;
+        bonus = Math.min(bonus, 3); // cap stacked bonuses, per 1b
+
+        let total = Math.min(tier + bonus, 5);
+        if (unit.markedTurns > 0) total -= 1; // Mark Target: −1 save
+        if (total <= 0) return 7;
+        return Math.max(2, 7 - total);
+    }
+
+    _rollDice(numDice, hitTarget, saveTarget) {
+        const rolls = [];
+        let hits = 0, saved = 0, crits = 0, damage = 0;
+        for (let i = 0; i < numDice; i++) {
+            const r = 1 + Math.floor(Math.random() * 6);
+            rolls.push(r);
+            if (r < hitTarget) continue;
+            hits++;
+            if (r === 6) { crits++; damage += 2; continue; } // crit: pierces the save
+            if (saveTarget <= 6) {
+                const sv = 1 + Math.floor(Math.random() * 6);
+                if (sv >= saveTarget) { saved++; continue; }
+            }
+            damage += 1;
+        }
+        return { rolls, hits, saved, crits, damage };
+    }
+
+    _artilleryMissChance(attacker, gameState) {
+        let missChance = 0;
+        if (attacker.hexId && gameState.ewZones?.has(attacker.hexId)) {
+            const ewFactions = gameState.ewZones.get(attacker.hexId);
+            const enemyFaction = attacker.faction === 'player' ? 'ai' : 'player';
+            if (ewFactions.has(enemyFaction)) missChance += 0.30;
+        }
+        if (gameState.eventFlags?.arty_miss_30) missChance += 0.30;
+        if (gameState.weather === 'rain') missChance += 0.20;
+        if (gameState.timeOfDay === 'night') missChance += 0.30;
+        return Math.min(missChance, 0.50);
+    }
+
+    // Analytic odds for the UI preview — no mutation, no rolling.
+    // Returns { numDice, hitTarget, saveTarget, hitChance, expDamage, killChance, missChance }
+    previewAttack(attacker, defender, gameState) {
+        const attackerCard = CARD_CATALOG[attacker.cardId];
+        let missChance = 0;
+        if (attackerCard?.unitClass === UNIT_CLASS.VEHICLE &&
+            attackerCard?.abilities?.includes('indirect_fire')) {
+            missChance = this._artilleryMissChance(attacker, gameState);
+        }
+
+        const p = this._attackParams(attacker, defender, gameState, { commit: false });
+        const pHit = (7 - p.hitTarget) / 6;
+        const pWound = p.saveTarget > 6 ? 1 : (p.saveTarget - 1) / 6;
+        const p2 = 1 / 6;                                  // natural 6 → 2 dmg, no save
+        const p1 = Math.max(0, pHit - 1 / 6) * pWound;     // other hits → 1 dmg
+        const p0 = 1 - p1 - p2;
+
+        // Damage distribution over all dice
+        let dist = [1];
+        for (let i = 0; i < p.numDice; i++) {
+            const next = new Array(dist.length + 2).fill(0);
+            dist.forEach((pr, dmg) => {
+                next[dmg] += pr * p0;
+                next[dmg + 1] += pr * p1;
+                next[dmg + 2] += pr * p2;
+            });
+            dist = next;
+        }
+
+        const live = 1 - missChance;
+        let expDamage = 0, killP = 0;
+        dist.forEach((pr, dmg) => {
+            expDamage += pr * dmg;
+            if (dmg >= defender.hp) killP += pr;
+        });
+
+        return {
+            numDice: p.numDice, hitTarget: p.hitTarget, saveTarget: p.saveTarget,
+            hitChance: live * (1 - Math.pow(1 - pHit * pWound, p.numDice)),
+            expDamage: live * expDamage,
+            killChance: live * killP,
+            missChance
+        };
     }
 
     // ── Veteran Promotion ────────────────────────────────────────────────────
@@ -272,11 +356,19 @@ class CombatResolver {
         if (unit.status.has(STATUS.SUPPRESSED)) {
             unit.status.delete(STATUS.SUPPRESSED);
         }
-        // Pinned → Suppressed (one step recovery)
+        // Pinned → Suppressed (one step recovery; Resilience doctrine: full)
         if (unit.status.has(STATUS.PINNED)) {
             unit.status.delete(STATUS.PINNED);
-            unit.status.add(STATUS.SUPPRESSED);
+            if (this._doctrine(unit, gameState) !== 'ua_resilience') {
+                unit.status.add(STATUS.SUPPRESSED);
+            }
         }
+        // Skill status timers
+        if (unit.markedTurns > 0) {
+            unit.markedTurns--;
+            if (unit.markedTurns === 0) unit.status.delete(STATUS.MARKED);
+        }
+        if (unit.sabotagedTurns > 0) unit.sabotagedTurns--;
         // Recon-spotted ticks
         if (unit.reconSpottedTurns > 0) {
             unit.reconSpottedTurns--;
@@ -294,6 +386,8 @@ class CombatResolver {
         if (unit.experience >= 3 && unit.suppressedCount > 0) {
             unit.suppressedCount = 0;
         }
+        // Reactive armor resets each turn (halves first incoming attack per turn)
+        unit.status.delete(STATUS.REACTIVE_ARMOR_USED);
     }
 
     // ── Area Attack (MLRS BM-21, ZU-23, Artillery Barrage) ──────────────────
@@ -302,13 +396,15 @@ class CombatResolver {
         const card = CARD_CATALOG[attacker.cardId];
         const results = [];
         const hexesToHit = [targetHexId, ...this.board.neighbours(targetHexId)];
+        const numDice = card.abilities?.includes('area_attack') ? 3 : 4;
 
         hexesToHit.forEach(hid => {
+            const hex = this.board.hexes.get(hid);
             gameState.units.forEach(unit => {
                 if (unit.hexId === hid && unit.faction !== attacker.faction && unit.hp > 0) {
-                    const dmg = Math.max(0, (card.abilities?.includes('area_attack') ? 3 : 4) - unit.def);
-                    unit.hp = Math.max(0, unit.hp - dmg);
-                    results.push({ unitId: unit.id, damage: dmg });
+                    const roll = this._rollDice(numDice, 4, this._saveTarget(unit, hex, null, gameState));
+                    unit.hp = Math.max(0, unit.hp - roll.damage);
+                    results.push({ unitId: unit.id, damage: roll.damage });
                 }
             });
         });
@@ -345,6 +441,23 @@ class CombatResolver {
     }
 
     // ── Helper Queries ───────────────────────────────────────────────────────
+
+    // Active doctrine id for the unit's side, or null
+    _doctrine(unit, gameState) {
+        if (!gameState) return null;
+        const d = unit.faction === 'player' ? gameState.playerDoctrine : gameState.aiDoctrine;
+        return d?.id || null;
+    }
+
+    _hasAdjacentAbility(unit, ability, gameState) {
+        const neighbours = this.board.neighbours(unit.hexId);
+        for (const u of gameState.units.values()) {
+            if (u.faction === unit.faction && u.hp > 0 && u.id !== unit.id &&
+                neighbours.includes(u.hexId) &&
+                CARD_CATALOG[u.cardId]?.abilities?.includes(ability)) return true;
+        }
+        return false;
+    }
 
     _countAdjacentFriendlyInf(unit, gameState) {
         let count = 0;
@@ -391,3 +504,210 @@ class CombatResolver {
         return count >= limit;
     }
 }
+
+// ── Dev balance audit — run FRONTLINE_DEV.damageMatrix() in the console ─────
+// Base damage (no terrain/status) of every attacker vs every enemy unit.
+// Zeros mark matchups that cannot hurt the target at all.
+window.FRONTLINE_DEV = {
+    damageMatrix() {
+        const rows = [];
+        Object.values(CARD_CATALOG).forEach(a => {
+            if (a.tier === TIER.X || a.atk <= 0) return;
+            const row = { attacker: `${a.faction.toUpperCase()} ${a.name} (ATK ${a.atk})` };
+            Object.values(CARD_CATALOG).forEach(d => {
+                if (d.tier === TIER.X || d.faction === a.faction) return;
+                let atk = a.atk;
+                const armored = d.unitClass === UNIT_CLASS.TRACKED || d.unitClass === UNIT_CLASS.VEHICLE;
+                if (a.abilities?.includes('anti_armor') && armored) atk += 2;
+                if (a.abilities?.includes('nato_ammo') && d.unitClass === UNIT_CLASS.TRACKED) atk += 1;
+                row[`${d.name} (DEF ${d.def})`] = Math.max(0, Math.min(atk, a.atk + 3) - d.def);
+            });
+            rows.push(row);
+        });
+        console.table(rows);
+        return rows;
+    },
+
+    // Regression check for the dice pipeline: simulate canonical matchups and
+    // compare mean dice damage against the old deterministic ATK−DEF formula.
+    // Run FRONTLINE_DEV.simulate() in the console.
+    simulate(n = 1000) {
+        const matchups = [
+            ['ua_fpv', 'ru_tank_72'],
+            ['ua_tank', 'ru_assault'],
+            ['ua_sniper', 'ru_motorized'],
+            ['ru_tank_90', 'ua_ifv'],
+            ['ru_assault', 'ua_terodef'],
+            ['ua_arty', 'ru_btr']
+        ];
+        const mkUnit = id => {
+            const c = CARD_CATALOG[id];
+            return { id, cardId: id, faction: 'sim', hexId: null, hp: c.hp, maxHp: c.hp,
+                     atk: c.atk, def: c.def, rng: c.rng, status: new Set(),
+                     statBonus: { atk: 0, def: 0 }, experience: 0, ambushReady: false,
+                     displayName: c.name };
+        };
+        const fakeBoard = { hexes: new Map(), neighbours: () => [], hexDistance: () => 2 };
+        const resolver = new CombatResolver(fakeBoard);
+        const gs = { units: new Map(), timeOfDay: 'day', weather: 'clear', ewZones: new Map(), eventFlags: {} };
+
+        const oldDamage = (aId, dId) => {
+            const a = CARD_CATALOG[aId], d = CARD_CATALOG[dId];
+            let atk = a.atk;
+            const armored = d.unitClass === UNIT_CLASS.TRACKED || d.unitClass === UNIT_CLASS.VEHICLE;
+            if (a.abilities?.includes('anti_armor') && armored) atk += 2;
+            if (a.abilities?.includes('nato_ammo') && d.unitClass === UNIT_CLASS.TRACKED) atk += 1;
+            return Math.max(0, atk - d.def);
+        };
+
+        const rows = matchups.map(([aId, dId]) => {
+            let total = 0, kills = 0;
+            for (let i = 0; i < n; i++) {
+                const a = mkUnit(aId), d = mkUnit(dId);
+                const r = resolver.resolveAttack(a, d, gs);
+                total += r.damage;
+                if (d.hp <= 0) kills++;
+            }
+            const mean = total / n;
+            const old = oldDamage(aId, dId);
+            return {
+                matchup: `${CARD_CATALOG[aId].name} → ${CARD_CATALOG[dId].name}`,
+                oldDmg: old,
+                meanDiceDmg: +mean.toFixed(2),
+                'Δ%': old > 0 ? Math.round((mean - old) / old * 100) : '—',
+                'kill%': Math.round(kills / n * 100)
+            };
+        });
+        console.table(rows);
+        return rows;
+    },
+
+    // AI-vs-AI balance harness: run n headless matches on procedural terrain and
+    // report faction winrates plus per-card combat efficiency.
+    // Run: await FRONTLINE_DEV.autoBattle(20)
+    async autoBattle(n = 10) {
+        const cards = {}; // cardId → { deployed, kills, deaths, dmg, rp }
+        const factionWins = { ua: 0, ru: 0 };
+        let totalTurns = 0;
+
+        const tally = (unit, faction) => {
+            const card = CARD_CATALOG[unit.cardId];
+            if (!card) return;
+            const c = cards[unit.cardId] ||
+                (cards[unit.cardId] = { name: card.name, rp: card.rp, deployed: 0, kills: 0, deaths: 0, dmg: 0 });
+            c.deployed++;
+            c.kills += unit.statKills || 0;
+            c.dmg += unit.damageDealt || 0;
+            if (unit.hp <= 0) c.deaths++;
+        };
+
+        for (let i = 0; i < n; i++) {
+            const eng = new GameEngine();
+            const playerFaction = Math.random() < 0.5 ? 'ua' : 'ru';
+            let outcome = null;
+            eng.onVictory = r => { outcome = r; };
+
+            await eng.startGame({
+                playerFaction, difficulty: 1.0, headless: true,
+                centerLat: 47.8 + Math.random() * 1.2,
+                centerLng: 35.5 + Math.random() * 2.5
+            });
+            const s = eng.state;
+
+            // Greedy deployment for the "player" side
+            let hexIdx = 0;
+            const spawn = s.spawnHexIds.playerHexes;
+            for (const cid of [...s.playerDeck]) {
+                if (eng.deployPlayerUnit(cid, spawn[(hexIdx * 2) % spawn.length]).ok) hexIdx++;
+            }
+            eng.finishDeployment();
+
+            // Greedy player turns until the match ends (AI side runs inside endPlayerTurn)
+            let guard = 0;
+            while (s.phase === 'player_action' && guard++ < 100) {
+                this._driveGreedyPlayer(eng, s);
+                eng.endPlayerTurn();
+            }
+
+            totalTurns += s.turn;
+            const winner = outcome?.winner || (s.playerVP >= s.aiVP ? 'player' : 'ai');
+            factionWins[winner === 'player' ? playerFaction : (playerFaction === 'ua' ? 'ru' : 'ua')]++;
+            s.units.forEach(u => tally(u, u.faction));
+        }
+
+        const rows = Object.values(cards)
+            .map(c => ({
+                unit: c.name, rp: c.rp, deployed: c.deployed,
+                kills: +(c.kills / c.deployed).toFixed(2),
+                deathPct: Math.round(c.deaths / c.deployed * 100),
+                dmg: +(c.dmg / c.deployed).toFixed(1),
+                dmgPerRP: +(c.dmg / c.deployed / Math.max(1, c.rp)).toFixed(2)
+            }))
+            .sort((a, b) => b.dmgPerRP - a.dmgPerRP);
+
+        const summary = { matches: n, uaWins: factionWins.ua, ruWins: factionWins.ru, avgTurns: +(totalTurns / n).toFixed(1) };
+        console.log('autoBattle summary:', summary);
+        console.table(rows);
+        return { summary, rows };
+    },
+
+    // Simple greedy routine driving the "player" side in autoBattle:
+    // attack the nearest enemy in range, otherwise step toward it.
+    // Mirrors the engine AI's order/doctrine usage so the sides are comparable.
+    _driveGreedyPlayer(eng, s) {
+        // Orders: recon sweep for spotting parity, barrage on spotted targets
+        if (s.playerCP >= 1) eng.useOrder('recon_sweep');
+        if (s.playerCP >= 3) {
+            const spotted = [...s.units.values()].find(u =>
+                u.faction === 'ai' && u.hp > 0 && u.status.has(STATUS.RECON_SPOTTED));
+            if (spotted) eng.useOrder('artillery_barrage', spotted.id);
+        }
+        // Doctrine active (untargeted ones fire directly; targeted: best effort)
+        if (eng.doctrineAvailable('player')) {
+            const { def } = eng.doctrineDef('player');
+            if (def.target === 'none') {
+                eng.executeDoctrineTarget({});
+            } else if (def.target === 'unit') {
+                const t = [...s.units.values()].find(u =>
+                    u.faction === 'ai' && u.hp > 0 &&
+                    (u.status.has(STATUS.RECON_SPOTTED) || s.intelZones.has(u.hexId)));
+                if (t) eng.executeDoctrineTarget({ unitId: t.id });
+            } else {
+                const t = [...s.units.values()].find(u => u.faction === 'ai' && u.hp > 0);
+                if (t) eng.executeDoctrineTarget({ hexId: t.hexId });
+            }
+        }
+
+        const myUnits = [...s.units.values()].filter(u => u.faction === 'player' && u.hp > 0);
+        for (const u of myUnits) {
+            if (s.playerAP <= 0) break;
+            const foes = [...s.units.values()].filter(f => f.faction === 'ai' && f.hp > 0);
+            if (!foes.length) break;
+            foes.sort((a, b) => eng.board.hexDistance(u.hexId, a.hexId) - eng.board.hexDistance(u.hexId, b.hexId));
+            const t = foes[0];
+            const d = eng.board.hexDistance(u.hexId, t.hexId);
+            const card = CARD_CATALOG[u.cardId];
+
+            // Mine layers drop mines on the approach path
+            if ((card?.active === 'remote_mine' || card?.active === 'mine_volley') && u.skillCd === 0) {
+                const range = card.active === 'mine_volley' ? 6 : 2;
+                if (d <= range + 1) {
+                    const toward = eng.board.neighbours(t.hexId).find(h => eng.board.hexDistance(u.hexId, h) <= range);
+                    if (toward && eng.useUnitSkill(u.id, { hexId: toward }).ok) continue;
+                }
+            }
+
+            if (d <= u.rng && d >= 1) {
+                eng.attackUnit(u.id, t.hexId);
+            } else if (u.mov > 0) {
+                const reach = eng.board.reachableHexes(u.hexId, u.mov, card.unitClass, 'player', s);
+                let best = null, bd = Infinity;
+                reach.forEach((v, hid) => {
+                    const dd = eng.board.hexDistance(hid, t.hexId);
+                    if (dd < bd) { bd = dd; best = hid; }
+                });
+                if (best && best !== u.hexId) eng.moveUnit(u.id, best);
+            }
+        }
+    }
+};

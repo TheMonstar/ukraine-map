@@ -16,15 +16,17 @@ class HexBoard {
 
     // ── Grid Generation ──────────────────────────────────────────────────────
 
-    // 25×20km battlefield. cellSide 1.5km → ~11×8 ≈ 88 hexes.
+    // Hexagonal battlefield: radius-7 hexagon around the centre (~169 hexes,
+    // cellSide 1.5 km) so the board has no corners and centres on the front.
     generate(centerLat, centerLng) {
         this.centerLat = centerLat;
         this.centerLng = centerLng;
         this.cellSide = 1.5; // km — used by neighbour detection
+        this.frontGeo = null;
 
-        // 25km wide / 20km tall in degrees at ~49°N
-        const dLng = (12.5 / (111.32 * Math.cos(centerLat * Math.PI / 180)));
-        const dLat = 10.0 / 110.574;
+        // Square bbox big enough to contain the radius-7 hexagon (±18 km)
+        const dLng = (18 / (111.32 * Math.cos(centerLat * Math.PI / 180)));
+        const dLat = 18 / 110.574;
 
         this.bbox = [
             centerLng - dLng,
@@ -63,7 +65,18 @@ class HexBoard {
         });
 
         this._buildNeighbourMap();
-        this._assignSpawnZones();
+
+        // Cut the square grid down to a true hexagon: keep hexes within
+        // hex-distance 7 of the centre, then rebuild neighbours and bbox.
+        const centerHex = this.getHexAt(centerLat, centerLng);
+        const keep = new Set([centerHex, ...this.hexesInRange(centerHex, 7)]);
+        [...this.hexes.keys()].forEach(id => { if (!keep.has(id)) this.hexes.delete(id); });
+        this._buildNeighbourMap();
+
+        this.bbox = turf.bbox({
+            type: 'FeatureCollection',
+            features: [...this.hexes.values()].map(h => h.feature)
+        });
         return this.hexes;
     }
 
@@ -86,36 +99,87 @@ class HexBoard {
         });
     }
 
-    // Spawn zones: rows closest to south/north edges
-    _assignSpawnZones() {
-        const hexList = [...this.hexes.values()];
-        const lats = hexList.map(h => h.centroid[1]);
-        const minLat = Math.min(...lats);
-        const maxLat = Math.max(...lats);
-        const latRange = maxLat - minLat;
-
-        hexList.forEach(h => {
-            const normLat = (h.centroid[1] - minLat) / latRange;
-            if (normLat <= 0.22) {
-                h.spawnZone = 'south';
-            } else if (normLat >= 0.78) {
-                h.spawnZone = 'north';
-            }
+    // Multi-source BFS distance from the frontline hexes (hexId → distance)
+    frontDistances() {
+        const dist = new Map();
+        let frontier = [];
+        this.hexes.forEach((h, id) => {
+            if (h.isFrontline) { dist.set(id, 0); frontier.push(id); }
         });
+        let d = 0;
+        while (frontier.length) {
+            d++;
+            const next = [];
+            for (const id of frontier) {
+                for (const nid of this.neighbours(id)) {
+                    if (!dist.has(nid)) { dist.set(nid, d); next.push(nid); }
+                }
+            }
+            frontier = next;
+        }
+        return dist;
     }
 
-    // Determine which hex ids are south / north spawn zones for each faction
+    // Armies deploy along opposing board edges, oriented by the front: each
+    // side spawns on its own-side hexes nearest the rim (e.g. at Pokrovsk the
+    // UA edge is north-west and the RU edge south-east), away from the line.
     getSpawnHexIds(playerFaction) {
-        // UA defends from south (historically pushes north), RU from north
-        const playerZone = playerFaction === 'ua' ? 'south' : 'north';
-        const aiZone = playerFaction === 'ua' ? 'north' : 'south';
-        const playerHexes = [];
-        const aiHexes = [];
+        const aiFaction = playerFaction === 'ua' ? 'ru' : 'ua';
+        const frontDist = this.frontDistances();
+
+        // Distance from the board rim (multi-source BFS)
+        const rimDist = new Map();
+        let frontier = [];
         this.hexes.forEach((h, id) => {
-            if (h.spawnZone === playerZone) playerHexes.push(id);
-            if (h.spawnZone === aiZone) aiHexes.push(id);
+            if (h.neighbours.length < 6) { rimDist.set(id, 0); frontier.push(id); }
         });
+        let d = 0;
+        while (frontier.length) {
+            d++;
+            const next = [];
+            for (const id of frontier) {
+                for (const nid of this.neighbours(id)) {
+                    if (!rimDist.has(nid)) { rimDist.set(nid, d); next.push(nid); }
+                }
+            }
+            frontier = next;
+        }
+
+        const bandFor = side => {
+            for (let depth = 0; depth <= 3; depth++) {
+                const band = [];
+                this.hexes.forEach((h, id) => {
+                    if (h.side === side && !h.isFrontline &&
+                        (frontDist.get(id) ?? 99) >= 2 &&
+                        (rimDist.get(id) ?? 99) <= depth) band.push(id);
+                });
+                if (band.length >= 14) return band;
+            }
+            // Last resort: the whole side minus the frontline
+            const all = [];
+            this.hexes.forEach((h, id) => { if (h.side === side && !h.isFrontline) all.push(id); });
+            return all;
+        };
+
+        const playerHexes = bandFor(playerFaction);
+        const aiHexes = bandFor(aiFaction);
+
+        // Tint the bands on the map (used by _hexStyle)
+        this.hexes.forEach(h => { h.spawnZone = null; });
+        playerHexes.forEach(id => { this.hexes.get(id).spawnZone = playerFaction; });
+        aiHexes.forEach(id => { this.hexes.get(id).spawnZone = aiFaction; });
+
         return { playerHexes, aiHexes };
+    }
+
+    // Rear = own-side hexes on the board rim. Supply traces here; entering the
+    // enemy rear scores the breakthrough VP.
+    getRearHexIds(side) {
+        const rear = [];
+        this.hexes.forEach((h, id) => {
+            if (h.side === side && h.neighbours.length < 6) rear.push(id);
+        });
+        return rear;
     }
 
     getHexAt(lat, lng) {
@@ -192,10 +256,23 @@ class HexBoard {
                 }
             });
         }
+
+        // Minimum-move rule: a unit can always crawl one adjacent passable hex,
+        // even when every neighbour costs more than its MOV budget.
+        if (result.size === 0) {
+            this.neighbours(fromHexId).forEach(nid => {
+                const hex = this.hexes.get(nid);
+                if (hex && this._moveCost(hex, unitClass, gameState) < 99) {
+                    result.set(nid, apBudget);
+                }
+            });
+        }
         return result;
     }
 
     _moveCost(hex, unitClass, gameState) {
+        // Drones fly: flat cost, no terrain/river/mud penalties
+        if (unitClass === UNIT_CLASS.DRONE) return 1;
         const terrain = TERRAIN_RULES[hex.terrainType] || TERRAIN_RULES.open;
         let cost = terrain.moveCost || 1;
         if (hex.overlays.has('road_paved') || hex.overlays.has('road_motorway')) {
@@ -211,10 +288,12 @@ class HexBoard {
     // ── Supply BFS ───────────────────────────────────────────────────────────
 
     computeSupplyTrace(unitHexId, faction, gameState) {
-        // Returns 'supplied' | 'low_supply' | 'unsupplied'
-        const spawnIds = faction === gameState.playerFaction
-            ? gameState.spawnHexIds.playerHexes
-            : gameState.spawnHexIds.aiHexes;
+        // Returns 'supplied' | 'low_supply' | 'unsupplied'.
+        // `faction` is the unit side ('player' | 'ai'); supply traces to that
+        // side's rear (board rim), falling back to its spawn band.
+        const rear = faction === 'player' ? gameState.rearHexIds?.player : gameState.rearHexIds?.ai;
+        const spawnIds = rear?.length ? rear
+            : (faction === 'player' ? gameState.spawnHexIds.playerHexes : gameState.spawnHexIds.aiHexes);
 
         const BASE_RANGE = 5;
         const queue = [{ id: unitHexId, steps: 0, roadBonus: 0 }];
@@ -234,7 +313,7 @@ class HexBoard {
                 const hex = this.hexes.get(nid);
                 if (!hex) continue;
                 // Blocked by enemy hexes
-                const enemyFaction = faction === gameState.playerFaction ? 'ai' : 'player';
+                const enemyFaction = faction === 'player' ? 'ai' : 'player';
                 if (this._hexHasFriendlyUnit(nid, enemyFaction, gameState)) continue;
                 // Blocked by interdicted or major river without bridge
                 if (hex.overlays.has('river_major') && !hex.hasBridge) continue;
@@ -263,6 +342,7 @@ class HexBoard {
         gameState.units.forEach(unit => {
             const card = CARD_CATALOG[unit.cardId];
             if (!card?.abilities?.includes('ew_jamming') || unit.hp <= 0) return;
+            if (unit.sabotagedTurns > 0) return; // disabled by Sabotage skill
             const r = card.ewRadius || 2;
             const inRange = [unit.hexId, ...this.hexesInRange(unit.hexId, r)];
             inRange.forEach(hid => {
@@ -297,6 +377,7 @@ class HexBoard {
             this._map.remove();
             this._map = null;
         }
+        this.frontGeo = null;
         this.hexes.clear();
         this.unitMarkers.clear();
         this.hexLayer = null;
@@ -311,6 +392,21 @@ class HexBoard {
             zoomControl: true,
             scrollWheelZoom: true
         });
+        // Fit the whole battlefield (bbox is [minLng, minLat, maxLng, maxLat]).
+        // Deferred + self-healing: the container may have no size yet at init
+        // time (hidden tab/panel) — refit whenever the map regains a real size.
+        if (this.bbox) {
+            const bounds = [[this.bbox[1], this.bbox[0]], [this.bbox[3], this.bbox[2]]];
+            const fit = () => {
+                if (!this._map) return;
+                this._map.invalidateSize();
+                if (this._map.getSize().x > 0) this._map.fitBounds(bounds);
+            };
+            setTimeout(fit, 50);
+            this._map.on('resize', () => {
+                if (this._map.getZoom() <= 2) fit();
+            });
+        }
 
         L.tileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -337,6 +433,12 @@ class HexBoard {
                 layer.on('click', () => {
                     if (this.onHexClick) this.onHexClick(f.properties.hexId);
                 });
+                layer.on('mouseover', () => {
+                    if (this.onHexHover) this.onHexHover(f.properties.hexId);
+                });
+                layer.on('mouseout', () => {
+                    if (this.onHexHover) this.onHexHover(null);
+                });
             }
         }).addTo(this._map);
     }
@@ -349,9 +451,9 @@ class HexBoard {
         let color = '#444';
         let weight = 0.8;
 
-        // Spawn zones tinted
-        if (hex.spawnZone === 'south') { color = '#1a6fc4'; weight = 1.5; }
-        if (hex.spawnZone === 'north') { color = '#b33a3a'; weight = 1.5; }
+        // Spawn bands tinted by faction side
+        if (hex.spawnZone === 'ua') { color = '#1a6fc4'; weight = 1.5; }
+        if (hex.spawnZone === 'ru') { color = '#b33a3a'; weight = 1.5; }
 
         // Objective highlight
         if (hex.isObjective) { weight = 2; }
@@ -432,6 +534,52 @@ class HexBoard {
                 }).addTo(this.effectLayer);
             }
         });
+
+        // The front line: real control boundary (red dashed), or — with the
+        // synthetic fallback — the frontline hex borders
+        if (this.frontGeo) {
+            L.geoJSON(this.frontGeo, {
+                interactive: false,
+                style: { fill: false, color: '#e53935', weight: 2.5, opacity: 0.9, dashArray: '8,5' }
+            }).addTo(this.effectLayer);
+        } else {
+            this.hexes.forEach(hex => {
+                if (!hex.isFrontline) return;
+                L.geoJSON(hex.feature, {
+                    interactive: false,
+                    style: { fill: false, color: '#e53935', weight: 1.5, opacity: 0.7, dashArray: '4,4' }
+                }).addTo(this.effectLayer);
+            });
+        }
+
+        // Death markers — where units were lost (hover shows who and when)
+        (gameState.fallenUnits || []).forEach(f => {
+            const hex = this.hexes.get(f.hexId);
+            if (!hex) return;
+            const [lng, lat] = hex.centroid;
+            L.marker([lat, lng], {
+                interactive: false,
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div class="death-marker ${f.faction === 'player' ? 'death-player' : 'death-ai'}" title="${f.name} — lost on turn ${f.turn}">✕</div>`,
+                    iconSize: [16, 16], iconAnchor: [8, 8]
+                })
+            }).addTo(this.effectLayer);
+        });
+
+        // Move-cost labels on the selected unit's movement range
+        const moveRange = gameState.moveRange;
+        if (moveRange && moveRange.size) {
+            moveRange.forEach((cost, hexId) => {
+                const hex = this.hexes.get(hexId);
+                if (!hex) return;
+                const [lng, lat] = hex.centroid;
+                L.marker([lat, lng], {
+                    interactive: false,
+                    icon: L.divIcon({ className: '', html: `<div class="move-cost-label">${cost}</div>`, iconSize: [18, 18] })
+                }).addTo(this.effectLayer);
+            });
+        }
 
         // Objective markers
         this.hexes.forEach((hex, hexId) => {
@@ -534,6 +682,8 @@ class HexBoard {
 
     _buildStatusIcons(unit) {
         const icons = [];
+        if (unit.status.has(STATUS.RECON_SPOTTED)) icons.push('<span class="si si-spot" title="Spotted — visible to all enemies">👁</span>');
+        if (unit.status.has(STATUS.MARKED))     icons.push('<span class="si si-mark" title="Marked — −1 save">🎯</span>');
         if (unit.status.has(STATUS.SUPPRESSED)) icons.push('<span class="si si-s" title="Suppressed">S</span>');
         if (unit.status.has(STATUS.PINNED))     icons.push('<span class="si si-p" title="Pinned">P</span>');
         if (unit.status.has(STATUS.FORTIFIED))  icons.push('<span class="si si-f" title="Fortified">F</span>');

@@ -1,11 +1,12 @@
 'use strict';
 // ── game-engine.js — FRONTLINE Game State Machine ────────────────────────
 
-const MAX_TURNS = 20;
-const TURN_SECONDS = 20;
-const TOTAL_RP = 20;
-const MAX_CP = 8;
-const AP_PER_TURN = 4;
+const MAX_TURNS = 24;
+const TURN_SECONDS = 30;
+const TOTAL_RP = 36;
+const MAX_CP = 10;
+const AP_PER_TURN = 8;
+const MOVE_AP_COST = 1; // moving costs a flat 1 AP regardless of unit tier
 
 class GameEngine {
     constructor() {
@@ -26,16 +27,19 @@ class GameEngine {
     // ── Initialization ────────────────────────────────────────────────────────
 
     async startGame(options) {
-        const { playerFaction, difficulty, centerLat, centerLng } = options;
+        const { playerFaction, difficulty, centerLat, centerLng, battlegroup, doctrine, headless } = options;
         const aiFaction = playerFaction === 'ua' ? 'ru' : 'ua';
 
+        this.headless = !!headless; // sim mode: no Leaflet, no async AI turn, procedural terrain
         this.ai = new AIOpponent(difficulty);
 
         // Generate board
         this.board.generate(centerLat, centerLng);
-        await this.terrainLoader.classifyAll(this.board);
+        await this.terrainLoader.classifyAll(this.board, { forceProcedural: this.headless });
 
-        // Assign spawn zones based on frontline orientation
+        // Split the board along the real front (synthetic in headless sims),
+        // then place spawn bands on each side of the line
+        await this.terrainLoader.classifyFront(this.board, { forceProcedural: this.headless });
         const { playerHexes, aiHexes } = this.board.getSpawnHexIds(playerFaction);
 
         // Assign forward positions as objectives
@@ -48,9 +52,17 @@ class GameEngine {
         // Event deck
         this.eventDeck.build();
 
-        // Build decks
-        const playerDeck = [...PRESET_DECKS[playerFaction]];
-        const aiDeckIds = this.ai.buildAIDeck(aiFaction);
+        // Build decks from battlegroups (+2 random reserve cards each)
+        const playerBuild = buildBattlegroupDeck(playerFaction, battlegroup);
+        const playerDeck = playerBuild.cards;
+        const aiBuild = buildBattlegroupDeck(aiFaction, null);
+        const aiDeckIds = aiBuild.cards;
+        this.ai.setDoctrine(aiBuild.battlegroup.aggressionBias || 0);
+
+        // Commander doctrines: player picks at setup, AI follows its battlegroup
+        const playerDoctrineDef = DOCTRINES[playerFaction].find(d => d.id === doctrine) || DOCTRINES[playerFaction][0];
+        const aiDoctrineDef = this._aiDoctrineFor(aiFaction, aiBuild.battlegroup.id);
+        const mkDoctrine = def => ({ id: def.id, charges: def.charges, cooldown: def.cooldown, lastUsedTurn: -99 });
 
         this.state = {
             turn: 1,
@@ -72,6 +84,10 @@ class GameEngine {
             weather,
             timeOfDay,
             spawnHexIds: { playerHexes, aiHexes },
+            rearHexIds: {
+                player: this.board.getRearHexIds(playerFaction),
+                ai: this.board.getRearHexIds(aiFaction)
+            },
             selectedUnit: null,
             selectedHex: null,
             moveRange: null,
@@ -80,8 +96,12 @@ class GameEngine {
             intelZones: new Map(),
             mudTurns: 0,
             eventFlags: {},
-            playerCommanderUsed: false,
-            aiCommanderUsed: false,
+            playerDoctrine: mkDoctrine(playerDoctrineDef),
+            aiDoctrine: mkDoctrine(aiDoctrineDef),
+            playerBattlegroup: playerBuild.battlegroup.name,
+            aiBattlegroup: aiBuild.battlegroup.name,
+            breakthroughAwarded: { player: false, ai: false },
+            fallenUnits: [],   // { hexId, name, faction, turn } — death markers on the map
             orderCooldowns: {},
             orderUsedOncePerMatch: new Set(),
             freeCommonDeploy: 0,
@@ -94,10 +114,21 @@ class GameEngine {
         // Deploy AI units automatically
         this._deployAIUnits();
 
+        this._log(`Battlegroups: you — ${playerBuild.battlegroup.name}, enemy — ${aiBuild.battlegroup.name}`);
+        if (this.board.frontNote) this._log(`⚠ ${this.board.frontNote}`);
+
         // Do NOT notify here — ui.js calls initLeafletMap() after startGame() returns,
         // then triggers _renderAll() manually. Notifying here would call render() before
         // the Leaflet map instance exists, causing addLayer errors.
         return this.state;
+    }
+
+    _aiDoctrineFor(aiFaction, battlegroupId) {
+        const pool = DOCTRINES[aiFaction];
+        if (aiFaction === 'ru') {
+            return pool.find(d => d.id === (battlegroupId === 'ru_fires_group' ? 'ru_fires' : 'ru_mass'));
+        }
+        return pool.find(d => d.id === (battlegroupId === 'ua_drone_war' ? 'ua_precision' : 'ua_resilience'));
     }
 
     _rollWeather() {
@@ -115,26 +146,15 @@ class GameEngine {
         return 'night';
     }
 
+    // Forward positions: enemy-side hexes deep behind the front (≥ 4 hexes) —
+    // the player's offensive objectives
     _flagForwardPositions(playerFaction) {
-        const hexList = [...this.board.hexes.values()];
-        const lats = hexList.map(h => h.centroid[1]);
-        const minLat = Math.min(...lats);
-        const maxLat = Math.max(...lats);
-        const latRange = maxLat - minLat;
-
-        hexList.forEach(h => {
-            const normLat = (h.centroid[1] - minLat) / latRange;
-            // "Forward position" = enemy rear rows
-            if (playerFaction === 'ua') {
-                if (normLat >= 0.78 && !h.isObjective) {
-                    h.isObjective = true;
-                    h.objectiveType = 'forward_position';
-                }
-            } else {
-                if (normLat <= 0.22 && !h.isObjective) {
-                    h.isObjective = true;
-                    h.objectiveType = 'forward_position';
-                }
+        const enemySide = playerFaction === 'ua' ? 'ru' : 'ua';
+        const dist = this.board.frontDistances();
+        this.board.hexes.forEach((h, id) => {
+            if (h.side === enemySide && !h.isObjective && (dist.get(id) ?? 99) >= 4) {
+                h.isObjective = true;
+                h.objectiveType = 'forward_position';
             }
         });
     }
@@ -203,15 +223,17 @@ class GameEngine {
                 hexIdx++;
             }
         }
-        // Convert remaining AI RP to CP (2:1)
-        s.aiCP = Math.min(MAX_CP, Math.floor((TOTAL_RP - aiRP) / 2));
+        // Convert remaining AI RP to CP (2:1); UA gets +3 CP (NATO C2 network)
+        const aiC2Bonus = s.aiFaction === 'ua' ? 5 : 0;
+        s.aiCP = Math.min(MAX_CP, Math.floor((TOTAL_RP - aiRP) / 2) + aiC2Bonus);
     }
 
     finishDeployment() {
         const s = this.state;
         if (s.phase !== 'deploy') return;
-        // Convert remaining RP → CP
-        s.playerCP = Math.min(MAX_CP, Math.floor(s.playerRP / 2));
+        // Convert remaining RP → CP; UA gets +3 CP (NATO C2 network)
+        const c2Bonus = s.playerFaction === 'ua' ? 5 : 0;
+        s.playerCP = Math.min(MAX_CP, Math.floor(s.playerRP / 2) + c2Bonus);
         s.playerRP = 0;
         s.phase = 'player_action';
         s.playerAP = AP_PER_TURN;
@@ -246,8 +268,17 @@ class GameEngine {
             if (hex.interdictedTurns > 0) hex.interdictedTurns--;
         });
 
-        // Reset IGLA intercept flags
-        s.units.forEach(u => { u.iglaInterceptUsed = false; });
+        // Reset IGLA intercept flags + tick skill cooldowns
+        s.units.forEach(u => {
+            u.iglaInterceptUsed = false;
+            if (u.skillCd > 0) u.skillCd--;
+        });
+
+        // Tick skill hex effects
+        this.board.hexes.forEach(hex => {
+            if (hex.smokeTurns > 0) hex.smokeTurns--;
+            if (hex.illuminatedTurns > 0) hex.illuminatedTurns--;
+        });
 
         // Flip event card at start of player action phase
         if (s.phase === 'player_action') {
@@ -344,7 +375,7 @@ class GameEngine {
         if (!unit || unit.faction !== 'player' || unit.hp <= 0) return { ok: false, error: 'Invalid unit' };
 
         const card = CARD_CATALOG[unit.cardId];
-        const apCost = TIER_AP[card.tier];
+        const apCost = MOVE_AP_COST;
         if (s.playerAP < apCost) return { ok: false, error: 'Not enough AP' };
 
         const movBudget = unit.mov + (s.eventFlags?.move_cost_plus1 ? -1 : 0);
@@ -380,6 +411,7 @@ class GameEngine {
         s.attackRange = null;
 
         this._checkOverwatchTriggers(unit, targetHexId);
+        this._checkBreakthrough(unit);
         this._notify();
         return { ok: true };
     }
@@ -417,7 +449,7 @@ class GameEngine {
 
             if (dist <= detectRange) {
                 unit.status.add(STATUS.RECON_SPOTTED);
-                unit.reconSpottedTurns = 2;
+                unit.reconSpottedTurns = this._spotTurns('player');
                 spotted++;
                 spottedNames.push(uCard?.name || unit.displayName);
             }
@@ -482,10 +514,14 @@ class GameEngine {
         if (targets.length === 0) return { ok: false, error: 'No enemy on target hex' };
         const defender = targets[0];
 
+        // EW jamming grounds drones — explain it instead of a generic range error
+        if (attacker.status.has(STATUS.EW_SUPPRESSED)) {
+            return { ok: false, error: 'Jammed by enemy EW (purple zone) — move out before attacking' };
+        }
+
         // Range check
         const dist = this.board.hexDistance(attacker.hexId, defenderHexId);
         let effectiveRng = attacker.rng;
-        if (attacker.status.has(STATUS.EW_SUPPRESSED)) effectiveRng = 0;
         if (s.eventFlags?.drone_rng_minus1 && card.unitClass === UNIT_CLASS.DRONE) effectiveRng = Math.max(0, effectiveRng - 1);
         if (dist > effectiveRng) return { ok: false, error: 'Target out of range' };
         if (dist === 0 && effectiveRng > 0) return { ok: false, error: 'Cannot attack own hex (use range > 0)' };
@@ -495,6 +531,11 @@ class GameEngine {
         const defHex = this.board.hexes.get(defenderHexId);
         if (s.eventFlags?.no_settle_attack && defHex?.terrainType?.startsWith('settlement')) {
             return { ok: false, error: 'Civilian corridor: no settlement attacks' };
+        }
+
+        // Smoke blocks ranged attacks
+        if (defHex?.smokeTurns > 0 && dist > 1) {
+            return { ok: false, error: 'Target obscured by smoke — only adjacent attacks possible' };
         }
 
         // FPV intercept
@@ -578,6 +619,193 @@ class GameEngine {
         return { ok: true };
     }
 
+    // ── Active Skills ─────────────────────────────────────────────────────────
+
+    // target: { hexId?, unitId? } depending on the skill's target type
+    useUnitSkill(unitId, target = {}) {
+        const s = this.state;
+        if (s.phase !== 'player_action') return { ok: false, error: 'Not player action phase' };
+        const unit = s.units.get(unitId);
+        if (!unit || unit.faction !== 'player' || unit.hp <= 0) return { ok: false, error: 'Invalid unit' };
+
+        const card = CARD_CATALOG[unit.cardId];
+        const skill = ACTIVE_SKILLS[card?.active];
+        if (!skill) return { ok: false, error: 'Unit has no active skill' };
+        if (unit.skillCd > 0) return { ok: false, error: `${skill.name} on cooldown (${unit.skillCd} turns)` };
+        if (s.playerAP < skill.apCost) return { ok: false, error: 'Not enough AP' };
+
+        const res = this._executeSkill(unit, card, skill, target, 'player');
+        if (!res.ok) return res;
+
+        unit.skillCd = skill.cooldown;
+        s.playerAP -= skill.apCost;
+        this._notify();
+        return res;
+    }
+
+    _skillRange(unit, skill) {
+        if (skill.range === 'rng') return unit.rng;
+        if (skill.range === 'mov') return unit.mov;
+        return skill.range || 1;
+    }
+
+    _executeSkill(unit, card, skill, target, faction) {
+        const s = this.state;
+        const enemyFaction = faction === 'player' ? 'ai' : 'player';
+        const skillId = card.active;
+
+        switch (skillId) {
+            case 'canister_shot': {
+                const hex = this.board.hexes.get(target.hexId);
+                if (!hex) return { ok: false, error: 'No target hex' };
+                if (this.board.hexDistance(unit.hexId, target.hexId) !== 1) {
+                    return { ok: false, error: 'Canister Shot needs an adjacent hex' };
+                }
+                let total = 0;
+                s.units.forEach(u => {
+                    if (u.hexId === target.hexId && u.faction === enemyFaction && u.hp > 0) {
+                        const roll = this.combat._rollDice(2, 4, this.combat._saveTarget(u, hex, null, s));
+                        u.hp = Math.max(0, u.hp - roll.damage);
+                        total += roll.damage;
+                        if (u.hp <= 0) this._awardKillVP(u, faction);
+                    }
+                });
+                this.board.showAreaEffect([target.hexId], 1200);
+                this._log(`Canister Shot: ${total} dmg on ${target.hexId}`);
+                this._checkVictory();
+                return { ok: true };
+            }
+
+            case 'mark_target': {
+                const foe = s.units.get(target.unitId);
+                if (!foe || foe.faction !== enemyFaction || foe.hp <= 0) return { ok: false, error: 'No target' };
+                if (this.board.hexDistance(unit.hexId, foe.hexId) > this._skillRange(unit, skill)) {
+                    return { ok: false, error: 'Target out of range' };
+                }
+                foe.markedTurns = 2;
+                foe.status.add(STATUS.MARKED);
+                foe.status.add(STATUS.RECON_SPOTTED);
+                foe.reconSpottedTurns = this._spotTurns(faction);
+                this._log(`Mark Target: ${foe.displayName} marked (−1 save, spotted)`);
+                return { ok: true };
+            }
+
+            case 'smoke_screen': {
+                const hexId = target.hexId || unit.hexId;
+                const hex = this.board.hexes.get(hexId);
+                if (!hex) return { ok: false, error: 'No target hex' };
+                const d = this.board.hexDistance(unit.hexId, hexId);
+                if (d > 1) return { ok: false, error: 'Smoke must be own or adjacent hex' };
+                hex.smokeTurns = 1;
+                this.board.showAreaEffect([hexId], 1200, '#9aa6b2', 0.45);
+                this._log(`Smoke Screen on ${hexId}`);
+                return { ok: true };
+            }
+
+            case 'illumination': {
+                const hexes = [unit.hexId, ...this.board.hexesInRange(unit.hexId, 3)];
+                hexes.forEach(hid => {
+                    const h = this.board.hexes.get(hid);
+                    if (h) h.illuminatedTurns = 1;
+                });
+                this.board.showAreaEffect(hexes, 1200, '#ffe16b', 0.2);
+                this._log('Illumination: night penalty negated in radius 3');
+                return { ok: true };
+            }
+
+            case 'scoot':
+            case 'rapid_dash': {
+                const maxRange = this._skillRange(unit, skill);
+                const reachable = this.board.reachableHexes(unit.hexId, maxRange, card.unitClass, faction, s);
+                if (!target.hexId || !reachable.has(target.hexId)) {
+                    return { ok: false, error: 'Target out of range' };
+                }
+                if (this.combat.stackLimitReached(target.hexId, faction, s)) {
+                    return { ok: false, error: 'Hex at stack limit' };
+                }
+                unit.hexId = target.hexId;
+                unit.movedThisTurn = true;
+                unit.status.delete(STATUS.FORTIFIED);
+                unit.status.delete(STATUS.OVERWATCH);
+                this._checkOverwatchTriggers(unit, target.hexId);
+                this._checkBreakthrough(unit);
+                this._log(`${skill.name}: ${unit.displayName} repositioned`);
+                return { ok: true };
+            }
+
+            case 'exfil': {
+                const spawnIds = faction === 'player' ? s.spawnHexIds.playerHexes : s.spawnHexIds.aiHexes;
+                const open = spawnIds.filter(hid => !this.combat.stackLimitReached(hid, faction, s));
+                if (!open.length) return { ok: false, error: 'No free spawn hex' };
+                unit.hexId = open[Math.floor(Math.random() * open.length)];
+                unit.movedThisTurn = true;
+                unit.status.delete(STATUS.FORTIFIED);
+                unit.status.delete(STATUS.OVERWATCH);
+                this._log(`Exfil: ${unit.displayName} withdrew to the rear`);
+                return { ok: true };
+            }
+
+            case 'sabotage': {
+                const foe = s.units.get(target.unitId);
+                if (!foe || foe.faction !== enemyFaction || foe.hp <= 0) return { ok: false, error: 'No target' };
+                if (this.board.hexDistance(unit.hexId, foe.hexId) > 1) {
+                    return { ok: false, error: 'Sabotage needs an adjacent target' };
+                }
+                const foeCard = CARD_CATALOG[foe.cardId];
+                if (!foeCard?.abilities?.includes('ew_jamming') && !foeCard?.abilities?.includes('can_depot')) {
+                    return { ok: false, error: 'Target must be an EW or DEPOT-capable unit' };
+                }
+                foe.sabotagedTurns = 2;
+                foe.inDepot = false;
+                this.combat._applySuppress(foe);
+                this._log(`Sabotage: ${foe.displayName} disabled for 2 turns`);
+                return { ok: true };
+            }
+
+            case 'remote_mine':
+            case 'mine_volley': {
+                const hex = this.board.hexes.get(target.hexId);
+                if (!hex) return { ok: false, error: 'No target hex' };
+                if (this.board.hexDistance(unit.hexId, target.hexId) > this._skillRange(unit, skill)) {
+                    return { ok: false, error: 'Target out of range' };
+                }
+                hex.overlays.add('mined');
+                const minedHexes = [target.hexId];
+                if (skillId === 'mine_volley') {
+                    const extra = this.board.neighbours(target.hexId)
+                        .find(nid => !this.board.hexes.get(nid)?.overlays.has('mined'));
+                    if (extra) {
+                        this.board.hexes.get(extra).overlays.add('mined');
+                        minedHexes.push(extra);
+                    }
+                }
+                this.board.showAreaEffect(minedHexes, 1200, '#e74c3c', 0.35);
+                this._log(`${skill.name}: ${minedHexes.length} hex(es) mined`);
+                return { ok: true };
+            }
+
+            case 'field_resupply': {
+                const ally = s.units.get(target.unitId);
+                if (!ally || ally.faction !== faction || ally.hp <= 0) return { ok: false, error: 'No friendly target' };
+                if (this.board.hexDistance(unit.hexId, ally.hexId) > 1) {
+                    return { ok: false, error: 'Target must be adjacent' };
+                }
+                ally.hp = Math.min(ally.maxHp, ally.hp + 2);
+                ally.status.delete(STATUS.SUPPRESSED);
+                this._log(`Field Resupply: ${ally.displayName} +2 HP`);
+                return { ok: true };
+            }
+
+            default:
+                return { ok: false, error: 'Unknown skill' };
+        }
+    }
+
+    _spotTurns(faction) {
+        const d = faction === 'player' ? this.state.playerDoctrine : this.state.aiDoctrine;
+        return d?.id === 'ua_precision' ? 3 : 2;
+    }
+
     activateDepot(unitId) {
         const s = this.state;
         const unit = s.units.get(unitId);
@@ -655,57 +883,130 @@ class GameEngine {
         return result;
     }
 
-    usePlayerCommander() {
+    // ── Commander Doctrine ────────────────────────────────────────────────────
+
+    doctrineDef(side) {
         const s = this.state;
-        if (s.playerCommanderUsed) return { ok: false, error: 'Commander already used' };
-
-        const commanderCardId = `${s.playerFaction}_commander`;
-        const card = CARD_CATALOG[commanderCardId];
-        if (!card) return { ok: false };
-
-        // UA: precision strike on any spotted unit
-        if (s.playerFaction === 'ua') {
-            // Return {ok: true, needTarget: true} — UI will prompt for target
-            return { ok: true, needTarget: true, ability: 'precision_strike_cmd' };
-        }
-        // RU: place tokens
-        if (s.playerFaction === 'ru') {
-            for (let i = 0; i < 3; i++) {
-                const hexPool = s.spawnHexIds.playerHexes;
-                if (!hexPool.length) break;
-                const hexId = hexPool[Math.floor(Math.random() * hexPool.length)];
-                const tokenId = `player_wave_${Date.now()}_${i}`;
-                s.units.set(tokenId, this._createUnit('ru_assault', 'player', hexId, { hp: 1, atk: 1 }));
-            }
-            s.playerCommanderUsed = true;
-            this._log('Commander used: Mass Mobilization — 3 Assault Groups deployed');
-            this._notify();
-            return { ok: true };
-        }
-        return { ok: false };
+        const d = side === 'player' ? s.playerDoctrine : s.aiDoctrine;
+        const faction = side === 'player' ? s.playerFaction : s.aiFaction;
+        return { state: d, def: DOCTRINES[faction].find(x => x.id === d.id) };
     }
 
-    executePrecisionStrike(targetUnitId) {
-        const s = this.state;
-        const target = s.units.get(targetUnitId);
-        if (!target || target.hp <= 0) return { ok: false };
+    doctrineAvailable(side) {
+        const { state: d, def } = this.doctrineDef(side);
+        if (!d || !def) return false;
+        return d.charges > 0 && this.state.turn - d.lastUsedTurn >= def.cooldown;
+    }
 
-        // Must be spotted
-        if (!target.status.has(STATUS.RECON_SPOTTED) && !s.intelZones.has(target.hexId)) {
-            return { ok: false, error: 'Target not spotted — requires active drone ISR' };
+    // Player doctrine active. Untargeted doctrines fire immediately; targeted
+    // ones return { needTarget: 'unit'|'hex' } and the UI routes the next click
+    // to executeDoctrineTarget().
+    usePlayerDoctrine() {
+        if (!this.doctrineAvailable('player')) {
+            return { ok: false, error: 'Doctrine active not available (charges/cooldown)' };
         }
+        const { def } = this.doctrineDef('player');
+        if (def.target !== 'none') return { ok: true, needTarget: def.target };
+        return this.executeDoctrineTarget({});
+    }
 
-        target.hp = Math.max(0, target.hp - 3);
-        s.playerCommanderUsed = true;
-        this._log(`Commander: Precision Strike — ${CARD_CATALOG[target.cardId]?.name} takes 3 dmg`);
-
-        if (target.hp <= 0) {
-            s.playerVP += DESTROY_VP[CARD_CATALOG[target.cardId]?.tier] || 0;
-            s.initiative = Math.min(10, s.initiative + 1);
+    executeDoctrineTarget(target) {
+        const res = this._executeDoctrineActive('player', target);
+        if (res.ok) {
+            const { state: d } = this.doctrineDef('player');
+            d.charges--;
+            d.lastUsedTurn = this.state.turn;
         }
-
         this._notify();
-        return { ok: true };
+        return res;
+    }
+
+    useAIDoctrine(target = {}) {
+        if (!this.doctrineAvailable('ai')) return false;
+        const res = this._executeDoctrineActive('ai', target);
+        if (res.ok) {
+            const { state: d } = this.doctrineDef('ai');
+            d.charges--;
+            d.lastUsedTurn = this.state.turn;
+        }
+        return res.ok;
+    }
+
+    _executeDoctrineActive(side, target) {
+        const s = this.state;
+        const { def } = this.doctrineDef(side);
+        const enemySide = side === 'player' ? 'ai' : 'player';
+
+        switch (def.id) {
+            case 'ua_precision': {
+                const foe = s.units.get(target.unitId);
+                if (!foe || foe.faction !== enemySide || foe.hp <= 0) return { ok: false, error: 'No target' };
+                if (!foe.status.has(STATUS.RECON_SPOTTED) && !s.intelZones.has(foe.hexId)) {
+                    return { ok: false, error: 'Target not spotted — requires ISR' };
+                }
+                const roll = this.combat._rollDice(4, 4, 7);
+                foe.hp = Math.max(0, foe.hp - roll.damage);
+                this._log(`Precision Strike: ${foe.displayName} takes ${roll.damage} dmg`);
+                if (foe.hp <= 0) {
+                    this._awardKillVP(foe, side);
+                    this._checkVictory();
+                }
+                return { ok: true };
+            }
+
+            case 'ua_resilience': {
+                let count = 0;
+                s.units.forEach(u => {
+                    if (u.faction === side && u.hp > 0 && count < 3 &&
+                        !u.status.has(STATUS.FORTIFIED) &&
+                        !CARD_CATALOG[u.cardId]?.abilities?.includes('no_fortify')) {
+                        u.status.add(STATUS.FORTIFIED);
+                        u.status.add(STATUS.OVERWATCH);
+                        count++;
+                    }
+                });
+                this._log(`Rapid Fortification: ${count} units fortified`);
+                return { ok: true };
+            }
+
+            case 'ru_mass': {
+                // Mobilization arrives from the rear, not at the line
+                const hexPool = (side === 'player' ? s.rearHexIds.player : s.rearHexIds.ai) ||
+                                (side === 'player' ? s.spawnHexIds.playerHexes : s.spawnHexIds.aiHexes);
+                for (let i = 0; i < 2; i++) {
+                    const open = hexPool.filter(hid => !this.combat.stackLimitReached(hid, side, s));
+                    if (!open.length) break;
+                    const hexId = open[Math.floor(Math.random() * open.length)];
+                    const tokenId = `${side}_wave_${Date.now()}_${i}`;
+                    s.units.set(tokenId, this._createUnit('ru_assault', side, hexId, { hp: 2, atk: 2 }));
+                }
+                this._log('Mobilization Wave: 2 Assault Groups deployed in the rear');
+                return { ok: true };
+            }
+
+            case 'ru_fires': {
+                const hex = this.board.hexes.get(target.hexId);
+                if (!hex) return { ok: false, error: 'No target hex' };
+                const area = [target.hexId, ...this.board.neighbours(target.hexId)];
+                area.forEach((hid, idx) => {
+                    const h = this.board.hexes.get(hid);
+                    s.units.forEach(u => {
+                        if (u.hexId === hid && u.faction === enemySide && u.hp > 0) {
+                            const roll = this.combat._rollDice(idx === 0 ? 4 : 2, 4, this.combat._saveTarget(u, h, null, s));
+                            u.hp = Math.max(0, u.hp - roll.damage);
+                            if (u.hp <= 0) this._awardKillVP(u, side);
+                        }
+                    });
+                });
+                this.board.showAreaEffect(area, 1800);
+                this._log(`Fire Mission on ${target.hexId}`);
+                this._checkVictory();
+                return { ok: true };
+            }
+
+            default:
+                return { ok: false, error: 'Unknown doctrine' };
+        }
     }
 
     // ── AI Action Execution (called from AIOpponent) ──────────────────────────
@@ -732,6 +1033,7 @@ class GameEngine {
                 unit.status.delete(STATUS.FORTIFIED);
                 unit.status.delete(STATUS.OVERWATCH);
                 this._checkOverwatchTriggers(unit, action.targetHex);
+                this._checkBreakthrough(unit);
                 return true;
             }
             case 'attack': {
@@ -741,12 +1043,25 @@ class GameEngine {
                 const dist = this.board.hexDistance(unit.hexId, target.hexId);
                 if (dist > unit.rng || unit.status.has(STATUS.EW_SUPPRESSED)) return false;
                 if (s.eventFlags?.no_offensive) return false;
+                const tHex = this.board.hexes.get(target.hexId);
+                if (tHex?.smokeTurns > 0 && dist > 1) return false;
 
                 const result = this.combat.resolveAttack(unit, target, s);
 
+                // Make enemy fire visible: log line + flash on the target hex
+                if (result.missed) {
+                    this._log(`🔻 ${unit.displayName} fires at ${target.displayName} — missed`);
+                } else {
+                    const diceLine = result.log.find(l => l.includes('dice →'));
+                    this._log(`🔻 ${unit.displayName} attacks ${target.displayName} — ${diceLine ? diceLine.split(/: (.+)/)[1] : result.damage + ' dmg'}`);
+                }
+                this.board.showAreaEffect([target.hexId], 1600, '#ff5544', 0.45);
+
                 if (target.hp <= 0) {
-                    s.aiVP += DESTROY_VP[CARD_CATALOG[target.cardId]?.tier] || 0;
+                    const vp = DESTROY_VP[CARD_CATALOG[target.cardId]?.tier] || 0;
+                    s.aiVP += vp;
                     s.initiative = Math.max(0, s.initiative - 1);
+                    if (vp > 0) this._log(`Enemy +${vp} VP for destroying ${target.displayName}`);
                     this._checkVictory();
                 }
                 this._checkWaveSpawn(unit);
@@ -768,35 +1083,15 @@ class GameEngine {
                 unit.hp = 0;
                 return true;
             }
+            case 'skill': {
+                const card = CARD_CATALOG[unit.cardId];
+                const skill = ACTIVE_SKILLS[card?.active];
+                if (!skill || unit.skillCd > 0) return false;
+                const res = this._executeSkill(unit, card, skill, action.target || {}, 'ai');
+                if (res.ok) unit.skillCd = skill.cooldown;
+                return res.ok;
+            }
             default: return false;
-        }
-    }
-
-    useAICommander() {
-        const s = this.state;
-        const aiFaction = s.aiFaction;
-        if (aiFaction === 'ru') {
-            for (let i = 0; i < 3; i++) {
-                const hexPool = s.spawnHexIds.aiHexes;
-                if (!hexPool.length) break;
-                const hexId = hexPool[Math.floor(Math.random() * hexPool.length)];
-                const tokenId = `ai_cmd_${Date.now()}_${i}`;
-                s.units.set(tokenId, this._createUnit('ru_assault', 'ai', hexId, { hp: 1, atk: 1 }));
-            }
-        } else {
-            // UA AI precision strike: pick highest threat player unit in intel zone
-            let target = null;
-            s.units.forEach(u => {
-                if (u.faction === 'player' && u.hp > 0 && s.intelZones.has(u.hexId)) {
-                    if (!target || u.atk > target.atk) target = u;
-                }
-            });
-            if (target) {
-                target.hp = Math.max(0, target.hp - 3);
-                if (target.hp <= 0) {
-                    s.aiVP += DESTROY_VP[CARD_CATALOG[target.cardId]?.tier] || 0;
-                }
-            }
         }
     }
 
@@ -830,22 +1125,25 @@ class GameEngine {
                         if (u.faction === enemyFaction && u.hexId === hid && u.hp > 0) {
                             const def = isSpotted ? 0 : (u.def || 0);
                             u.hp = Math.max(0, u.hp - Math.max(0, baseAtk - def));
+                            if (u.hp <= 0) this._awardKillVP(u, forFaction);
                         }
                     });
                 });
                 this.board.showAreaEffect(toHit, 1800);
+                this._checkVictory();
                 this._log(`Artillery Barrage on ${target.hexId}: ${baseAtk} ATK${isSpotted ? ' (spotted, DEF ignored)' : ''}`);
                 return { ok: true };
             }
 
             case 'recon_sweep': {
+                const turns = this._spotTurns(forFaction);
                 s.units.forEach(u => {
                     if (u.faction === enemyFaction && u.hp > 0) {
                         u.status.add(STATUS.RECON_SPOTTED);
-                        u.reconSpottedTurns = 2;
+                        u.reconSpottedTurns = turns;
                     }
                 });
-                this._log('Recon Sweep: all enemies Recon-spotted for 2 turns');
+                this._log(`Recon Sweep: all enemies Recon-spotted for ${turns} turns`);
                 return { ok: true };
             }
 
@@ -951,12 +1249,13 @@ class GameEngine {
 
         this._notify();
 
-        // Run AI turn after brief delay (so UI can update)
-        setTimeout(() => {
+        const runAI = () => {
             this.ai.takeTurn(s, this);
             this._endOfTurnProcessing('ai');
             this._advanceTurn();
-        }, 400);
+        };
+        if (this.headless) runAI();
+        else setTimeout(runAI, 400); // brief delay so UI can update
     }
 
     _endOfTurnProcessing(faction) {
@@ -969,8 +1268,8 @@ class GameEngine {
             }
         });
 
-        // VP scoring
-        this._scoreVP();
+        // VP scoring — once per full turn, after the AI phase
+        if (faction === 'ai') this._scoreVP();
 
         // Initiative update: units lost this turn tracked via kills property diff
         // (already updated per-kill)
@@ -994,6 +1293,18 @@ class GameEngine {
 
     _advanceTurn() {
         const s = this.state;
+
+        // Catch eliminations from events/area damage that bypass attack paths
+        this._checkVictory();
+        if (s.phase === 'end') return;
+
+        // Decisive VP lead ends the match early
+        const vpLead = s.playerVP - s.aiVP;
+        if (s.turn >= 10 && Math.abs(vpLead) >= 30) {
+            this._endGame(vpLead > 0 ? 'player' : 'ai', 'Decisive VP lead');
+            return;
+        }
+
         s.turn++;
 
         if (s.turn > MAX_TURNS) {
@@ -1021,6 +1332,18 @@ class GameEngine {
             const playerUnits = [...s.units.values()].filter(u => u.faction === 'player' && u.hexId === hexId && u.hp > 0);
             const aiUnits = [...s.units.values()].filter(u => u.faction === 'ai' && u.hexId === hexId && u.hp > 0);
 
+            // Forward positions are contestable: abandoned + enemy adjacent → neutral
+            if (hex.objectiveType === 'forward_position' && hex.controlledBy) {
+                const ownerOnHex = hex.controlledBy === 'player' ? playerUnits.length : aiUnits.length;
+                if (ownerOnHex === 0) {
+                    const enemy = hex.controlledBy === 'player' ? 'ai' : 'player';
+                    const adj = this.board.neighbours(hexId);
+                    const enemyAdjacent = [...s.units.values()].some(u =>
+                        u.faction === enemy && u.hp > 0 && adj.includes(u.hexId));
+                    if (enemyAdjacent) hex.controlledBy = null;
+                }
+            }
+
             if (playerUnits.length > 0 && aiUnits.length === 0) {
                 hex.controlledBy = 'player';
             } else if (aiUnits.length > 0 && playerUnits.length === 0) {
@@ -1029,8 +1352,14 @@ class GameEngine {
             // Contested: no change
 
             const vpPerTurn = OBJ_VP[hex.objectiveType] || 1;
-            if (hex.controlledBy === 'player') s.playerVP += vpPerTurn;
-            if (hex.controlledBy === 'ai') s.aiVP += vpPerTurn;
+            // Forward positions mark the AI rear the player pushes into —
+            // the AI earns nothing for garrisoning its own rear.
+            if (hex.objectiveType === 'forward_position') {
+                if (hex.controlledBy === 'player') s.playerVP += vpPerTurn;
+            } else {
+                if (hex.controlledBy === 'player') s.playerVP += vpPerTurn;
+                if (hex.controlledBy === 'ai') s.aiVP += vpPerTurn;
+            }
         });
 
         // Settlement network bonus
@@ -1109,7 +1438,10 @@ class GameEngine {
             ambushReady: card.abilities?.includes('ambush') || false,
             inDepot: false,
             iglaInterceptUsed: false,
-            movedThisTurn: false
+            movedThisTurn: false,
+            skillCd: 0,
+            markedTurns: 0,
+            sabotagedTurns: 0
         };
     }
 
@@ -1133,6 +1465,20 @@ class GameEngine {
                 // Breakthrough: tank ignores overwatch (handled by not calling this for tank attacks)
             }
         });
+    }
+
+    // One-time +2 VP for the first ground unit to enter the enemy rear (board
+    // rim on their side — the spawn bands sit at the front and don't count)
+    _checkBreakthrough(unit) {
+        const s = this.state;
+        if (s.breakthroughAwarded[unit.faction]) return;
+        const card = CARD_CATALOG[unit.cardId];
+        if (card?.unitClass === UNIT_CLASS.DRONE) return;
+        const enemyHexes = unit.faction === 'player' ? s.rearHexIds.ai : s.rearHexIds.player;
+        if (!enemyHexes?.includes(unit.hexId)) return;
+        s.breakthroughAwarded[unit.faction] = true;
+        if (unit.faction === 'player') s.playerVP += 2; else s.aiVP += 2;
+        this._log(`Breakthrough! ${unit.displayName} entered the enemy rear (+2 VP)`);
     }
 
     _checkWaveSpawn(unit) {
@@ -1166,11 +1512,21 @@ class GameEngine {
             if (u.faction === enemyFaction && u.hexId === hexId && u.hp > 0) {
                 u.hp = Math.max(0, u.hp - atk);
                 this._log(`Loitering strike on ${hexId}: ${u.displayName} takes ${atk} dmg`);
+                if (u.hp <= 0) this._awardKillVP(u, ownerFaction);
             }
         });
 
         hex.loiteringCountdown = 0;
         hex.loiteringOwner = null;
+        this._checkVictory();
+    }
+
+    _awardKillVP(killedUnit, killerFaction) {
+        const s = this.state;
+        const vp = DESTROY_VP[CARD_CATALOG[killedUnit.cardId]?.tier] || 0;
+        if (vp <= 0) return;
+        if (killerFaction === 'player') s.playerVP += vp; else s.aiVP += vp;
+        this._log(`+${vp} VP for destroying ${killedUnit.displayName}`);
     }
 
     _log(msg) {
@@ -1178,7 +1534,21 @@ class GameEngine {
         if (this.onLog) this.onLog(msg);
     }
 
+    // Record where units died (any damage path) so the map can mark the spot
+    _recordNewDeaths() {
+        const s = this.state;
+        if (!s) return;
+        s.units.forEach(u => {
+            if (u.hp <= 0 && !u._deathRecorded) {
+                u._deathRecorded = true;
+                s.fallenUnits.push({ hexId: u.hexId, name: u.displayName, faction: u.faction, turn: s.turn });
+                this._log(`☠ ${u.faction === 'player' ? 'Lost' : 'Enemy lost'}: ${u.displayName}`);
+            }
+        });
+    }
+
     _notify() {
+        this._recordNewDeaths();
         if (this.onStateChange) this.onStateChange(this.state);
     }
 

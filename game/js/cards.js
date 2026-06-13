@@ -38,6 +38,7 @@ const OVERLAY_RULES = {
 };
 
 const STATUS = {
+    MARKED:        'marked',
     SUPPRESSED:    'suppressed',
     PINNED:        'pinned',
     FORTIFIED:     'fortified',
@@ -84,10 +85,10 @@ const CARD_CATALOG = {
         id: 'ua_fpv', faction: 'ua', name: 'FPV Operator',
         tier: TIER.C, unitClass: UNIT_CLASS.DRONE,
         size: 1,
-        hp: 2, atk: 5, def: 0, mov: 2, rng: 4, rp: 4,
+        hp: 2, atk: 5, def: 0, mov: 2, rng: 4, rp: 5,
         abilities: ['one_shot', 'anti_armor', 'interceptable', 'precision_optics'],
         iconPath: '../images/ua/icon-2.png',
-        desc: 'Ukrainian FPV drones (DJI converted). Kamikaze strike — destroyed after firing. +3 ATK vs tracked. IGLA can intercept. +1 ATK if target ISR-spotted.'
+        desc: 'Ukrainian FPV drones (DJI converted). Kamikaze strike — destroyed after firing. +2 ATK vs tracked. IGLA can intercept. +1 ATK if target ISR-spotted.'
     },
     ua_recon_drone: {
         id: 'ua_recon_drone', faction: 'ua', name: 'Recon Drone (Mavic)',
@@ -104,6 +105,7 @@ const CARD_CATALOG = {
         size: 1,
         hp: 3, atk: 3, def: 1, mov: 2, rng: 4, rp: 4,
         abilities: ['ignore_light_cover', 'suppress_on_hit', 'stealth_stationary'],
+        active: 'mark_target',
         iconPath: '../images/ua/icon-4.png',
         desc: 'Ukrainian sniper teams (SVD/Barrett). Ignores DEF from light cover. Every hit Suppresses target. Invisible to drones if stationary — set up a hide and stay still.'
     },
@@ -113,6 +115,7 @@ const CARD_CATALOG = {
         size: 1,
         hp: 3, atk: 4, def: 1, mov: 2, rng: 5, rp: 5,
         abilities: ['indirect_fire', 'mine_coordination', 'setup_req'],
+        active: 'illumination',
         iconPath: '../images/ua/icon-5.png',
         desc: '120mm mortar team. Indirect fire — ignores LoS. Setup required: cannot fire if moved this turn. Mine coordination: mortar rounds triggering nearby mines cause chain detonation.'
     },
@@ -122,6 +125,7 @@ const CARD_CATALOG = {
         size: 1,
         hp: 3, atk: 2, def: 1, mov: 5, rng: 1, rp: 3,
         abilities: ['rapid_reposition'],
+        active: 'rapid_dash',
         iconPath: '../images/ua/icon-6.png',
         desc: 'Motorcycle-mounted infantry. Fast repositioning — used for rapid response and flanking approaches. +1 MOV on friendly-controlled hexes.'
     },
@@ -140,6 +144,7 @@ const CARD_CATALOG = {
         size: 2,
         hp: 4, atk: 3, def: 1, mov: 4, rng: 2, rp: 4,
         abilities: ['supply_run', 'can_depot', 'weapon_mount'],
+        active: 'field_resupply',
         iconPath: '../images/ua/icon-8.png',
         desc: 'Armed pickup truck (Hilux / Humvee). Supply run: removes Suppressed from adjacent friendlies. DEPOT mode: extends supply +3 hex. Weapon mount: can attack while in DEPOT.'
     },
@@ -149,6 +154,7 @@ const CARD_CATALOG = {
         size: 1,
         hp: 5, atk: 4, def: 2, mov: 3, rng: 2, rp: 6,
         abilities: ['mine_layer', 'ambush', 'exfil', 'infiltrate', 'stealth_stationary'],
+        active: 'exfil',
         iconPath: '../images/ua/icon-9.png',
         desc: 'Ukrainian recon-strike group. Mine layer: lay mines on move (1 AP). Ambush: first strike ignores DEF. Exfil: retreat to any friendly hex once. Invisible to drones when stationary in hides.'
     },
@@ -158,6 +164,7 @@ const CARD_CATALOG = {
         size: 3,
         hp: 10, atk: 6, def: 4, mov: 3, rng: 2, rp: 8,
         abilities: ['combined_arms', 'can_depot', 'transport'],
+        active: 'smoke_screen',
         iconPath: '../images/ua/icon-10.png',
         desc: 'M2 Bradley / Marder IFV. 25mm autocannon devastates infantry. Combined arms: adjacent infantry +1 DEF. DEPOT capable. Transports 1 infantry unit.'
     },
@@ -176,6 +183,7 @@ const CARD_CATALOG = {
         size: 3,
         hp: 12, atk: 7, def: 5, mov: 2, rng: 2, rp: 9,
         abilities: ['hull_down', 'mine_immune_first', 'nato_ammo'],
+        active: 'canister_shot',
         iconPath: '../images/ua/icon-12.png',
         desc: 'Leopard 2A4/A6 or upgraded T-64BV. Excellent optics and crew training. Hull-down: +2 DEF on ridgeline. First mine ignored. NATO ammo: +1 ATK vs all armored targets.'
     },
@@ -204,6 +212,7 @@ const CARD_CATALOG = {
         size: 3,
         hp: 6, atk: 7, def: 1, mov: 1, rng: 8, rp: 9,
         abilities: ['precision_fire', 'shoot_and_scoot', 'counter_battery', 'indirect_fire'],
+        active: 'scoot',
         iconPath: '../images/ua/icon-15.png',
         desc: 'M777 howitzer / Caesar wheeled SPH. Precision fire: ignores terrain DEF if target ISR-spotted. Shoot & scoot: move 1 hex after firing. Counter-battery: free return fire vs enemy arty. 155mm — ATK 7.'
     },
@@ -213,8 +222,28 @@ const CARD_CATALOG = {
         size: 1,
         hp: 6, atk: 5, def: 3, mov: 3, rng: 2, rp: 7,
         abilities: ['deep_recon', 'sabotage_order', 'exfil', 'ambush', 'stealth_stationary'],
+        active: 'sabotage',
         iconPath: '../images/ua/icon-16.png',
         desc: 'Ukraine SOF (SSO). Highly trained, small signature. Deep recon: can enter enemy spawn zone. Sabotage: disable enemy DEPOT/EW (1 AP). Ambush on first strike. Invisible to drones when stationary.'
+    },
+    ua_vampire: {
+        id: 'ua_vampire', faction: 'ua', name: 'Heavy Bomber Drone (Vampire)',
+        tier: TIER.U, unitClass: UNIT_CLASS.DRONE,
+        size: 2,
+        hp: 3, atk: 5, def: 0, mov: 3, rng: 2, rp: 7,
+        abilities: ['anti_armor', 'interceptable', 'night_hunter'],
+        iconPath: '../images/ua/icon-2.png',
+        desc: 'Vampire / "Baba Yaga" heavy hexacopter. Reusable bomber — drops munitions and returns. +2 ATK vs armor. Night hunter: −1 to-hit at night instead of a penalty. Interceptable.'
+    },
+    ua_ugv_miner: {
+        id: 'ua_ugv_miner', faction: 'ua', name: 'UGV Minelayer (Ratel)',
+        tier: TIER.U, unitClass: UNIT_CLASS.VEHICLE,
+        size: 1,
+        hp: 4, atk: 1, def: 1, mov: 3, rng: 0, rp: 5,
+        abilities: ['mine_immune_first'],
+        active: 'remote_mine',
+        iconPath: '../images/ua/icon-8.png',
+        desc: 'Ratel ground robot. Remotely mines a hex within 2 every other turn — area denial without exposing infantry. Small and hard to spot.'
     },
     ua_air_assault: {
         id: 'ua_air_assault', faction: 'ua', name: '95th Air Assault Brigade',
@@ -234,23 +263,13 @@ const CARD_CATALOG = {
         iconPath: '../images/ua/icon-18.png',
         desc: 'Full mechanized brigade with Western IFVs. Combined arms: all adjacent units +1 DEF. Defensive depth: anchors the line. HQ action: once/turn uses 1 Order at no CP cost.'
     },
-    ua_commander: {
-        id: 'ua_commander', faction: 'ua', name: 'Commander — SOF Strike',
-        tier: TIER.X, unitClass: UNIT_CLASS.COMMAND,
-        size: 1,
-        hp: 0, atk: 0, def: 0, mov: 0, rng: 0, rp: 0,
-        abilities: ['precision_strike_cmd'],
-        iconPath: '../images/ua/icon-19.png',
-        desc: 'ONCE/MATCH: Select any ISR-spotted enemy → 3 ATK ignoring all cover and DEF bonuses. Requires active drone ISR on that hex.'
-    },
-
     // ═══════════════════ RUSSIA ════════════════════════════════════════════
 
     ru_assault: {
         id: 'ru_assault', faction: 'ru', name: 'Assault Infantry (Shtorm-Z)',
         tier: TIER.C, unitClass: UNIT_CLASS.INFANTRY,
         size: 1,
-        hp: 3, atk: 3, def: 1, mov: 2, rng: 1, rp: 2,
+        hp: 3, atk: 3, def: 1, mov: 2, rng: 1, rp: 3,
         abilities: ['wave_bonus', 'pack_bonus'],
         iconPath: '../images/ru/icon-1.png',
         desc: 'Convict assault infantry / Shtorm-Z. Expendable mass — cheap and numerous. Pack bonus: +1 ATK per 2 adjacent friendlies. Benefits from Wave Regiment aura. Losses are expected.'
@@ -271,7 +290,7 @@ const CARD_CATALOG = {
         hp: 2, atk: 4, def: 0, mov: 2, rng: 3, rp: 4,
         abilities: ['one_shot', 'anti_armor', 'interceptable'],
         iconPath: '../images/ru/icon-3.png',
-        desc: 'Russian FPV drone teams. Kamikaze strike — destroyed after use. Anti-armor: +3 vs tracked vehicles. Interceptable by IGLA. Slightly shorter range than UA equivalent.'
+        desc: 'Russian FPV drone teams. Kamikaze strike — destroyed after use. Anti-armor: +2 vs tracked vehicles. Interceptable by IGLA. Slightly shorter range than UA equivalent.'
     },
     ru_bike: {
         id: 'ru_bike', faction: 'ru', name: 'Bike Infantry',
@@ -279,6 +298,7 @@ const CARD_CATALOG = {
         size: 1,
         hp: 3, atk: 2, def: 0, mov: 6, rng: 1, rp: 3,
         abilities: ['flanking_bonus', 'no_fortify'],
+        active: 'rapid_dash',
         iconPath: '../images/ru/icon-4.png',
         desc: 'Russian assault motorcycle infantry — used en masse for rapid flanking. Cannot fortify. Flanking bonus: +2 ATK from the flank. Extremely fast (MOV 6) but fragile.'
     },
@@ -288,6 +308,7 @@ const CARD_CATALOG = {
         size: 1,
         hp: 3, atk: 4, def: 1, mov: 2, rng: 5, rp: 5,
         abilities: ['indirect_fire', 'stealth_mine'],
+        active: 'illumination',
         iconPath: '../images/ru/icon-5.png',
         desc: '82mm / 120mm mortar team. Indirect fire. Stealth mine: lay concealed mines (1 AP) — hidden from enemy until triggered. Russia uses mine-laying extensively as area denial.'
     },
@@ -315,6 +336,7 @@ const CARD_CATALOG = {
         size: 1,
         hp: 5, atk: 4, def: 2, mov: 3, rng: 2, rp: 6,
         abilities: ['infiltrate', 'ambush', 'deep_recon', 'stealth_stationary'],
+        active: 'exfil',
         iconPath: '../images/ru/icon-8.png',
         desc: 'Russian recon-strike DRG team. Infiltrate: may enter enemy-held hexes. Ambush: first strike ignores DEF. Deep recon. Invisible to drones when stationary — Russia relies on deep reconnaissance.'
     },
@@ -324,6 +346,7 @@ const CARD_CATALOG = {
         size: 2,
         hp: 8, atk: 4, def: 3, mov: 4, rng: 2, rp: 7,
         abilities: ['carrier', 'suppressive_fire', 'can_depot'],
+        active: 'smoke_screen',
         iconPath: '../images/ru/icon-9.png',
         desc: 'BTR-82A wheeled APC. 14.5mm / 30mm autocannon. Carrier: transports 1 infantry. Suppressive fire. DEPOT capable. Wheeled — fast on roads, vulnerable in broken terrain.'
     },
@@ -334,7 +357,7 @@ const CARD_CATALOG = {
         hp: 2, atk: 5, def: 0, mov: 0, rng: 5, rp: 7,
         abilities: ['delayed_strike', 'anti_armor', 'zone_denial_passive', 'interceptable'],
         iconPath: '../images/ru/icon-10.png',
-        desc: 'Lancet-3 anti-armor loitering munition — Russia\'s most effective drone weapon. Designate hex, strikes for 5 ATK (+3 vs armored) after 2 turns. Zone denial. Interceptable. Most feared by UA forces.'
+        desc: 'Lancet-3 anti-armor loitering munition — Russia\'s most effective drone weapon. Designate hex, strikes for 5 ATK (+2 vs armored) after 2 turns. Zone denial. Interceptable. Most feared by UA forces.'
     },
     ru_tank_72: {
         id: 'ru_tank_72', faction: 'ru', name: 'Tank T-72B3 / T-80',
@@ -342,6 +365,7 @@ const CARD_CATALOG = {
         size: 3,
         hp: 10, atk: 7, def: 4, mov: 2, rng: 2, rp: 8,
         abilities: ['breakthrough', 'armor_class', 'mine_immune_first'],
+        active: 'canister_shot',
         iconPath: '../images/ru/icon-11.png',
         desc: 'T-72B3 / T-80BV main battle tank. 125mm gun — high ATK but older armour (DEF 4). Breakthrough: ignores Overwatch on assault. Mine immune first pass. Russia uses these en masse; losses are high but numbers matter.'
     },
@@ -349,10 +373,11 @@ const CARD_CATALOG = {
         id: 'ru_tank_90', faction: 'ru', name: 'Tank T-90M (Proryv)',
         tier: TIER.U, unitClass: UNIT_CLASS.TRACKED,
         size: 3,
-        hp: 12, atk: 8, def: 6, mov: 2, rng: 2, rp: 9,
+        hp: 12, atk: 8, def: 5, mov: 2, rng: 2, rp: 9,
         abilities: ['reactive_armor', 'breakthrough', 'armor_class'],
+        active: 'canister_shot',
         iconPath: '../images/ru/icon-12.png',
-        desc: 'T-90M Proryv — Russia\'s best tank. Kontakt-5 / Relikt ERA: first incoming attack is halved. 125mm 2A46M-4 gun. Breakthrough. Expensive and scarce; losing one is a strategic event.'
+        desc: 'T-90M Proryv — Russia\'s best tank. Kontakt-5 / Relikt ERA: first incoming attack each turn is halved. 125mm 2A46M-4 gun. Breakthrough. Expensive and scarce; losing one is a strategic event.'
     },
     ru_spetsnaz: {
         id: 'ru_spetsnaz', faction: 'ru', name: 'Spetsnaz / VDV',
@@ -360,6 +385,7 @@ const CARD_CATALOG = {
         size: 1,
         hp: 6, atk: 5, def: 3, mov: 3, rng: 2, rp: 7,
         abilities: ['deep_recon', 'night_raid', 'ambush', 'stealth_stationary'],
+        active: 'exfil',
         iconPath: '../images/ru/icon-13.png',
         desc: 'Russian Spetsnaz / VDV airborne. Professional soldiers. Deep recon. Night raid: +1 ATK at night. Ambush on first strike. Invisible to drones when stationary — used in covert infiltration.'
     },
@@ -397,8 +423,28 @@ const CARD_CATALOG = {
         size: 3,
         hp: 5, atk: 5, def: 1, mov: 2, rng: 6, rp: 7,
         abilities: ['area_attack', 'rapid_fire', 'indirect_fire'],
+        active: 'scoot',
         iconPath: '../images/ru/icon-17.png',
         desc: 'BM-21 Grad / BM-30 Smerch MLRS. Area attack: hits target hex + all 6 adjacent (3 ATK each). Rapid fire: fire twice per activation. Indirect fire. Devastating area denial — used to saturate positions.'
+    },
+    ru_heavy_drone: {
+        id: 'ru_heavy_drone', faction: 'ru', name: 'Heavy Bomber Drone (Privet-82)',
+        tier: TIER.U, unitClass: UNIT_CLASS.DRONE,
+        size: 2,
+        hp: 3, atk: 5, def: 0, mov: 3, rng: 2, rp: 7,
+        abilities: ['anti_armor', 'interceptable', 'night_hunter'],
+        iconPath: '../images/ru/icon-10.png',
+        desc: 'Privet-82 heavy bomber drone. Reusable — drops mortar rounds on armor and returns. +2 ATK vs armor. Night hunter: −1 to-hit at night. Interceptable.'
+    },
+    ru_zemledeliye: {
+        id: 'ru_zemledeliye', faction: 'ru', name: 'ISDM Zemledeliye',
+        tier: TIER.U, unitClass: UNIT_CLASS.VEHICLE,
+        size: 3,
+        hp: 5, atk: 0, def: 1, mov: 1, rng: 6, rp: 7,
+        abilities: [],
+        active: 'mine_volley',
+        iconPath: '../images/ru/icon-17.png',
+        desc: 'ISDM Zemledeliye remote mining system. Rockets scatter mines across a hex and its neighbour at up to 6 hexes — shapes the battlefield from the rear.'
     },
     ru_wave_regt: {
         id: 'ru_wave_regt', faction: 'ru', name: 'Wave Assault Regiment',
@@ -415,18 +461,95 @@ const CARD_CATALOG = {
         size: 3,
         hp: 8, atk: 6, def: 2, mov: 1, rng: 7, rp: 10,
         abilities: ['barrage_2hex', 'counter_battery', 'double_fire', 'indirect_fire'],
+        active: 'scoot',
         iconPath: '../images/ru/icon-19.png',
         desc: '2S3 Akatsiya / 2S19 Msta-S 152mm. Barrage: split fire across 2 hexes per activation. Counter-battery reaction. Double fire: fire twice for 2 AP. Russia\'s fire superiority — artillery accounts for 80% of casualties.'
-    },
-    ru_commander: {
-        id: 'ru_commander', faction: 'ru', name: 'Commander — Mass Mobilization',
-        tier: TIER.X, unitClass: UNIT_CLASS.COMMAND,
-        size: 1,
-        hp: 0, atk: 0, def: 0, mov: 0, rng: 0, rp: 0,
-        abilities: ['mass_mobilization_cmd'],
-        iconPath: '../images/ru/icon-20.png',
-        desc: 'ONCE/MATCH: Place 3 Assault Group tokens (HP 3, ATK 3) anywhere in rear hexes. Represents emergency mobilization reserves — human wave under command pressure.'
     }
+};
+
+// ── ACTIVE SKILLS ───────────────────────────────────────────────────────────
+// One active per unit, referenced from CARD_CATALOG via `active: '<id>'`.
+// target: 'hex' | 'unit' | 'self' (self needs no click). range: hexes, or
+// 'rng'/'mov' to use the unit's stat. cooldown: full turns between uses.
+const ACTIVE_SKILLS = {
+    canister_shot: {
+        id: 'canister_shot', name: 'Canister Shot', cooldown: 3, apCost: 1, target: 'hex', range: 1,
+        desc: '2 dice vs every enemy in an adjacent hex.'
+    },
+    mark_target: {
+        id: 'mark_target', name: 'Mark Target', cooldown: 2, apCost: 1, target: 'unit', range: 'rng',
+        desc: 'Mark a visible enemy in range: spotted and −1 save for 2 turns.'
+    },
+    smoke_screen: {
+        id: 'smoke_screen', name: 'Smoke Screen', cooldown: 3, apCost: 1, target: 'hex', range: 1, allowSelf: true,
+        desc: 'Smoke on own or adjacent hex: units there cannot be attacked from range >1 this turn.'
+    },
+    illumination: {
+        id: 'illumination', name: 'Illumination', cooldown: 2, apCost: 1, target: 'self',
+        desc: 'Illuminate radius 3 for 1 turn: night to-hit penalty negated there.'
+    },
+    scoot: {
+        id: 'scoot', name: 'Shoot & Scoot', cooldown: 2, apCost: 0, target: 'hex', range: 1,
+        desc: 'Free 1-hex reposition (no AP).'
+    },
+    exfil: {
+        id: 'exfil', name: 'Exfil', cooldown: 5, apCost: 1, target: 'self',
+        desc: 'Redeploy to a random friendly spawn hex.'
+    },
+    sabotage: {
+        id: 'sabotage', name: 'Sabotage', cooldown: 3, apCost: 1, target: 'unit', range: 1,
+        desc: 'Disable an adjacent enemy EW/DEPOT unit for 2 turns and Suppress it.'
+    },
+    rapid_dash: {
+        id: 'rapid_dash', name: 'Rapid Dash', cooldown: 3, apCost: 0, target: 'hex', range: 'mov',
+        desc: 'Free move up to MOV hexes (no AP).'
+    },
+    field_resupply: {
+        id: 'field_resupply', name: 'Field Resupply', cooldown: 3, apCost: 1, target: 'unit', range: 1,
+        desc: 'Adjacent friendly heals 2 HP and loses Suppressed.'
+    },
+    remote_mine: {
+        id: 'remote_mine', name: 'Remote Mine', cooldown: 2, apCost: 1, target: 'hex', range: 2,
+        desc: 'Mine a hex within 2 — entering units take damage (vehicles 5) and are Suppressed.'
+    },
+    mine_volley: {
+        id: 'mine_volley', name: 'Mine Volley', cooldown: 3, apCost: 1, target: 'hex', range: 6,
+        desc: 'Remotely mine a target hex and one neighbour at up to range 6.'
+    }
+};
+
+// ── COMMANDER DOCTRINES ─────────────────────────────────────────────────────
+// Chosen at setup. Replaces the once-per-match commander button: each doctrine
+// is an army-wide passive plus a 3-charge active with a 5-turn cooldown.
+const DOCTRINES = {
+    ua: [
+        {
+            id: 'ua_precision', name: 'Precision Doctrine', charges: 3, cooldown: 5,
+            passive: 'Recon spotting lasts 3 turns instead of 2.',
+            activeName: 'Precision Strike', target: 'unit',
+            activeDesc: '4 dice, hit 4+, no save, vs a spotted enemy.'
+        },
+        {
+            id: 'ua_resilience', name: 'Resilience Doctrine', charges: 3, cooldown: 5,
+            passive: 'Pinned units recover fully at end of turn.',
+            activeName: 'Rapid Fortification', target: 'none',
+            activeDesc: 'Instantly Fortify up to 3 of your units.'
+        }
+    ],
+    ru: [
+        {
+            id: 'ru_mass', name: 'Mass Doctrine', charges: 3, cooldown: 5,
+            passive: 'Pack bonus triggers with 2 adjacent infantry instead of 3.',
+            activeName: 'Mobilization Wave', target: 'none',
+            activeDesc: 'Spawn 2 Assault Group tokens in your rear.'
+        },
+        {
+            id: 'ru_fires', name: 'Fires Doctrine', charges: 3, cooldown: 5,
+            passive: 'Artillery and mortars roll +1 die.',
+            activeName: 'Fire Mission', target: 'hex',
+            activeDesc: '4 dice on a target hex, 2 dice on its neighbours.'
+        }
+    ]
 };
 
 // ── ORDERS CATALOG ──────────────────────────────────────────────────────────
@@ -494,7 +617,7 @@ const EVENT_CARDS = [
     { id: 'road_cut',        name: 'Road Cut',                  effect: 'interdict_road',      desc: 'A random road hex becomes INTERDICTED for 3 turns.' },
     { id: 'recon_flight',    name: 'Recon Flight',              effect: 'reveal_all_brief',    desc: 'Both players see all units for 5 seconds.' },
     { id: 'mud_season',      name: 'Mud Season',                effect: 'mud_2turns',          desc: 'All non-road movement +1 AP for 2 turns.' },
-    { id: 'cmd_resolve',     name: "Commander's Resolve",       effect: 'reset_commanders',    desc: 'Both Commander cards may be used again this match.' },
+    { id: 'cmd_resolve',     name: "Commander's Resolve",       effect: 'reset_commanders',    desc: 'Both doctrines regain 1 active charge.' },
     { id: 'w_resupply',      name: 'Western Resupply',          effect: 'ua_free_order',       desc: 'UA: 1 free Order this turn. RU turn: no effect.' },
     { id: 'mob_surge',       name: 'Mobilization Surge',        effect: 'ru_free_token',       desc: 'RU: 1 free Assault Group token placed in rear.' },
     { id: 'intel_leak',      name: 'Intelligence Leak',         effect: 'reveal_orders_brief', desc: 'Opponent sees your Orders hand for 5 seconds.' },
@@ -509,42 +632,76 @@ const EVENT_CARDS = [
     { id: 'fl_collapse',     name: 'Frontline Collapse',        effect: 'contested_reset',     desc: 'One random contested objective reverts to neutral.' }
 ];
 
-// ── PRESET DECKS ─────────────────────────────────────────────────────────────
-const PRESET_DECKS = {
-    ua: [
-        'ua_terodef', 'ua_terodef',
-        'ua_fpv', 'ua_fpv',
-        'ua_recon_drone',
-        'ua_sniper',
-        'ua_mortar',
-        'ua_igla',
-        'ua_ifv',
-        'ua_tank',
-        'ua_arty',
-        'ua_ew',
-        'ua_sf',
-        'ua_mech_brigade'
-    ],
-    ru: [
-        'ru_assault', 'ru_assault', 'ru_assault',
-        'ru_fpv', 'ru_fpv',
-        'ru_recon',
-        'ru_mortar',
-        'ru_igla',
-        'ru_btr',
-        'ru_tank_72',
-        'ru_ew',
-        'ru_mlrs',
-        'ru_arty_regt'
-    ]
-};
-
-const DESTROY_VP = { C: 0, U: 1, R: 3, X: 0 };
+const DESTROY_VP = { C: 1, U: 2, R: 4, X: 0 };
 
 const OBJ_VP = {
     settlement_s1: 1,
     settlement_s2: 2,
     road_junction: 1,
     bridge: 2,
-    forward_position: 3
+    key_position: 2,
+    forward_position: 2
 };
+
+// ── BATTLEGROUPS ─────────────────────────────────────────────────────────────
+// Themed selectable decks. Player picks one at setup; AI picks at random.
+// aggressionBias seeds the AI posture (positive = more aggressive).
+const BATTLEGROUPS = {
+    ua: [
+        {
+            id: 'ua_mech_fist', name: 'Mech Fist', aggressionBias: 0.15,
+            desc: 'Armored push — tanks and IFVs with infantry support',
+            cards: ['ua_terodef', 'ua_terodef', 'ua_ifv', 'ua_tank', 'ua_mech_brigade',
+                    'ua_fpv', 'ua_recon_drone', 'ua_mortar', 'ua_igla', 'ua_pickup', 'ua_bike', 'ua_sf']
+        },
+        {
+            id: 'ua_drone_war', name: 'Drone War', aggressionBias: 0,
+            desc: 'ISR and precision strikes — drones, artillery, EW',
+            cards: ['ua_fpv', 'ua_fpv', 'ua_vampire', 'ua_recon_drone', 'ua_recon_drone', 'ua_isr_drone',
+                    'ua_loitering', 'ua_arty', 'ua_ew', 'ua_sniper', 'ua_igla', 'ua_drg', 'ua_terodef']
+        },
+        {
+            id: 'ua_defensive_line', name: 'Defensive Line', aggressionBias: -0.15,
+            desc: 'Hold ground — entrenched infantry, mines, counter-fire',
+            cards: ['ua_terodef', 'ua_terodef', 'ua_terodef', 'ua_sniper', 'ua_mortar', 'ua_igla',
+                    'ua_ew', 'ua_drg', 'ua_ugv_miner', 'ua_ifv', 'ua_arty', 'ua_air_assault']
+        }
+    ],
+    ru: [
+        {
+            id: 'ru_armor_spearhead', name: 'Armor Spearhead', aggressionBias: 0.15,
+            desc: 'Tank columns with mechanized infantry — breakthrough doctrine',
+            cards: ['ru_tank_72', 'ru_tank_72', 'ru_tank_90', 'ru_btr', 'ru_motorized', 'ru_motorized',
+                    'ru_heavy_drone', 'ru_fpv', 'ru_recon', 'ru_igla', 'ru_spetsnaz', 'ru_assault', 'ru_assault']
+        },
+        {
+            id: 'ru_mass_assault', name: 'Mass Assault', aggressionBias: 0.15,
+            desc: 'Wave attacks — expendable infantry mass and tempo',
+            cards: ['ru_assault', 'ru_assault', 'ru_assault', 'ru_assault', 'ru_motorized', 'ru_motorized',
+                    'ru_bike', 'ru_bike', 'ru_wave_regt', 'ru_mortar', 'ru_btr', 'ru_recon', 'ru_igla']
+        },
+        {
+            id: 'ru_fires_group', name: 'Fires Group', aggressionBias: -0.15,
+            desc: 'Artillery superiority — fires, drones and area denial',
+            cards: ['ru_arty_regt', 'ru_mlrs', 'ru_mlrs', 'ru_zemledeliye', 'ru_mortar', 'ru_mortar', 'ru_recon', 'ru_recon',
+                    'ru_lancet', 'ru_ew', 'ru_zu23', 'ru_motorized', 'ru_assault']
+        }
+    ]
+};
+
+// Build a deck from a battlegroup (random battlegroup if id is null/unknown),
+// plus 2 random reserve cards drawn from the rest of the faction catalog.
+function buildBattlegroupDeck(faction, battlegroupId) {
+    const groups = BATTLEGROUPS[faction];
+    const bg = groups.find(g => g.id === battlegroupId) ||
+               groups[Math.floor(Math.random() * groups.length)];
+    const cards = [...bg.cards];
+    const pool = Object.values(CARD_CATALOG)
+        .filter(c => c.faction === faction && c.tier !== TIER.X && !cards.includes(c.id))
+        .map(c => c.id);
+    for (let i = 0; i < 2 && pool.length > 0; i++) {
+        const idx = Math.floor(Math.random() * pool.length);
+        cards.push(pool.splice(idx, 1)[0]);
+    }
+    return { battlegroup: bg, cards };
+}
