@@ -91,6 +91,7 @@ class GameEngine {
             selectedUnit: null,
             selectedHex: null,
             moveRange: null,
+            grindRange: null,
             attackRange: null,
             ewZones: new Map(),
             intelZones: new Map(),
@@ -375,14 +376,23 @@ class GameEngine {
         if (!unit || unit.faction !== 'player' || unit.hp <= 0) return { ok: false, error: 'Invalid unit' };
 
         const card = CARD_CATALOG[unit.cardId];
-        const apCost = MOVE_AP_COST;
-        if (s.playerAP < apCost) return { ok: false, error: 'Not enough AP' };
+        if (s.playerAP < 1) return { ok: false, error: 'Not enough AP' };
 
-        const movBudget = unit.mov + (s.eventFlags?.move_cost_plus1 ? -1 : 0);
+        // A single move reaches up to MOV terrain-weighted points, but can never
+        // cost more AP than remain — so total movement per turn is bounded by AP.
+        const movBudget = Math.min(unit.mov, s.playerAP) + (s.eventFlags?.move_cost_plus1 ? -1 : 0);
         const reachable = this.board.reachableHexes(unit.hexId, movBudget, card.unitClass, 'player', s);
-        console.log('[MOVE] unit at', unit.hexId, 'MOV', movBudget, 'reachable:', [...reachable.keys()], 'target in range:', reachable.has(targetHexId));
 
-        if (!reachable.has(targetHexId)) return { ok: false, error: 'Target out of movement range' };
+        // AP cost = real distance: the terrain-weighted movement-point cost of the
+        // chosen hex. Grinding across hard/impassable terrain costs all remaining AP.
+        let apCost;
+        if (reachable.has(targetHexId)) {
+            apCost = Math.max(1, reachable.get(targetHexId));
+        } else if (this.board.escapeHexes(unit.hexId, 'player', s, reachable).has(targetHexId)) {
+            apCost = s.playerAP;
+        } else {
+            return { ok: false, error: 'Target out of movement range' };
+        }
 
         // Mine entry
         const targetHex = this.board.hexes.get(targetHexId);
@@ -408,6 +418,7 @@ class GameEngine {
 
         s.selectedUnit = null;
         s.moveRange = null;
+        s.grindRange = null;
         s.attackRange = null;
 
         this._checkOverwatchTriggers(unit, targetHexId);
@@ -438,14 +449,10 @@ class GameEngine {
             if (unit.faction !== 'ai' || unit.hp <= 0) return;
             const dist = this.board.hexDistance(drone.hexId, unit.hexId);
             const uCard = CARD_CATALOG[unit.cardId];
-            const size = uCard?.size ?? 2;
+            // Recon reveals everything in range — size no longer shrinks detection.
+            // Only stationary stealth units (hides) stay invisible.
             const stealthy = uCard?.abilities?.includes('stealth_stationary') && !unit.movedThisTurn;
-
-            let detectRange;
-            if (stealthy)        detectRange = 0;
-            else if (size >= 3)  detectRange = droneRng;
-            else if (size === 2) detectRange = Math.max(0, droneRng - 1);
-            else                 detectRange = Math.max(0, droneRng - 2);
+            const detectRange = stealthy ? 0 : droneRng;
 
             if (dist <= detectRange) {
                 unit.status.add(STATUS.RECON_SPOTTED);
@@ -460,6 +467,7 @@ class GameEngine {
         drone.movedThisTurn = true;
         s.selectedUnit = null;
         s.moveRange = null;
+        s.grindRange = null;
         s.attackRange = null;
 
         // Immediately extend the intel zone so the map updates now (not next turn)
@@ -509,10 +517,13 @@ class GameEngine {
         const apCost = TIER_AP[card.tier];
         if (s.playerAP < apCost) return { ok: false, error: 'Not enough AP' };
 
-        // Find target on hex
+        // Indirect-fire units (artillery, mortar, MLRS) can fire blind at any
+        // in-range hex — they don't need a visible enemy. Everyone else needs a
+        // target on the hex.
+        const isIndirect = card.abilities?.includes('indirect_fire');
         const targets = this.combat.unitsOnHex(defenderHexId, s).filter(u => u.faction === 'ai');
-        if (targets.length === 0) return { ok: false, error: 'No enemy on target hex' };
-        const defender = targets[0];
+        if (targets.length === 0 && !isIndirect) return { ok: false, error: 'No enemy on target hex' };
+        const defender = targets[0]; // may be undefined for a blind indirect shot
 
         // EW jamming grounds drones — explain it instead of a generic range error
         if (attacker.status.has(STATUS.EW_SUPPRESSED)) {
@@ -533,9 +544,23 @@ class GameEngine {
             return { ok: false, error: 'Civilian corridor: no settlement attacks' };
         }
 
-        // Smoke blocks ranged attacks
-        if (defHex?.smokeTurns > 0 && dist > 1) {
+        // Smoke blocks direct ranged attacks; indirect fire arcs over it
+        if (defHex?.smokeTurns > 0 && dist > 1 && !isIndirect) {
             return { ok: false, error: 'Target obscured by smoke — only adjacent attacks possible' };
+        }
+
+        // Blind indirect fire onto an empty hex — shell lands, AP spent, no effect
+        if (!defender) {
+            s.playerAP -= apCost;
+            attacker.activationsThisTurn++;
+            this.board.showAreaEffect([defenderHexId], 1400, '#ff6600', 0.4);
+            this._log(`${card.name}: indirect fire on ${defenderHexId} — rounds land on empty ground`);
+            s.selectedUnit = null;
+            s.moveRange = null;
+            s.grindRange = null;
+            s.attackRange = null;
+            this._notify();
+            return { ok: true, blind: true, empty: true };
         }
 
         // FPV intercept
@@ -553,6 +578,12 @@ class GameEngine {
         const result = this.combat.resolveAttack(attacker, defender, s);
         s.playerAP -= apCost;
         attacker.activationsThisTurn++;
+
+        // Indirect fire that connects reveals what it hit (incl. hidden units)
+        if (isIndirect && result.damage > 0 && !defender.status.has(STATUS.RECON_SPOTTED)) {
+            defender.status.add(STATUS.RECON_SPOTTED);
+            defender.reconSpottedTurns = this._spotTurns('player');
+        }
 
         result.log.forEach(l => this._log(l));
 
@@ -590,6 +621,7 @@ class GameEngine {
 
         s.selectedUnit = null;
         s.moveRange = null;
+        s.grindRange = null;
         s.attackRange = null;
 
         this._notify();
@@ -1558,6 +1590,7 @@ class GameEngine {
             // Deselect
             s.selectedUnit = null;
             s.moveRange = null;
+            s.grindRange = null;
             s.attackRange = null;
             this._notify();
             return;
@@ -1570,10 +1603,12 @@ class GameEngine {
         const card = CARD_CATALOG[unit.cardId];
 
         if (unit.faction === 'player' && s.phase === 'player_action') {
-            // Compute movement range
-            const movBudget = unit.mov;
+            // Highlight only hexes the unit can both reach (MOV) and afford (AP);
+            // labels show the AP cost of each reachable hex.
+            const movBudget = Math.min(unit.mov, s.playerAP);
             const reachable = this.board.reachableHexes(unit.hexId, movBudget, card.unitClass, 'player', s);
             s.moveRange = reachable;
+            s.grindRange = this.board.escapeHexes(unit.hexId, 'player', s, reachable);
 
             // Compute attack range (hex ring)
             let rng = unit.rng;

@@ -94,10 +94,10 @@ const CARD_CATALOG = {
         id: 'ua_recon_drone', faction: 'ua', name: 'Recon Drone (Mavic)',
         tier: TIER.C, unitClass: UNIT_CLASS.DRONE,
         size: 1,
-        hp: 1, atk: 0, def: 0, mov: 5, rng: 5, rp: 3,
+        hp: 1, atk: 0, def: 0, mov: 5, rng: 8, rp: 3,
         abilities: ['recon_reveal', 'intel_zone', 'arty_spotter', 'video_feed', 'fragile'],
         iconPath: '../images/ua/icon-3.png',
-        desc: 'DJI Mavic / Autel commercial drone. Attack action = recon pass: spots size-3 units at full range, size-2 at −1 hex, size-1 only at ≤2 hexes. Stationary snipers invisible. Creates Intel Zone. Fragile: dies on any hit.'
+        desc: 'DJI Mavic / Autel commercial drone. Attack action = recon pass: reveals every enemy within range 8 (stationary snipers/SF in hides stay hidden). Passive Intel Zone covers its full range. Fragile: dies on any hit.'
     },
     ua_sniper: {
         id: 'ua_sniper', faction: 'ua', name: 'Sniper Team',
@@ -172,10 +172,10 @@ const CARD_CATALOG = {
         id: 'ua_isr_drone', faction: 'ua', name: 'ISR Drone (Bayraktar)',
         tier: TIER.U, unitClass: UNIT_CLASS.DRONE,
         size: 2,
-        hp: 3, atk: 2, def: 0, mov: 1, rng: 6, rp: 6,
+        hp: 3, atk: 2, def: 0, mov: 1, rng: 10, rp: 6,
         abilities: ['permanent_isr', 'recon_reveal', 'arty_relay', 'fragile'],
         iconPath: '../images/ua/icon-11.png',
-        desc: 'Bayraktar TB2 / Leleka-100. Permanent ISR: Intel Zone every turn. Active recon pass spots enemies by size. Arty relay: all friendly artillery +1 RNG. Limited MAM missiles (ATK 2). Fragile.'
+        desc: 'Bayraktar TB2 / Leleka-100. Permanent ISR: passive Intel Zone covers its full range 10 every turn. Active recon pass reveals every enemy in range. Arty relay: all friendly artillery +1 RNG. Limited MAM missiles (ATK 2). Fragile.'
     },
     ua_tank: {
         id: 'ua_tank', faction: 'ua', name: 'Tank (Leopard 2 / T-64BV)',
@@ -316,10 +316,10 @@ const CARD_CATALOG = {
         id: 'ru_recon', faction: 'ru', name: 'Recon Drone (Orlan-10)',
         tier: TIER.C, unitClass: UNIT_CLASS.DRONE,
         size: 1,
-        hp: 1, atk: 0, def: 0, mov: 4, rng: 5, rp: 3,
+        hp: 1, atk: 0, def: 0, mov: 4, rng: 7, rp: 3,
         abilities: ['recon_reveal', 'intel_zone', 'fragile'],
         iconPath: '../images/ru/icon-6.png',
-        desc: 'Orlan-10 fixed-wing UAV. Attack action = recon pass: spots size-3 at full range, size-2 at −1 hex, size-1 at ≤2 hexes. Stationary snipers/SF invisible. Fragile. Intel Zone for 1 turn.'
+        desc: 'Orlan-10 fixed-wing UAV. Attack action = recon pass: reveals every enemy within range 7 (stationary snipers/SF in hides stay hidden). Passive Intel Zone covers its full range. Fragile.'
     },
     ru_igla: {
         id: 'ru_igla', faction: 'ru', name: 'IGLA / Strela Team',

@@ -419,7 +419,9 @@ class GameUI {
                 document.querySelectorAll('.card-el').forEach(c => c.classList.remove('card-selected'));
                 el.classList.add('card-selected');
                 this._selectedDeployCardId = cardId;
-                // Highlight spawn hexes
+                // Highlight spawn hexes (clear any lingering reach preview)
+                state.moveRange = null;
+                state.grindRange = null;
                 this.engine.board.showRange([...state.spawnHexIds.playerHexes], []);
             });
             hand.appendChild(el);
@@ -507,12 +509,14 @@ class GameUI {
         document.getElementById('hud-weather').textContent =
             `${wIcon[state.weather] || ''} ${tIcon[state.timeOfDay] || ''}`;
 
-        // AP pips
-        const apEl = document.getElementById('ap-pips');
-        if (apEl && state.phase === 'player_action') {
-            apEl.innerHTML = Array.from({ length: AP_PER_TURN }, (_, i) =>
-                `<span class="pip ${i < state.playerAP ? 'pip-on' : 'pip-off'}"></span>`
-            ).join('');
+        // AP budget — rebuild the display (deploy overwrites it with RP, so the
+        // #ap-pips span must be recreated when play begins)
+        if (state.phase === 'player_action') {
+            const apDisplay = document.getElementById('ap-display');
+            const pips = Array.from({ length: AP_PER_TURN }, (_, i) =>
+                `<span class="pip ${i < state.playerAP ? 'pip-on' : 'pip-off'}"></span>`).join('');
+            apDisplay.innerHTML =
+                `<span class="res-label">AP</span>${pips}<span class="ap-count">${state.playerAP}/${AP_PER_TURN}</span>`;
         }
 
         // CP pips
@@ -648,11 +652,12 @@ class GameUI {
     <div>
       <div class="lg-title">SPOTTING (ISR)</div>
       <div class="lg-row">Enemies are <b>hidden</b> unless: adjacent to your unit, recon-spotted, or inside your intel zone.</div>
-      <div class="lg-row">Drone recon pass spots by size: big (tanks/arty) at full range, medium at −1 hex, small teams only ≤2 hexes.</div>
-      <div class="lg-row">Stealth units (snipers, SOF, DRG) are invisible to drones while they don't move.</div>
+      <div class="lg-row">A drone recon pass reveals <b>every</b> enemy within its range; its intel zone covers that whole range every turn. Stealth units (snipers, SOF, DRG) stay hidden while they don't move.</div>
+      <div class="lg-row"><b>Indirect fire</b> (artillery, mortar, MLRS) can fire <b>blind</b> at any in-range hex — it hits and reveals hidden units there; an empty hex wastes the shell. Recon first to aim it.</div>
       <div class="lg-row">Spotted units are easier to hit (−1 to-hit) and last 2–3 turns.</div>
       <div class="lg-title">ACTIONS (${AP_PER_TURN} AP per turn)</div>
-      <div class="lg-row">Move: <b>1 AP</b> any unit, up to MOV hexes (numbers on highlighted hexes = cost).</div>
+      <div class="lg-row">Move costs <b>AP equal to distance</b> (blue tiles; numbers = AP cost). A single move reaches up to MOV; total movement is bounded by your AP.</div>
+      <div class="lg-row"><b style="color:#f5922e">Orange ⤧</b> = cross hard or impassable terrain (rivers, marsh) for your <b>whole turn</b> — units are never trapped.</div>
       <div class="lg-row">Attack / Fortify / other actions: <b>1/2/3 AP</b> by unit tier (C/U/R).</div>
       <div class="lg-title">DICE COMBAT</div>
       <div class="lg-row">Attack rolls 1d6 per ATK. Hits on 4+ (veteran/spotted/flank −1; suppressed/night +1).</div>
@@ -803,13 +808,14 @@ class GameUI {
     _onHexClick(hexId) {
         const state = this.engine.state;
         if (!state) return;
-        console.log('[HEX CLICK]', hexId, 'phase:', state.phase, 'selectedUnit:', state.selectedUnit, 'actionMode:', this._actionMode);
 
         // Deploy mode: place selected card
         if (state.phase === 'deploy' && this._selectedDeployCardId) {
             const result = this.engine.deployPlayerUnit(this._selectedDeployCardId, hexId);
             if (result.ok) {
                 this._selectedDeployCardId = null;
+                state.moveRange = null;
+                state.grindRange = null;
                 this.engine.board.clearRange();
                 document.querySelectorAll('.card-el').forEach(c => c.classList.remove('card-selected'));
                 this._renderDeployHand(state);
@@ -848,7 +854,11 @@ class GameUI {
                 this._clearActionMode();
             } else if (this._actionMode === 'attack') {
                 const enemies = [...state.units.values()].filter(u => u.faction === 'ai' && u.hexId === hexId && u.hp > 0);
-                if (enemies.length > 0) {
+                const attacker = state.units.get(this._actionUnitId);
+                const indirect = CARD_CATALOG[attacker?.cardId]?.abilities?.includes('indirect_fire');
+                if (enemies.length > 0 || indirect) {
+                    // Indirect fire can target any in-range hex (blind fire);
+                    // the engine validates range and resolves/wastes the shot.
                     this._doPlayerAttack(this._actionUnitId, hexId);
                 } else {
                     this._flashStatus('No enemy unit on that hex');
@@ -879,6 +889,7 @@ class GameUI {
                     this._doPlayerAttack(state.selectedUnit, hexId);
                     this.engine.state.selectedUnit = null;
                     this.engine.state.moveRange = null;
+                    this.engine.state.grindRange = null;
                     this.engine.state.attackRange = null;
                     this.engine._notify();
                 } else if (friendly.length > 0 && friendly[0].id !== state.selectedUnit) {
@@ -891,6 +902,7 @@ class GameUI {
                     else {
                         this.engine.state.selectedUnit = null;
                         this.engine.state.moveRange = null;
+                        this.engine.state.grindRange = null;
                         this.engine.state.attackRange = null;
                         this.engine._notify();
                     }
@@ -952,8 +964,16 @@ class GameUI {
     // Pre-attack odds preview while hovering a hex with a visible enemy
     _onHexHover(hexId) {
         this._updateTerrainInfo(hexId);
-        const el = document.getElementById('atk-preview');
+
+        // Deployment accessibility preview: show where the selected unit could
+        // move if placed on the hovered spawn hex (blue Move + orange Grind).
         const state = this.engine?.state;
+        if (state?.phase === 'deploy' && this._selectedDeployCardId) {
+            this._deployReachPreview(hexId);
+            return;
+        }
+
+        const el = document.getElementById('atk-preview');
         if (!el) return;
         const hide = () => { el.style.display = 'none'; };
         if (!hexId || !state || state.phase !== 'player_action') return hide();
@@ -966,11 +986,24 @@ class GameUI {
         const card = CARD_CATALOG[attacker.cardId];
         if (card?.abilities?.includes('recon_reveal')) return hide();
 
+        const dist = this.engine.board.hexDistance(attacker.hexId, hexId);
         const target = [...state.units.values()].find(u =>
             u.faction === 'ai' && u.hexId === hexId && u.hp > 0 &&
             this.engine.board._isUnitVisible(u, state));
-        if (!target) return hide();
-        const dist = this.engine.board.hexDistance(attacker.hexId, hexId);
+
+        // Indirect fire can blind-fire any in-range hex — show a note when there's
+        // no visible target there.
+        if (!target) {
+            const indirect = card?.abilities?.includes('indirect_fire');
+            if (indirect && dist >= 1 && dist <= attacker.rng) {
+                el.innerHTML = `
+<div class="ap-title">${card.name} → blind fire</div>
+<div class="ap-dice">Indirect fire on this hex — may hit hidden units; reveals what it strikes</div>`;
+                el.style.display = '';
+                return;
+            }
+            return hide();
+        }
         if (dist < 1 || dist > attacker.rng) return hide();
 
         const pv = this.engine.combat.previewAttack(attacker, target, state);
@@ -983,6 +1016,37 @@ class GameUI {
   <span>KILL <b>${Math.round(pv.killChance * 100)}%</b></span>
 </div>`;
         el.style.display = '';
+    }
+
+    // Deploy-time mobility preview: stash a fake move/grind range for the
+    // selected card from the hovered spawn hex and redraw the overlay.
+    // IMPORTANT: only redraw non-interactive layers (effects/range) here — never
+    // renderHexes, which rebuilds the clickable hex layer under the cursor and
+    // swallows the deploy click (regression fixed 2026-06-13).
+    _deployReachPreview(hexId) {
+        const state = this.engine.state;
+        const board = this.engine.board;
+        const card = CARD_CATALOG[this._selectedDeployCardId];
+        const valid = hexId && card && state.spawnHexIds.playerHexes.includes(hexId);
+
+        if (!valid) {
+            // Restore the plain spawn-zone highlight
+            state.moveRange = null;
+            state.grindRange = null;
+            board.showRange([...state.spawnHexIds.playerHexes], []);
+            board.renderEffects(state);
+            return;
+        }
+
+        const reach = board.reachableHexes(hexId, card.mov, card.unitClass, 'player', state);
+        state.moveRange = reach;
+        state.grindRange = board.escapeHexes(hexId, 'player', state, reach);
+        // Draw move/grind cost labels on the non-interactive effect layer only —
+        // do NOT rebuild the clickable hex layer (renderHexes) on hover, or the
+        // layer gets recreated under the cursor and the deploy click is lost.
+        board.clearRange();
+        board.showRange([...state.spawnHexIds.playerHexes], []);
+        board.renderEffects(state);
     }
 
     // Show rolled dice after an attack resolves
@@ -1059,6 +1123,7 @@ class GameUI {
                 if (result.ok) {
                     this.engine.state.selectedUnit = null;
                     this.engine.state.moveRange = null;
+                    this.engine.state.grindRange = null;
                     this.engine.state.attackRange = null;
                     this.engine._notify();
                 }
@@ -1074,6 +1139,7 @@ class GameUI {
         if (state) {
             state.selectedUnit = null;
             state.moveRange = null;
+            state.grindRange = null;
             state.attackRange = null;
             document.getElementById('phase-label').textContent = `AP: ${state.playerAP}/${AP_PER_TURN}`;
         }

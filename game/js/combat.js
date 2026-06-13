@@ -701,8 +701,12 @@ window.FRONTLINE_DEV = {
                 eng.attackUnit(u.id, t.hexId);
             } else if (u.mov > 0) {
                 const reach = eng.board.reachableHexes(u.hexId, u.mov, card.unitClass, 'player', s);
+                // Fall back to a grind escape if no normal move exists, so a unit
+                // on hard terrain never stalls the sim.
+                const options = reach.size ? [...reach.keys()]
+                    : [...eng.board.escapeHexes(u.hexId, 'player', s, reach)];
                 let best = null, bd = Infinity;
-                reach.forEach((v, hid) => {
+                options.forEach(hid => {
                     const dd = eng.board.hexDistance(hid, t.hexId);
                     if (dd < bd) { bd = dd; best = hid; }
                 });

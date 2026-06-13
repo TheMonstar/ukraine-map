@@ -257,17 +257,32 @@ class HexBoard {
             });
         }
 
-        // Minimum-move rule: a unit can always crawl one adjacent passable hex,
-        // even when every neighbour costs more than its MOV budget.
-        if (result.size === 0) {
-            this.neighbours(fromHexId).forEach(nid => {
-                const hex = this.hexes.get(nid);
-                if (hex && this._moveCost(hex, unitClass, gameState) < 99) {
-                    result.set(nid, apBudget);
-                }
-            });
-        }
         return result;
+    }
+
+    // Grind escapes: every adjacent in-bounds hex a unit could cross by spending
+    // its whole turn — including impassable terrain (major rivers, wetland for
+    // wheeled). A unit is never trapped. Excludes hexes already normally
+    // reachable and hexes at the faction's stack limit.
+    escapeHexes(fromHexId, faction, gameState, normalReach) {
+        const out = new Set();
+        this.neighbours(fromHexId).forEach(nid => {
+            if (normalReach?.has(nid)) return;
+            if (!this.hexes.get(nid)) return;
+            if (this._stackFull(nid, faction, gameState)) return;
+            out.add(nid);
+        });
+        return out;
+    }
+
+    _stackFull(hexId, faction, gameState) {
+        const hex = this.hexes.get(hexId);
+        const limit = (TERRAIN_RULES[hex?.terrainType] || TERRAIN_RULES.open).stackLimit;
+        let count = 0;
+        gameState?.units?.forEach(u => {
+            if (u.hexId === hexId && u.faction === faction && u.hp > 0) count++;
+        });
+        return count >= limit;
     }
 
     _moveCost(hex, unitClass, gameState) {
@@ -362,7 +377,8 @@ class HexBoard {
             const card = CARD_CATALOG[unit.cardId];
             if (!card?.abilities?.includes('intel_zone') && !card?.abilities?.includes('permanent_isr')) return;
             if (unit.hp <= 0) return;
-            const r = 3;
+            // Passive vision spans the drone's whole sensor range (min 3)
+            const r = Math.max(3, unit.rng || 0);
             [unit.hexId, ...this.hexesInRange(unit.hexId, r)].forEach(hid => {
                 zones.set(hid, unit.faction);
             });
@@ -433,6 +449,8 @@ class HexBoard {
                 layer.on('click', () => {
                     if (this.onHexClick) this.onHexClick(f.properties.hexId);
                 });
+                // Note: hover handlers must not rebuild this layer (renderHexes)
+                // mid-interaction, or the click after a hover is lost.
                 layer.on('mouseover', () => {
                     if (this.onHexHover) this.onHexHover(f.properties.hexId);
                 });
@@ -465,6 +483,7 @@ class HexBoard {
         // Selected / range highlight injected by UI
         if (gameState?.selectedHex === hexId) { color = '#fff'; weight = 3; }
         if (gameState?.moveRange?.has(hexId)) { color = '#4af'; weight = 2; fillOpacity = 0.25; }
+        if (gameState?.grindRange?.has(hexId)) { color = '#f5922e'; weight = 2; fillOpacity = 0.2; }
         if (gameState?.attackRange?.has(hexId)) { color = '#f44'; weight = 2; fillOpacity = 0.25; }
 
         return { fillColor: base, fillOpacity, color, weight, opacity: 0.9 };
@@ -577,6 +596,20 @@ class HexBoard {
                 L.marker([lat, lng], {
                     interactive: false,
                     icon: L.divIcon({ className: '', html: `<div class="move-cost-label">${cost}</div>`, iconSize: [18, 18] })
+                }).addTo(this.effectLayer);
+            });
+        }
+
+        // Grind escapes: cross this hard/impassable terrain for the whole turn
+        const grindRange = gameState.grindRange;
+        if (grindRange && grindRange.size) {
+            grindRange.forEach(hexId => {
+                const hex = this.hexes.get(hexId);
+                if (!hex) return;
+                const [lng, lat] = hex.centroid;
+                L.marker([lat, lng], {
+                    interactive: false,
+                    icon: L.divIcon({ className: '', html: `<div class="grind-cost-label" title="Cross for your whole turn (all AP)">⤧</div>`, iconSize: [18, 18] })
                 }).addTo(this.effectLayer);
             });
         }

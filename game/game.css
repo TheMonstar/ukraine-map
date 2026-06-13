@@ -507,6 +507,12 @@ html, body { height: 100%; background: var(--clr-bg); color: var(--clr-text); fo
     background: rgba(20, 40, 70, 0.85); border: 1px solid #4af; border-radius: 50%;
     color: #9fd1ff; font-size: 10px; font-weight: bold; font-family: var(--font-mono);
 }
+.grind-cost-label {
+    width: 18px; height: 18px; line-height: 18px; text-align: center;
+    background: rgba(70, 45, 15, 0.9); border: 1px solid #f5922e; border-radius: 50%;
+    color: #ffc887; font-size: 12px; font-weight: bold; font-family: var(--font-mono);
+}
+.ap-count { color: var(--clr-gold); font-size: 11px; margin-left: 6px; font-weight: bold; }
 
 .btn-legend {
     background: var(--clr-panel); border: 1px solid var(--clr-border); border-radius: 50%;
