@@ -46,8 +46,46 @@ html, body {
     border-radius: var(--radius);
     padding: 12px 14px;
     width: 240px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
     backdrop-filter: blur(4px);
     font-size: 12px;
+}
+
+/* Minimize toggle */
+#panel-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: var(--sidebar-border);
+    color: var(--sidebar-text);
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+}
+
+#panel-toggle:hover {
+    background: var(--accent);
+    color: #fff;
+}
+
+.panel.collapsed {
+    width: auto;
+    overflow: visible;
+    padding-right: 40px;
+}
+
+.panel.collapsed h1 {
+    margin-bottom: 0;
+}
+
+.panel.collapsed #panel-body {
+    display: none;
 }
 
 .panel h1 {

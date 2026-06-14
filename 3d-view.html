@@ -25,10 +25,21 @@
     <canvas id="scene-canvas"></canvas>
 
     <div class="panel">
+        <button id="panel-toggle" title="Minimize panel" aria-label="Minimize panel">&minus;</button>
         <a class="back-link" href="index.html">&larr; Back to map</a>
         <h1>3D Terrain Viewer</h1>
+        <div id="panel-body">
         <div class="info-row" id="info-coords">--</div>
         <div class="info-row" id="info-date">--</div>
+
+        <div class="control-row">
+            <label for="area-size">Area size</label>
+            <select id="area-size">
+                <option value="5">5 km</option>
+                <option value="10">10 km</option>
+                <option value="15">15 km</option>
+            </select>
+        </div>
 
         <div class="control-row">
             <label>Elevation exaggeration: <span id="exaggeration-value">1.5</span>x</label>
@@ -79,7 +90,11 @@
             <label class="layer-toggle"><input type="checkbox" id="layer-buildings" checked> Buildings</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-vegetation" checked> Vegetation</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-grass" checked> Grass</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-settlements"> Settlement titles</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-deepstate"> DeepState control</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-glow" checked> Atmosphere glow</label>
         </div>
+        </div><!-- /#panel-body -->
     </div>
 
     <div class="legend">
@@ -91,6 +106,8 @@
         <div class="legend-item"><span class="swatch" style="background:#b0a090;"></span>Buildings</div>
         <div class="legend-item"><span class="swatch" style="background:#3a5a32;"></span>Vegetation</div>
         <div class="legend-item"><span class="swatch" style="background:#6f9a3e;"></span>Grass</div>
+        <div class="legend-item"><span class="swatch" style="background:#dc2626;"></span>Occupied (DeepState)</div>
+        <div class="legend-item"><span class="swatch" style="background:#9ca3af;"></span>Grey zone</div>
     </div>
 
     <div id="walk-hint" class="hidden">WASD / Arrow keys to move &middot; drag to look &middot; scroll to zoom</div>

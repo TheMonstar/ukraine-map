@@ -5,10 +5,19 @@ const DEM_ZOOM = 14;
 const DEM_ZOOM_FALLBACK = 13;
 const SAT_ZOOM = 16;
 const SAT_CANVAS_CAP = 4096;
-export const SCENE_SIZE = 6000; // meters, edge length of the terrain plane
-export const SCENE_HALF = SCENE_SIZE / 2;
+// Edge length of the terrain plane, in meters (default = 5 km tile + 1 km margin).
+// Mutable live binding: set once at startup via setSceneSize() before TerrainBuilder.build().
+export let SCENE_SIZE = 6000;
+export let SCENE_HALF = SCENE_SIZE / 2;
 export const GRID_SEGMENTS = 256;
 const GRID_SIZE = GRID_SEGMENTS + 1;
+
+// Size the terrain plane to a tile size in km (with a 1 km margin). Mesh resolution
+// (GRID_SEGMENTS) is unchanged, so larger tiles trade per-cell detail for coverage.
+export function setSceneSize(tileKm) {
+    SCENE_SIZE = tileKm * 1000 + 1000;
+    SCENE_HALF = SCENE_SIZE / 2;
+}
 
 function loadImage(url) {
     return new Promise((resolve, reject) => {

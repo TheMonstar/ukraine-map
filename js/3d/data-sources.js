@@ -10,6 +10,7 @@ const OVERPASS_PRIMARY = 'https://overpass-api.de/api/interpreter';
 const OVERPASS_MIRROR = 'https://overpass.kumi.systems/api/interpreter';
 
 let motorlinesCache = null;
+let settlementsCache = null;
 
 function pointsEqual(a, b) {
     return a[0] === b[0] && a[1] === b[1];
@@ -255,6 +256,21 @@ export async function fetchRoads(bbox) {
         motorlinesCache = await res.json();
     }
     const features = (motorlinesCache.features || []).filter(f => f.geometry && bboxIntersects(f.geometry.coordinates, bbox));
+    return { type: 'FeatureCollection', features };
+}
+
+// Fetch the static settlements dataset (cached across calls) and return point
+// features inside bbox. Same source as the main map (js/app.js).
+export async function fetchSettlements(bbox) {
+    if (!settlementsCache) {
+        const res = await fetch(`${APP_STATIC_URL}/settlements.json`);
+        settlementsCache = await res.json();
+    }
+    const [west, south, east, north] = bbox;
+    const features = (settlementsCache.features || []).filter(f => {
+        const c = f.geometry?.coordinates;
+        return c && c[0] >= west && c[0] <= east && c[1] >= south && c[1] <= north;
+    });
     return { type: 'FeatureCollection', features };
 }
 

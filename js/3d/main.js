@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { makeProjection } from './geo.js';
-import { TerrainBuilder, SCENE_SIZE, SCENE_HALF } from './terrain.js';
+import { TerrainBuilder, SCENE_SIZE, SCENE_HALF, setSceneSize } from './terrain.js';
 import { fetchMapFeatures } from './data-sources.js';
 import { RoadsFeature } from './features/roads.js';
 import { WaterFeature } from './features/water.js';
@@ -10,6 +10,8 @@ import { DitchesFeature } from './features/ditches.js';
 import { BuildingsFeature } from './features/buildings.js';
 import { VegetationFeature } from './features/vegetation.js';
 import { GrassFeature } from './features/grass.js';
+import { SettlementsFeature } from './features/settlements.js';
+import { DeepStateFeature } from './features/deepstate.js';
 import { Player } from './player.js';
 import { Drone } from './drone.js';
 import { HideSeekGame } from './game.js';
@@ -32,10 +34,21 @@ function hideLoadingOverlay() {
 }
 
 async function init() {
+    // Panel minimize toggle (works regardless of scene load state)
+    const panel = document.querySelector('.panel');
+    const panelToggle = document.getElementById('panel-toggle');
+    panelToggle.addEventListener('click', () => {
+        const collapsed = panel.classList.toggle('collapsed');
+        panelToggle.innerHTML = collapsed ? '&plus;' : '&minus;';
+        panelToggle.title = collapsed ? 'Expand panel' : 'Minimize panel';
+    });
+
     const params = new URLSearchParams(location.search);
     const lat = parseFloat(params.get('lat'));
     const lng = parseFloat(params.get('lng'));
-    const size = parseFloat(params.get('size') || '5');
+    let size = parseFloat(params.get('size') || '5');
+    if (!isFinite(size) || size <= 0) size = 5;
+    size = Math.min(15, size); // cap coverage (DEM/Overpass load grows with area)
     const date = params.get('date') || new Date().toISOString().slice(0, 10);
 
     if (!isFinite(lat) || !isFinite(lng)) {
@@ -44,8 +57,22 @@ async function init() {
         return;
     }
 
+    setSceneSize(size); // must run before any SCENE_SIZE/SCENE_HALF reads below
+
     document.getElementById('info-coords').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)} (${size} km)`;
     document.getElementById('info-date').textContent = date;
+
+    // Area-size selector: reload the page with a new tile size.
+    const areaSizeSelect = document.getElementById('area-size');
+    if (![...areaSizeSelect.options].some(o => o.value === String(size))) {
+        areaSizeSelect.add(new Option(`${size} km`, String(size)), 0);
+    }
+    areaSizeSelect.value = String(size);
+    areaSizeSelect.addEventListener('change', () => {
+        const p = new URLSearchParams(location.search);
+        p.set('size', areaSizeSelect.value);
+        location.search = p.toString();
+    });
 
     const proj = makeProjection(lat, lng);
 
@@ -61,7 +88,8 @@ async function init() {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x9fc5e8);
-    scene.fog = new THREE.Fog(0x9fc5e8, SCENE_SIZE * 0.6, SCENE_SIZE * 1.6);
+    const fog = new THREE.Fog(0x9fc5e8, SCENE_SIZE * 0.6, SCENE_SIZE * 1.6);
+    scene.fog = fog;
 
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, SCENE_SIZE * 10);
     camera.position.set(0, 2500, 3500);
@@ -116,7 +144,7 @@ async function init() {
         sun.intensity = 0.4 + t * 1.2;
         sun.color.setHSL(0.1 - t * 0.05, 0.5, 0.5 + t * 0.4);
 
-        scene.fog.color.setHSL(0.58, 0.4, 0.25 + t * 0.55);
+        fog.color.setHSL(0.58, 0.4, 0.25 + t * 0.55);
         renderer.toneMappingExposure = 0.4 + t * 0.6;
     }
     updateSun(13);
@@ -140,6 +168,22 @@ async function init() {
         return;
     }
 
+    // ── Ground apron ────────────────────────────────────────────────────────
+    // A large plane at the terrain's base level extending past the horizon, so the
+    // tile sits on continuous ground instead of floating in the sky ("flying" look).
+    // Fog fades its far edge into the sky; its height follows the exaggeration slider.
+    let terrainMinH = Infinity;
+    for (const h of terrain.heightmap) if (h < terrainMinH) terrainMinH = h;
+    if (!isFinite(terrainMinH)) terrainMinH = 0;
+    const apron = new THREE.Mesh(
+        new THREE.PlaneGeometry(SCENE_SIZE * 12, SCENE_SIZE * 12),
+        new THREE.MeshStandardMaterial({ color: 0x6a7250, roughness: 1, metalness: 0 })
+    );
+    apron.rotation.x = -Math.PI / 2;
+    apron.position.y = terrainMinH * terrain.exaggeration - 4;
+    apron.receiveShadow = true;
+    scene.add(apron);
+
     setStep('satellite', 'active');
     try {
         const ok = await terrain.applySatellite();
@@ -158,7 +202,9 @@ async function init() {
     const buildings = new BuildingsFeature();
     const vegetation = new VegetationFeature();
     const grass = new GrassFeature();
-    const features = [roads, water, ditches, buildings, vegetation, grass];
+    const settlements = new SettlementsFeature();
+    const deepstate = new DeepStateFeature();
+    const features = [roads, water, ditches, buildings, vegetation, grass, settlements, deepstate];
 
     const [mapFeatures] = await Promise.all([
         fetchMapFeatures(bbox).catch(e => { console.warn('Overpass map features failed:', e); return null; }),
@@ -174,7 +220,9 @@ async function init() {
         water.load(bbox, mapFeatures),
         buildings.load(bbox, mapFeatures),
         vegetation.load(bbox, mapFeatures),
-        grass.load(bbox, mapFeatures)
+        grass.load(bbox, mapFeatures),
+        settlements.load(bbox),
+        deepstate.load(date)
     ]);
 
     let hadError = mapFeatures === null;
@@ -195,6 +243,9 @@ async function init() {
     document.getElementById('layer-buildings').addEventListener('change', e => { buildings.group.visible = e.target.checked; });
     document.getElementById('layer-vegetation').addEventListener('change', e => { vegetation.group.visible = e.target.checked; });
     document.getElementById('layer-grass').addEventListener('change', e => { grass.group.visible = e.target.checked; });
+    document.getElementById('layer-settlements').addEventListener('change', e => { settlements.group.visible = e.target.checked; });
+    document.getElementById('layer-deepstate').addEventListener('change', e => { deepstate.group.visible = e.target.checked; });
+    document.getElementById('layer-glow').addEventListener('change', e => { scene.fog = e.target.checked ? fog : null; });
 
     setStep('scene', 'active');
 
@@ -206,6 +257,7 @@ async function init() {
         valueLabel.textContent = k.toFixed(1);
         terrain.setExaggeration(k);
         features.forEach(f => f.reDrape(terrain));
+        apron.position.y = terrainMinH * k - 4;
     });
 
     // ── Time of day slider ──────────────────────────────────────────────────
@@ -317,10 +369,12 @@ async function init() {
         }
     });
 
-    // Free camera: fly the view itself with WASD + Space/Shift; the camera keeps
-    // its current position on entry and OrbitControls drag-to-look still works
-    // because camera and target move by the same delta.
+    // Free camera: fly the view itself with WASD + R/F; the camera keeps its
+    // current position on entry. The orbit target is pulled right in front of
+    // the camera so drag-to-look pivots the view in place (FPS look) rather than
+    // orbiting the map center; camera and target then move by the same delta.
     const FREECAM_SPEED = 80; // m/s at 1× move speed
+    const FREECAM_LOOK_DIST = 10; // m — orbit pivot just ahead of the camera
     const freecamKeys = new Set();
     const onFreecamKeyDown = e => freecamKeys.add(e.code);
     const onFreecamKeyUp = e => freecamKeys.delete(e.code);
@@ -330,6 +384,15 @@ async function init() {
         modeHint.classList.toggle('hidden', !freecamMode);
         if (freecamMode) {
             modeHint.textContent = 'WASD to move · R/F up & down · Q/E rotate · drag to look';
+            // Pull the orbit pivot to just ahead of the camera along the current
+            // view direction, so drag-to-look turns in place. Preserve the exact
+            // look direction so the view doesn't jump on entry.
+            const forward = new THREE.Vector3().subVectors(controls.target, camera.position);
+            if (forward.lengthSq() < 1e-6) forward.set(0, 0, -1);
+            forward.normalize();
+            controls.target.copy(camera.position).addScaledVector(forward, FREECAM_LOOK_DIST);
+            controls.minDistance = 1;
+            controls.maxDistance = 1000;
             window.addEventListener('keydown', onFreecamKeyDown);
             window.addEventListener('keyup', onFreecamKeyUp);
         } else {
@@ -394,6 +457,11 @@ async function init() {
         controls.update();
         water.update(clock.elapsedTime);
         game.update(dt, droneMode ? drone.mesh.position : null);
+
+        // Enlarge trees as the camera pulls back so the canopy stays readable and the
+        // terrain feels 3D from far; ~1× up close, up to ~2.2× when fully zoomed out.
+        const camDist = camera.position.distanceTo(controls.target);
+        vegetation.setZoomScale(1 + THREE.MathUtils.clamp((camDist - 600) / 7400, 0, 1) * 1.2);
 
         if (walkMode || droneMode) {
             applyYaw((walkMode ? player : drone).keys, dt);

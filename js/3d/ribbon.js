@@ -3,7 +3,7 @@
 // extend far beyond the visible sector.
 
 import * as THREE from 'three';
-import { SCENE_HALF } from './terrain.js';
+import { SCENE_HALF, SCENE_SIZE, GRID_SEGMENTS } from './terrain.js';
 
 function insideBounds(p) {
     return Math.abs(p.x) <= SCENE_HALF && Math.abs(p.z) <= SCENE_HALF;
@@ -185,6 +185,116 @@ export function buildDrapedPolygon(coordinates, terrain, proj, color, opacity = 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.isFlatPolygon = true;
     mesh.receiveShadow = true;
+    return mesh;
+}
+
+// Ray-casting point-in-polygon against a {x,z} ring (local meters).
+function pointInLocalRing(x, z, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i].x, zi = ring[i].z, xj = ring[j].x, zj = ring[j].z;
+        if (((zi > z) !== (zj > z)) && (x < (xj - xi) * (z - zi) / (zj - zi) + xi)) inside = !inside;
+    }
+    return inside;
+}
+
+// Sutherland–Hodgman clip of a {x,z} ring against an axis-aligned rectangle.
+function clipRingToRect(ring, x0, x1, z0, z1) {
+    const edges = [p => p.x >= x0, p => p.x <= x1, p => p.z >= z0, p => p.z <= z1];
+    const cross = [
+        (a, b) => ({ x: x0, z: a.z + (b.z - a.z) * (x0 - a.x) / (b.x - a.x) }),
+        (a, b) => ({ x: x1, z: a.z + (b.z - a.z) * (x1 - a.x) / (b.x - a.x) }),
+        (a, b) => ({ x: a.x + (b.x - a.x) * (z0 - a.z) / (b.z - a.z), z: z0 }),
+        (a, b) => ({ x: a.x + (b.x - a.x) * (z1 - a.z) / (b.z - a.z), z: z1 })
+    ];
+    let out = ring;
+    for (let e = 0; e < 4 && out.length; e++) {
+        const input = out;
+        out = [];
+        for (let i = 0; i < input.length; i++) {
+            const cur = input[i], prev = input[(i + input.length - 1) % input.length];
+            const ci = edges[e](cur), pi = edges[e](prev);
+            if (ci) { if (!pi) out.push(cross[e](prev, cur)); out.push(cur); }
+            else if (pi) { out.push(cross[e](prev, cur)); }
+        }
+    }
+    return out;
+}
+
+// Build a translucent, unlit area overlay (e.g. DeepState territory control) that
+// hugs the terrain. Interior terrain-grid cells become full draped quads; cells the
+// polygon boundary crosses are clipped to the exact edge — so the paint follows the
+// surface (no sinking) while the outline stays smooth (no grid stair-steps).
+export function buildDrapedOverlay(coordinates, terrain, proj, color, opacity, liftM) {
+    const toLocalRing = (ring) => ring.map(([lng, lat]) => proj.toLocal(lat, lng));
+    const outer = clipRing(toLocalRing(coordinates[0]));
+    if (!outer || outer.length < 3) return null;
+    const holes = coordinates.slice(1)
+        .map(h => clipRing(toLocalRing(h)))
+        .filter(h => h && h.length >= 3);
+
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    outer.forEach(p => {
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+    });
+
+    const cell = SCENE_SIZE / GRID_SEGMENTS;
+    const ix0 = Math.max(0, Math.floor((minX + SCENE_HALF) / cell));
+    const ix1 = Math.min(GRID_SEGMENTS, Math.ceil((maxX + SCENE_HALF) / cell));
+    const iz0 = Math.max(0, Math.floor((minZ + SCENE_HALF) / cell));
+    const iz1 = Math.min(GRID_SEGMENTS, Math.ceil((maxZ + SCENE_HALF) / cell));
+    const cols = ix1 - ix0, rows = iz1 - iz0;
+    if (cols < 1 || rows < 1) return null;
+
+    const corner = (x, z) => pointInLocalRing(x, z, outer) && !holes.some(h => pointInLocalRing(x, z, h));
+
+    const positions = [];
+    const drape = (x, z) => { positions.push(x, terrain.sampleHeight(x, z) + liftM, z); return positions.length / 3 - 1; };
+
+    // Shared vertices for full interior quads (keeps the seam with clipped cells crack-free).
+    const vIndex = new Int32Array((cols + 1) * (rows + 1)).fill(-1);
+    function vid(gi, gj) {
+        const k = gj * (cols + 1) + gi;
+        if (vIndex[k] === -1) vIndex[k] = drape((ix0 + gi) * cell - SCENE_HALF, (iz0 + gj) * cell - SCENE_HALF);
+        return vIndex[k];
+    }
+
+    const indices = [];
+    for (let gj = 0; gj < rows; gj++) {
+        for (let gi = 0; gi < cols; gi++) {
+            const x0 = (ix0 + gi) * cell - SCENE_HALF, x1 = x0 + cell;
+            const z0 = (iz0 + gj) * cell - SCENE_HALF, z1 = z0 + cell;
+            const c00 = corner(x0, z0), c10 = corner(x1, z0), c01 = corner(x0, z1), c11 = corner(x1, z1);
+            const cnt = c00 + c10 + c01 + c11;
+
+            if (cnt === 4) {
+                const a = vid(gi, gj), b = vid(gi + 1, gj), c = vid(gi, gj + 1), d = vid(gi + 1, gj + 1);
+                indices.push(a, c, b, b, c, d);
+            } else {
+                // Boundary cell (or sliver): clip the polygon to the cell, then triangulate.
+                // The clipped piece can be non-convex (a polygon vertex falls inside the
+                // cell), so earcut it rather than fan it to avoid overshooting the edge.
+                const piece = clipRingToRect(outer, x0, x1, z0, z1);
+                if (piece.length < 3) continue;
+                const ids = piece.map(p => drape(p.x, p.z));
+                const tris = THREE.ShapeUtils.triangulateShape(piece.map(p => new THREE.Vector2(p.x, p.z)), []);
+                tris.forEach(t => indices.push(ids[t[0]], ids[t[1]], ids[t[2]]));
+            }
+        }
+    }
+    if (!indices.length) return null;
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+
+    const material = new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.liftM = liftM; // re-draped per-vertex on exaggeration change
     return mesh;
 }
 

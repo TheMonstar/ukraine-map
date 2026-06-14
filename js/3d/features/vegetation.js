@@ -105,6 +105,14 @@ export class VegetationFeature {
         this.group.name = 'vegetation';
         this.meshes = [];
         this.placements = [];
+        // Live uniform: trees grow about their base as the camera zooms out (set each frame).
+        this.zoomScale = { value: 1 };
+    }
+
+    // Dynamic zoom compensation — bigger trees when viewed from far so the canopy
+    // still reads and the terrain feels 3D. Scales the geometry, not the positions.
+    setZoomScale(k) {
+        this.zoomScale.value = k;
     }
 
     // mapFeatures is the shared Overpass FeatureCollection (already fetched for water/buildings).
@@ -142,6 +150,10 @@ export class VegetationFeature {
             step = Math.sqrt(totalArea / TREE_CAP);
         }
 
+        // On bigger maps the cap forces wider tree spacing (sparse canopy). Scale each
+        // tree up proportionally so the forest still reads as filled rather than dotted.
+        const densityScale = Math.min(3, step / GRID_STEP);
+
         const placements = [];
         outer:
         for (const rings of polyRings) {
@@ -172,6 +184,13 @@ export class VegetationFeature {
 
         const geometries = [buildConiferGeometry(), buildDeciduousGeometry()];
         const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+        // Scale each tree about its base (origin at y=0) by the live zoom uniform,
+        // before the instance matrix is applied — so trees grow in place, not apart.
+        material.onBeforeCompile = (shader) => {
+            shader.uniforms.uTreeScale = this.zoomScale;
+            shader.vertexShader = 'uniform float uTreeScale;\n' + shader.vertexShader
+                .replace('#include <begin_vertex>', 'vec3 transformed = position * uTreeScale;');
+        };
 
         const counts = [0, 0];
         placements.forEach(p => counts[p.type]++);
@@ -184,7 +203,7 @@ export class VegetationFeature {
         placements.forEach(p => {
             dummy.position.set(p.x, terrain.sampleHeight(p.x, p.z), p.z);
             dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
-            dummy.scale.setScalar(0.7 + Math.random() * 0.6);
+            dummy.scale.setScalar((0.7 + Math.random() * 0.6) * densityScale);
             dummy.updateMatrix();
             const i = idx[p.type]++;
             meshes[p.type].setMatrixAt(i, dummy.matrix);

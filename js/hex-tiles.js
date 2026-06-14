@@ -187,7 +187,7 @@ class HexTiles {
                 fillOpacity: f.properties._hopacity
             }),
             onEachFeature: (feature, lyr) => lyr.on('click', () => {
-                if (this._cellSizeKm > 5) return;
+                if (this._cellSizeKm > 15) return;
                 const c = turf.centroid(feature).geometry.coordinates; // [lng, lat]
                 const date = document.getElementById('date-end')?.value || new Date().toISOString().slice(0, 10);
                 window.open(`3d-view.html?lat=${c[1].toFixed(5)}&lng=${c[0].toFixed(5)}&size=${this._cellSizeKm}&date=${date}`, '_blank');

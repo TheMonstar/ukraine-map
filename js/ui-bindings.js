@@ -1020,7 +1020,7 @@ class UiBindings {
                 return;
             }
             try {
-                const response = await fetch('./waterlines_overlay.json');
+                const response = await fetch(`${APP_STATIC_URL}/waterlines_overlay.json`);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
