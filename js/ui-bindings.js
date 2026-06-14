@@ -1014,34 +1014,43 @@ class UiBindings {
             eventsReloadBtn.addEventListener('click', () => dashboard.refreshEvents());
         }
 
-        dashboard.bindUI('feature-waterways', 'change', async () => {
-            if (!dashboard.isChecked('feature-waterways')) {
-                dashboard.featureLayer.clearLayers();
-                return;
-            }
+        let waterwaysCache = null;
+
+        const renderWaterways = async () => {
+            dashboard.featureLayer.clearLayers();
+            if (!dashboard.isChecked('feature-waterways')) return;
             try {
-                const response = await fetch(`${APP_STATIC_URL}/waterlines_overlay.json`);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                if (!waterwaysCache) {
+                    const response = await fetch(`${APP_STATIC_URL}/waterlines_overlay.json`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    waterwaysCache = await response.json();
                 }
-                const data = await response.json();
-                const features = (data.features || []).filter(feature => {
-                    const props = feature && feature.properties ? feature.properties : {};
-                    return props.waterway === 'river' || props.waterway === 'stream';
-                });
-                L.geoJSON({ type: 'FeatureCollection', features }, {
-                    style: function (feature) {
-                        const props = feature && feature.properties ? feature.properties : {};
-                        if (props.waterway === 'stream') {
-                            return { color: '#2b7cff', weight: 1, dashArray: '4,6' };
-                        }
-                        return { color: '#2b7cff', weight: 2 };
-                    }
-                }).addTo(dashboard.featureLayer);
+                const features = waterwaysCache.features || [];
+                const WATER_GROUPS = [
+                    { id: 'waterways-type-river', types: new Set(['river']), style: { color: '#2b7cff', weight: 2 } },
+                    { id: 'waterways-type-stream', types: new Set(['stream']), style: { color: '#2b7cff', weight: 1, dashArray: '4,6' } },
+                ];
+                for (const group of WATER_GROUPS) {
+                    if (!dashboard.isChecked(group.id)) continue;
+                    L.geoJSON({
+                        type: 'FeatureCollection',
+                        features: features.filter(f => group.types.has(f?.properties?.waterway))
+                    }, { style: () => group.style }).addTo(dashboard.featureLayer);
+                }
             } catch (error) {
                 console.error('Error loading waterways:', error);
                 alert('Failed to load waterways data.');
             }
+        };
+
+        dashboard.bindUI('feature-waterways', 'change', async () => {
+            const typesEl = document.getElementById('waterways-types');
+            if (typesEl) typesEl.style.display = dashboard.isChecked('feature-waterways') ? '' : 'none';
+            await renderWaterways();
+        });
+
+        ['waterways-type-river', 'waterways-type-stream'].forEach(id => {
+            dashboard.bindUI(id, 'change', renderWaterways);
         });
 
         let motorlinesCache = null;
