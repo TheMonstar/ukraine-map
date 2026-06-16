@@ -73,10 +73,14 @@
       </div>
     </div>
 
-    <button id="btn-start" class="btn-start">DEPLOY TO FRONT</button>
+    <button id="btn-quick" class="btn-start btn-quick">⚡ QUICK BATTLE</button>
+    <button id="btn-start" class="btn-start btn-start-secondary">DEPLOY TO FRONT (manual)</button>
     <div id="setup-status" class="setup-status"></div>
   </div>
 </div>
+
+<!-- ── WELCOME PRIMER (first run) ────────────────────────────────── -->
+<div id="welcome-overlay" style="display:none"></div>
 
 <!-- ── GAME SCREEN ──────────────────────────────────────────────── -->
 <div id="game-screen" style="display:none">
@@ -99,6 +103,7 @@
       <span class="vp-sep">vs</span>
       <span id="vp-ai">—</span>
     </div>
+    <div id="hud-victory" title="Ways to win besides the VP race"></div>
     <div id="hud-weather"></div>
     <button id="btn-legend" class="btn-legend" title="Rules & legend">?</button>
     <button id="btn-end-turn" class="btn-end-turn">END TURN</button>

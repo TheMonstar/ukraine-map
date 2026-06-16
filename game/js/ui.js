@@ -175,8 +175,22 @@ class GameUI {
         // Snap the named presets to the current front (async, non-blocking)
         this._refreshPresetButtons();
 
-        // Start button
+        // Start button (manual deploy)
         document.getElementById('btn-start').addEventListener('click', () => this._startGame());
+
+        // Quick Battle: recommended defaults + auto-deploy → straight into turn 1
+        document.getElementById('btn-quick').addEventListener('click', () => {
+            this._setupBattlegroup = BATTLEGROUPS[this._setupFaction][0].id;
+            this._setupDoctrine = DOCTRINES[this._setupFaction][0].id;
+            this._setupDiff = 1.0;
+            const pokrovsk = [...document.querySelectorAll('.preset-btn')].find(b => b.textContent.includes('Pokrovsk'));
+            if (pokrovsk) {
+                document.getElementById('input-lat').value = pokrovsk.dataset.lat;
+                document.getElementById('input-lng').value = pokrovsk.dataset.lng;
+            }
+            this._quickStart = true;
+            this._startGame();
+        });
 
         // Global tooltip for .ab-chip (title attr doesn't work inside overflow:hidden)
         const gtip = document.getElementById('gtip');
@@ -299,7 +313,7 @@ class GameUI {
         BATTLEGROUPS[this._setupFaction].forEach((bg, i) => {
             const btn = document.createElement('button');
             btn.className = 'diff-btn' + (i === 0 ? ' active' : '');
-            btn.textContent = bg.name;
+            btn.innerHTML = bg.name + (i === 0 ? ' <span class="rec-badge">★ rec</span>' : '');
             btn.title = bg.desc;
             btn.addEventListener('click', () => {
                 wrap.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
@@ -317,7 +331,7 @@ class GameUI {
         DOCTRINES[this._setupFaction].forEach((doc, i) => {
             const btn = document.createElement('button');
             btn.className = 'diff-btn' + (i === 0 ? ' active' : '');
-            btn.textContent = doc.name;
+            btn.innerHTML = doc.name + (i === 0 ? ' <span class="rec-badge">★ rec</span>' : '');
             btn.title = `Passive: ${doc.passive}\n${doc.activeName}: ${doc.activeDesc}`;
             btn.addEventListener('click', () => {
                 wrap.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
@@ -379,6 +393,15 @@ class GameUI {
             this._renderAll(state);
             this._startDeployMode(state);
 
+            // Quick Battle: fill a recommended army and jump straight into turn 1
+            if (this._quickStart) {
+                this._quickStart = false;
+                this.engine.autoDeployPlayer();
+                this._finishDeploy();
+            }
+
+            this._maybeShowWelcome();
+
         } catch (e) {
             console.error('Game start failed:', e);
             document.getElementById('setup-status').textContent = 'Error: ' + e.message;
@@ -386,25 +409,83 @@ class GameUI {
         }
     }
 
+    // First-run primer of the core loop (shown once, persisted in localStorage)
+    _maybeShowWelcome() {
+        try { if (localStorage.getItem('frontline_intro_v1')) return; } catch (e) { return; }
+        const el = document.getElementById('welcome-overlay');
+        el.innerHTML = `
+<div class="welcome-box">
+  <div class="welcome-head">WELCOME TO THE FRONT</div>
+  <div class="welcome-body">
+    <div class="w-row"><b>1.</b> Your units start in the highlighted band along the real front line. Place them, or hit <b>Auto-deploy</b>.</div>
+    <div class="w-row"><b>2.</b> Click a unit to open its <b>action bar</b> (move / attack / fortify / skill).</div>
+    <div class="w-row"><b>3.</b> Moving costs <b>AP equal to distance</b> — blue tiles show the cost; you have 8 AP per turn.</div>
+    <div class="w-row"><b>4.</b> <b>Hover an enemy</b> before attacking to see hit odds. Recon drones reveal the fog; artillery can fire blind.</div>
+    <div class="w-row"><b>5.</b> Four ways to win, tracked top-right: <b>VP</b> · 🚩 <b>breakthrough</b> · ★ <b>hold</b> · 💀 <b>attrition</b>.</div>
+    <div class="w-row w-tip">Press <b>?</b> any time for the full rules.</div>
+  </div>
+  <button class="welcome-btn" id="welcome-got-it">GOT IT — TO BATTLE</button>
+</div>`;
+        el.style.display = '';
+        this._stopTimer(); // don't let the turn tick away while reading the primer
+        const dismiss = () => {
+            el.style.display = 'none';
+            try { localStorage.setItem('frontline_intro_v1', '1'); } catch (e) {}
+            if (this.engine?.state?.phase === 'player_action') this._startTurnTimer();
+        };
+        el.querySelector('#welcome-got-it').addEventListener('click', dismiss);
+        el.addEventListener('click', e => { if (e.target === el) dismiss(); });
+    }
+
+    // Fire a one-time contextual hint (persisted), without nagging on repeat play
+    _hintOnce(key, msg) {
+        try {
+            if (localStorage.getItem('frontline_hint_' + key)) return;
+            localStorage.setItem('frontline_hint_' + key, '1');
+        } catch (e) { /* fall through and just show it */ }
+        this._flashStatus(msg, 4000);
+    }
+
     // ── Deployment Mode ───────────────────────────────────────────────────────
 
     _startDeployMode(state) {
-        document.getElementById('phase-label').textContent = 'DEPLOYMENT — Place units on your spawn zone';
+        document.getElementById('phase-label').textContent = 'DEPLOYMENT — place units in the highlighted band, or hit Auto-deploy';
+        this._hintOnce('deploy', 'Place units in the highlighted band — or hit Auto-deploy to fill a recommended army.');
 
         // Render deploy hand
         this._renderDeployHand(state);
 
-        // Deploy button at top (re-use end-turn button)
+        // FINISH DEPLOY on the end-turn button
         const btn = document.getElementById('btn-end-turn');
         btn.textContent = 'FINISH DEPLOY';
-        btn.onclick = () => {
-            this.engine.board.clearRange(); // clear spawn-zone highlight
-            this._selectedDeployCardId = null;
-            this.engine.finishDeployment();
-            btn.textContent = 'END TURN';
-            btn.onclick = () => this.engine.endPlayerTurn();
-            this._startTurnTimer();
+        btn.onclick = () => this._finishDeploy();
+
+        // AUTO-DEPLOY button (recommended army) next to it
+        let auto = document.getElementById('btn-autodeploy');
+        if (!auto) {
+            auto = document.createElement('button');
+            auto.id = 'btn-autodeploy';
+            auto.className = 'btn-end-turn btn-autodeploy';
+            btn.parentNode.insertBefore(auto, btn);
+        }
+        auto.style.display = '';
+        auto.textContent = 'AUTO-DEPLOY';
+        auto.onclick = () => {
+            this.engine.autoDeployPlayer();
+            this._renderAll(this.engine.state);
         };
+    }
+
+    _finishDeploy() {
+        this.engine.board.clearRange(); // clear spawn-zone highlight
+        this._selectedDeployCardId = null;
+        const auto = document.getElementById('btn-autodeploy');
+        if (auto) auto.style.display = 'none';
+        this.engine.finishDeployment();
+        const btn = document.getElementById('btn-end-turn');
+        btn.textContent = 'END TURN';
+        btn.onclick = () => this.engine.endPlayerTurn();
+        this._startTurnTimer();
     }
 
     _renderDeployHand(state) {
@@ -502,6 +583,17 @@ class GameUI {
 
         document.getElementById('vp-player').textContent = `🇺🇦 ${state.playerVP} VP`;
         document.getElementById('vp-ai').textContent = `${state.aiVP} VP ⚔️`;
+
+        // Alternate win-path progress (player's perspective)
+        const vEl = document.getElementById('hud-victory');
+        if (vEl && state.phase === 'player_action' && this.engine.victoryProgress) {
+            const p = this.engine.victoryProgress().player;
+            const forcePct = p.foeStart ? Math.round(p.foeAlive / p.foeStart * 100) : 100;
+            vEl.innerHTML =
+                `<span class="vc" title="Hold 3 enemy rear hexes for a Breakthrough win">🚩 ${p.rimHeld}/${p.rimNeed}</span>` +
+                `<span class="vc" title="Hold ${p.objNeed} objectives for 3 turns to win (streak ${p.holdStreak}/3)">★ ${p.objHeld}/${p.objNeed}·${p.holdStreak}/3</span>` +
+                `<span class="vc" title="Reduce enemy to 25% force for an Attrition win">💀 ${forcePct}%</span>`;
+        }
 
         // Weather icon
         const wIcon = { clear: '☀️', overcast: '🌥️', rain: '🌧️', storm: '⛈️' };
@@ -615,6 +707,9 @@ class GameUI {
             mode === 'move' ? `Moving ${card.name} — click target hex` :
             mode === 'attack' ? `Attacking with ${card.name} — click enemy hex` :
             `Designating loitering target — click hex`;
+        if (mode === 'attack') {
+            this._hintOnce('attack', 'Hover an enemy first to see hit odds and expected damage before you commit.');
+        }
     }
 
     // ── Legend / Rules Overlay ────────────────────────────────────────────────
@@ -664,6 +759,11 @@ class GameUI {
       <div class="lg-row">Defender saves each hit — armor + terrain + fortification set the save.</div>
       <div class="lg-row">A natural 6 is a <b>crit</b>: 2 damage, no save, Suppresses the target.</div>
       <div class="lg-row">Hover an enemy before attacking to see hit odds and expected damage.</div>
+      <div class="lg-title">HOW TO WIN (the HUD tracks each)</div>
+      <div class="lg-row"><b>VP</b>: most victory points by turn 24, or a decisive ≥30 lead from turn 10. Hold objectives (★) and destroy units for VP.</div>
+      <div class="lg-row"><b>🚩 Breakthrough</b>: hold 3 hexes of the enemy's rear edge with ground units.</div>
+      <div class="lg-row"><b>★ Hold</b>: control 75% of the key objectives for 3 consecutive turns.</div>
+      <div class="lg-row"><b>💀 Attrition</b>: reduce the enemy to 25% of their starting force.</div>
     </div>
   </div>
 </div>`;
@@ -1114,6 +1214,8 @@ class GameUI {
                     `${CARD_CATALOG[unit.cardId]?.name || unit.displayName} — click hex to move/attack`;
                 if (unit.mov > 0 && state.moveRange && state.moveRange.size === 0) {
                     this._flashStatus('No reachable hexes — surrounded by impassable terrain');
+                } else {
+                    this._hintOnce('select', 'Click a blue hex to move — the number is its AP cost. Use the action bar below for attack / fortify / skills.');
                 }
             }
         } else if (unit.faction === 'ai') {

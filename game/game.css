@@ -581,3 +581,37 @@ html, body { height: 100%; background: var(--clr-bg); color: var(--clr-text); fo
 }
 .death-player { color: #7ab8ff; }
 .death-ai { color: #ff7a6a; }
+
+/* ── Victory-condition HUD readout ───────────────────────────────── */
+#hud-victory { display: flex; gap: 8px; align-items: center; font-size: 11px; }
+#hud-victory .vc {
+    color: var(--clr-muted); white-space: nowrap; cursor: help;
+    border: 1px solid var(--clr-border); border-radius: 4px; padding: 1px 6px;
+}
+
+/* ── Onboarding: quick battle, auto-deploy, welcome, rec badge ──── */
+.btn-quick { background: var(--clr-gold); margin-bottom: 8px; }
+.btn-start-secondary { background: #1a1f28; color: var(--clr-text); border: 1px solid var(--clr-border); }
+.btn-start-secondary:hover { border-color: var(--clr-gold); }
+.btn-autodeploy { background: #1d3a4a; color: #6fc3e8; border: 1px solid #2e87b5; margin-right: 8px; }
+.btn-autodeploy:hover { background: #25506a; }
+.rec-badge { color: #0d0f12; background: var(--clr-gold); border-radius: 3px; font-size: 9px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
+
+#welcome-overlay {
+    position: fixed; inset: 0; z-index: 2100;
+    background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
+}
+.welcome-box {
+    background: var(--clr-panel); border: 1px solid var(--clr-gold); border-radius: 8px;
+    max-width: 560px; width: 92%; padding: 20px 24px;
+}
+.welcome-head { color: var(--clr-gold); font-weight: bold; font-size: 18px; letter-spacing: 2px; margin-bottom: 14px; text-align: center; }
+.welcome-body .w-row { font-size: 12.5px; color: var(--clr-text); margin: 8px 0; line-height: 1.5; }
+.welcome-body .w-row b { color: var(--clr-gold); }
+.welcome-body .w-tip { color: var(--clr-muted); margin-top: 12px; }
+.welcome-btn {
+    width: 100%; margin-top: 16px; padding: 12px; cursor: pointer;
+    background: var(--clr-gold); color: #0d0f12; border: none; border-radius: 6px;
+    font-family: var(--font-mono); font-size: 13px; font-weight: bold; letter-spacing: 2px;
+}
+.welcome-btn:hover { opacity: 0.9; }

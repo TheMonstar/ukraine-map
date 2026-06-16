@@ -102,6 +102,8 @@ class GameEngine {
             playerBattlegroup: playerBuild.battlegroup.name,
             aiBattlegroup: aiBuild.battlegroup.name,
             breakthroughAwarded: { player: false, ai: false },
+            startForce: { player: 0, ai: 0 },  // for the attrition win condition
+            holdStreak: { player: 0, ai: 0 },  // consecutive turns holding the objectives
             fallenUnits: [],   // { hexId, name, faction, turn } — death markers on the map
             orderCooldowns: {},
             orderUsedOncePerMatch: new Set(),
@@ -149,15 +151,29 @@ class GameEngine {
 
     // Forward positions: enemy-side hexes deep behind the front (≥ 4 hexes) —
     // the player's offensive objectives
+    // A scarce set (≤3) of deep enemy-rear objectives — the player's offensive
+    // targets. Spread by greedy farthest-point so they aren't clustered.
     _flagForwardPositions(playerFaction) {
         const enemySide = playerFaction === 'ua' ? 'ru' : 'ua';
         const dist = this.board.frontDistances();
-        this.board.hexes.forEach((h, id) => {
-            if (h.side === enemySide && !h.isObjective && (dist.get(id) ?? 99) >= 4) {
-                h.isObjective = true;
-                h.objectiveType = 'forward_position';
+        const deep = [...this.board.hexes.values()]
+            .filter(h => h.side === enemySide && !h.isObjective && (dist.get(h.id) ?? 99) >= 4)
+            .sort((a, b) => (dist.get(b.id) ?? 0) - (dist.get(a.id) ?? 0));
+        if (!deep.length) return;
+
+        const d2 = (a, b) => (a.centroid[0] - b.centroid[0]) ** 2 + (a.centroid[1] - b.centroid[1]) ** 2;
+        const chosen = [deep[0]]; // deepest
+        while (chosen.length < 3 && chosen.length < deep.length) {
+            let best = null, bestSep = -1;
+            for (const h of deep) {
+                if (chosen.includes(h)) continue;
+                const sep = Math.min(...chosen.map(s => d2(h, s)));
+                if (sep > bestSep) { bestSep = sep; best = h; }
             }
-        });
+            if (!best) break;
+            chosen.push(best);
+        }
+        chosen.forEach(h => { h.isObjective = true; h.objectiveType = 'forward_position'; });
     }
 
     // ── Deployment Phase ──────────────────────────────────────────────────────
@@ -200,6 +216,29 @@ class GameEngine {
         return { ok: true, unit };
     }
 
+    // One-click "recommended army": greedily place the player's remaining deck
+    // into the spawn band (reuses deployPlayerUnit for RP/deck/stack/validation).
+    autoDeployPlayer() {
+        const s = this.state;
+        if (s.phase !== 'deploy') return 0;
+        const hexPool = [...s.spawnHexIds.playerHexes].sort(() => Math.random() - 0.5);
+        let placed = 0, hexIdx = 0, guard = 0;
+        for (const cardId of [...s.playerDeck]) {
+            const card = CARD_CATALOG[cardId];
+            if (!card || s.playerRP < card.rp) continue;
+            // find a non-full spawn hex
+            let target = null;
+            for (let i = 0; i < hexPool.length; i++) {
+                const hid = hexPool[(hexIdx + i) % hexPool.length];
+                if (hid && !this.combat.stackLimitReached(hid, 'player', s)) { target = hid; hexIdx += i + 1; break; }
+            }
+            if (!target) break;
+            if (this.deployPlayerUnit(cardId, target).ok) placed++;
+            if (++guard > 200) break;
+        }
+        return placed;
+    }
+
     _deployAIUnits() {
         const s = this.state;
         let aiRP = TOTAL_RP;
@@ -238,6 +277,9 @@ class GameEngine {
         s.playerRP = 0;
         s.phase = 'player_action';
         s.playerAP = AP_PER_TURN;
+        // Record starting force (both sides now deployed) for attrition victory
+        s.startForce.player = [...s.units.values()].filter(u => u.faction === 'player' && u.hp > 0).length;
+        s.startForce.ai = [...s.units.values()].filter(u => u.faction === 'ai' && u.hp > 0).length;
         this._startTurn();
         this._notify();
     }
@@ -1300,8 +1342,13 @@ class GameEngine {
             }
         });
 
-        // VP scoring — once per full turn, after the AI phase
-        if (faction === 'ai') this._scoreVP();
+        // VP scoring + objective-hold streak + alternate win checks — once per
+        // full turn, after the AI phase (objective control is fresh).
+        if (faction === 'ai') {
+            this._scoreVP();
+            this._updateHoldStreak();
+            this._checkWinConditions();
+        }
 
         // Initiative update: units lost this turn tracked via kills property diff
         // (already updated per-kill)
@@ -1425,8 +1472,70 @@ class GameEngine {
         // VP lead only ends the game at turn 20 (_advanceTurn → _endGame with no args)
     }
 
+    // Increment/reset each side's consecutive-turns-holding-the-objectives streak.
+    _updateHoldStreak() {
+        const s = this.state;
+        const contested = [...this.board.hexes.values()]
+            .filter(h => h.isObjective && h.objectiveType !== 'forward_position');
+        if (!contested.length) return;
+        const need = Math.max(1, Math.ceil(contested.length * 0.75));
+        for (const side of ['player', 'ai']) {
+            const held = contested.filter(h => h.controlledBy === side).length;
+            if (held >= need) s.holdStreak[side] = (s.holdStreak[side] || 0) + 1;
+            else s.holdStreak[side] = 0;
+        }
+    }
+
+    // Alternate win paths beyond the VP race — checked at the end of each full
+    // turn. Symmetric for both sides. Returns true if it ended the game.
+    _checkWinConditions() {
+        const s = this.state;
+        if (s.phase === 'end') return true;
+        const p = this.victoryProgress();
+
+        for (const side of ['player', 'ai']) {
+            const label = side === 'player' ? '' : 'Enemy ';
+            if (p[side].attritionWin)   { this._endGame(side, `${side === 'player' ? 'Enemy' : 'Friendly'} force shattered`); return true; }
+            if (p[side].breakthroughWin){ this._endGame(side, `${label}breakthrough — enemy rear seized`); return true; }
+            if (p[side].holdWin)        { this._endGame(side, `${label}held the key objectives`); return true; }
+        }
+        return false;
+    }
+
+    // Progress toward every win condition, for the HUD + win checks.
+    victoryProgress() {
+        const s = this.state;
+        const alive = f => [...s.units.values()].filter(u => u.faction === f && u.hp > 0).length;
+        const groundOn = (faction, hid) => [...s.units.values()].some(u =>
+            u.faction === faction && u.hp > 0 && u.hexId === hid &&
+            CARD_CATALOG[u.cardId]?.unitClass !== UNIT_CLASS.DRONE);
+        const contested = [...this.board.hexes.values()]
+            .filter(h => h.isObjective && h.objectiveType !== 'forward_position');
+        const holdNeed = Math.max(1, Math.ceil(contested.length * 0.75));
+
+        const out = {};
+        for (const side of ['player', 'ai']) {
+            const foe = side === 'player' ? 'ai' : 'player';
+            const startFoe = s.startForce[foe] || 0;
+            const foeAlive = alive(foe);
+            const enemyRim = (foe === 'player' ? s.rearHexIds?.player : s.rearHexIds?.ai) || [];
+            const rimHeld = enemyRim.filter(hid => groundOn(side, hid)).length;
+            const objHeld = contested.filter(h => h.controlledBy === side).length;
+            out[side] = {
+                foeAlive, foeStart: startFoe,
+                attritionWin: startFoe >= 4 && foeAlive <= Math.ceil(startFoe * 0.25),
+                rimHeld, rimNeed: 3, breakthroughWin: rimHeld >= 3,
+                objHeld, objNeed: holdNeed, holdStreak: s.holdStreak[side] || 0,
+                holdWin: contested.length > 0 && (s.holdStreak[side] || 0) >= 3
+            };
+        }
+        return out;
+    }
+
     _endGame(winner, reason) {
         const s = this.state;
+        if (s._gameOver) return;   // one victory screen only
+        s._gameOver = true;
         s.phase = 'end';
 
         const vpDiff = Math.abs(s.playerVP - s.aiVP);

@@ -164,81 +164,102 @@ class TerrainLoader {
 
     // ── OSM-based classification ─────────────────────────────────────────────
 
-    _classifyFromOSM(hex, lat, lng, osmData) {
+    // Build (once, cached on osmData) the geometry we test each hex against:
+    //  - area features (settlement/forest/industrial/wetland) as real polygons
+    //    for point-in-polygon — NOT bounding boxes (a 15 km urban area's bbox
+    //    would otherwise mark the whole board as a settlement).
+    //  - line features (road/river/bridge) kept as vertex lists for proximity.
+    _buildAreas(osmData) {
+        if (osmData._areas) return osmData._areas;
         const nodes = {};
-        const ways = {};
+        osmData.elements.forEach(el => { if (el.type === 'node') nodes[el.id] = el; });
+
+        const cats = { settlement: [], forest: [], industrial: [], wetland: [] };
+        const placeNodes = [];
+        const lines = [];
+
         osmData.elements.forEach(el => {
-            if (el.type === 'node') nodes[el.id] = el;
-            if (el.type === 'way') ways[el.id] = el;
-        });
-
-        // Build way polygons for PIP test (simplified)
-        const check = (tags, keys) => keys.some(k => tags && tags[k]);
-
-        let settled = false;
-        let forest = false;
-        let industrial = false;
-        let wetland = false;
-        let hasRoad = false;
-        let hasRiver = false;
-
-        // Use bounding box intersection heuristic: if way bbox overlaps hex centroid ±0.015°
-        osmData.elements.forEach(el => {
-            if (el.type !== 'way' || !el.nodes) return;
-            const nodeCoords = el.nodes.map(id => nodes[id]).filter(Boolean);
-            if (nodeCoords.length < 2) return;
-
-            const lats = nodeCoords.map(n => n.lat);
-            const lngs = nodeCoords.map(n => n.lon);
-            const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-            const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-            const pad = 0.012; // ~1.2km buffer for hex overlap
-
-            if (lat < minLat - pad || lat > maxLat + pad || lng < minLng - pad || lng > maxLng + pad) return;
-
             const t = el.tags || {};
-            if (t.natural === 'wood' || t.landuse === 'forest') forest = true;
-            // Settlements: no pad — centroid must fall inside the residential
-            // area itself, otherwise villages smear across neighbouring hexes
-            const inBbox = lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
-            if ((t.landuse === 'residential' || t.place) && inBbox) settled = true;
-            if (t.landuse === 'industrial') industrial = true;
-            if (t.natural === 'wetland') wetland = true;
-            if (t.waterway === 'river' || t.waterway === 'canal') hasRiver = true;
-            if (t.waterway === 'stream') hasRiver = hasRiver; // only major
-            if (t.highway) hasRoad = true;
-            if (t.bridge === 'yes') { hex.hasBridge = true; hex.overlays.add('bridge'); }
+            if (el.type === 'node') { if (t.place) placeNodes.push(el); return; }
+            if (el.type !== 'way' || !el.nodes) return;
+            const coords = el.nodes.map(id => nodes[id]).filter(Boolean).map(n => [n.lon, n.lat]);
+            if (coords.length < 2) return;
+            const bbox = this._coordsBbox(coords);
+
+            const isArea = t.landuse === 'residential' || t.place || t.natural === 'wood' ||
+                           t.landuse === 'forest' || t.landuse === 'industrial' || t.natural === 'wetland';
+            if (isArea && coords.length >= 3) {
+                const ring = coords.slice();
+                const a = ring[0], b = ring[ring.length - 1];
+                if (a[0] !== b[0] || a[1] !== b[1]) ring.push(a);
+                let poly = null;
+                try { poly = turf.polygon([ring]); } catch (e) { /* malformed ring */ }
+                if (poly) {
+                    const entry = { poly, bbox };
+                    if (t.landuse === 'residential' || t.place) cats.settlement.push(entry);
+                    else if (t.natural === 'wood' || t.landuse === 'forest') cats.forest.push(entry);
+                    else if (t.landuse === 'industrial') cats.industrial.push(entry);
+                    else if (t.natural === 'wetland') cats.wetland.push(entry);
+                }
+            }
+            if (t.highway) lines.push({ type: 'road', bbox, coords });
+            if (t.waterway === 'river' || t.waterway === 'canal') lines.push({ type: 'river', bbox, coords });
+            if (t.bridge === 'yes') lines.push({ type: 'bridge', bbox, coords });
         });
 
-        // Check settlement nodes
-        osmData.elements.forEach(el => {
-            if (el.type !== 'node') return;
-            if (!el.tags?.place) return;
-            const d = Math.sqrt((el.lat - lat) ** 2 + (el.lon - lng) ** 2);
-            if (d < 0.012) settled = true;
-        });
+        osmData._areas = { cats, placeNodes, lines };
+        return osmData._areas;
+    }
 
-        // Classify
+    _coordsBbox(coords) {
+        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+        for (const [x, y] of coords) {
+            if (x < minLng) minLng = x; if (x > maxLng) maxLng = x;
+            if (y < minLat) minLat = y; if (y > maxLat) maxLat = y;
+        }
+        return [minLng, minLat, maxLng, maxLat];
+    }
+
+    _classifyFromOSM(hex, lat, lng, osmData) {
+        const A = this._buildAreas(osmData);
+        const pt = turf.point([lng, lat]);
+        const inArea = entries => entries.some(e =>
+            lng >= e.bbox[0] && lng <= e.bbox[2] && lat >= e.bbox[1] && lat <= e.bbox[3] &&
+            turf.booleanPointInPolygon(pt, e.poly));
+
+        // Settlement: inside a residential/place polygon, or near a place node
+        const NODE_R2 = 0.008 ** 2; // ~0.9 km
+        const settled = inArea(A.cats.settlement) ||
+            A.placeNodes.some(n => (lng - n.lon) ** 2 + (lat - n.lat) ** 2 < NODE_R2);
+        const industrial = inArea(A.cats.industrial);
+        const wetland = inArea(A.cats.wetland);
+        const forest = inArea(A.cats.forest);
+
+        // Line features: a road/river vertex passing within ~1 km of this hex
+        const LINE_R2 = 0.009 ** 2;
+        const pad = 0.009;
+        let hasRoad = false, hasRiver = false;
+        for (const l of A.lines) {
+            if (lng < l.bbox[0] - pad || lng > l.bbox[2] + pad ||
+                lat < l.bbox[1] - pad || lat > l.bbox[3] + pad) continue;
+            const near = l.coords.some(c => (c[0] - lng) ** 2 + (c[1] - lat) ** 2 < LINE_R2);
+            if (!near) continue;
+            if (l.type === 'road') hasRoad = true;
+            else if (l.type === 'river') hasRiver = true;
+            else if (l.type === 'bridge') { hex.hasBridge = true; hex.overlays.add('bridge'); }
+        }
+
         hex.hasRoad = hasRoad;
         hex.hasRiver = hasRiver;
         if (hasRoad) hex.overlays.add('road_paved');
-        if (hasRiver) {
-            hex.overlays.add('river_minor');
-        }
+        if (hasRiver) hex.overlays.add('river_minor');
 
-        if (settled) {
-            hex.terrainType = 'settlement_s1';
-            hex.isObjective = true;
-            hex.objectiveType = 'settlement_s1';
-        } else if (industrial) {
-            hex.terrainType = 'industrial';
-        } else if (wetland) {
-            hex.terrainType = 'wetland';
-        } else if (forest) {
-            hex.terrainType = 'forest_light';
-        } else {
-            hex.terrainType = 'open';
-        }
+        // Terrain only — objectives are assigned scarcely in _ensureSpreadObjectives
+        if (settled) hex.terrainType = 'settlement_s1';
+        else if (industrial) hex.terrainType = 'industrial';
+        else if (wetland) hex.terrainType = 'wetland';
+        else if (forest) hex.terrainType = 'forest_light';
+        else hex.terrainType = 'open';
     }
 
     // ── Procedural fallback ───────────────────────────────────────────────────
@@ -254,9 +275,7 @@ class TerrainLoader {
         const v = (n1 + n2) / 2;
 
         if (v > 0.82) {
-            hex.terrainType = 'settlement_s1';
-            hex.isObjective = true;
-            hex.objectiveType = 'settlement_s1';
+            hex.terrainType = 'settlement_s1'; // objective assigned later, scarcely
         } else if (v > 0.68) {
             hex.terrainType = 'forest_light';
         } else if (v > 0.58) {
@@ -281,53 +300,74 @@ class TerrainLoader {
         }
     }
 
+    // Mark road junctions as a feature (not an objective — _ensureSpreadObjectives
+    // decides which features become VP objectives).
     _flagRoadJunctions(board) {
         board.hexes.forEach((hex, hexId) => {
             if (!hex.hasRoad) return;
             const roadNeighbours = hex.neighbours.filter(nid => board.hexes.get(nid)?.hasRoad);
-            if (roadNeighbours.length >= 3) {
-                hex.isObjective = true;
-                hex.objectiveType = hex.objectiveType || 'road_junction';
-            }
+            if (roadNeighbours.length >= 3) hex.isRoadJunction = true;
         });
     }
 
-    // Ensure each longitudinal third of the contested middle band (between the
-    // spawn zones) holds at least one objective, so fronts form in several places.
+    // Sole authority on VP objectives: pick a SCARCE, well-spread set (~5) of
+    // real terrain features across the contested middle, so holding ground means
+    // something. Settlement *terrain* keeps its DEF/cover benefit either way.
     _ensureSpreadObjectives(board) {
         const hexList = [...board.hexes.values()];
         const lats = hexList.map(h => h.centroid[1]);
-        const lngs = hexList.map(h => h.centroid[0]);
-        const minLat = Math.min(...lats), latRange = Math.max(...lats) - minLat;
-        const minLng = Math.min(...lngs), lngRange = Math.max(...lngs) - minLng;
+        const minLat = Math.min(...lats), latRange = Math.max(...lats) - minLat || 1;
 
-        for (let third = 0; third < 3; third++) {
-            const inSector = hexList.filter(h => {
-                const normLat = (h.centroid[1] - minLat) / latRange;
-                const normLng = (h.centroid[0] - minLng) / lngRange;
-                return normLat > 0.25 && normLat < 0.75 &&
-                       normLng >= third / 3 && normLng < (third + 1) / 3;
-            });
-            if (!inSector.length || inSector.some(h => h.isObjective)) continue;
+        const featureScore = h =>
+            h.hasBridge ? 4 :
+            h.terrainType && h.terrainType.startsWith('settlement') ? 3 :
+            h.isRoadJunction ? 2 :
+            h.terrainType === 'ridgeline' || h.terrainType === 'industrial' ? 1 : 0;
 
-            // Promote the most defensible/valuable hex: settlement > road > central
-            const pick = inSector.find(h => h.terrainType.startsWith('settlement')) ||
-                         inSector.find(h => h.hasRoad) ||
-                         inSector[Math.floor(inSector.length / 2)];
-            pick.isObjective = true;
-            pick.objectiveType = 'key_position';
+        const central = h => { const nl = (h.centroid[1] - minLat) / latRange; return nl > 0.15 && nl < 0.85; };
+        let cands = hexList.filter(h => central(h) && featureScore(h) > 0);
+        if (cands.length < 3) cands = hexList.filter(central); // sparse map fallback
+        if (!cands.length) return;
+
+        const TARGET = Math.min(5, cands.length);
+        const d2 = (a, b) => (a.centroid[0] - b.centroid[0]) ** 2 + (a.centroid[1] - b.centroid[1]) ** 2;
+
+        // Seed with the highest-value, most central feature
+        const cLng = (Math.min(...hexList.map(h => h.centroid[0])) + Math.max(...hexList.map(h => h.centroid[0]))) / 2;
+        const cLat = minLat + latRange / 2;
+        cands.sort((a, b) => featureScore(b) - featureScore(a) ||
+            ((a.centroid[0] - cLng) ** 2 + (a.centroid[1] - cLat) ** 2) - ((b.centroid[0] - cLng) ** 2 + (b.centroid[1] - cLat) ** 2));
+        const chosen = [cands[0]];
+
+        // Greedy farthest-point spread, lightly weighted by feature value
+        while (chosen.length < TARGET) {
+            let best = null, bestScore = -Infinity;
+            for (const c of cands) {
+                if (chosen.includes(c)) continue;
+                const sep = Math.min(...chosen.map(s => d2(c, s)));
+                const score = sep + featureScore(c) * 1e-4;
+                if (score > bestScore) { bestScore = score; best = c; }
+            }
+            if (!best) break;
+            chosen.push(best);
         }
+
+        chosen.forEach(h => {
+            h.isObjective = true;
+            h.objectiveType = h.hasBridge ? 'bridge'
+                : (h.terrainType && h.terrainType.startsWith('settlement')) ? 'settlement_s1'
+                : h.isRoadJunction ? 'road_junction'
+                : 'key_position';
+        });
     }
 
     _flagBridges(board, osmData) {
         if (!osmData) return;
-        // Already flagged per-hex during OSM pass; just ensure river hexes with bridge
-        // are correctly marked
+        // A bridge cancels the river crossing penalty; it stays a candidate
+        // feature for objective selection but isn't auto-promoted here.
         board.hexes.forEach(hex => {
             if (hex.hasBridge && hex.overlays.has('river_minor')) {
-                hex.isObjective = true;
-                hex.objectiveType = hex.objectiveType || 'bridge';
-                hex.overlays.delete('river_minor'); // bridge removes river penalty
+                hex.overlays.delete('river_minor');
                 hex.overlays.delete('river_major');
             }
         });

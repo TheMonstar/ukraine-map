@@ -135,19 +135,24 @@ function buildGabledGeometry(pts, baseY, wallH, ridgeRise) {
 
     const walls = makePusher();
     let u = 0;
+    // Map the full wall height to exactly one vertical texture tile so the window
+    // row appears once (at its designed sill height) instead of repeating up the
+    // wall. U still advances in meters, so windows stay spaced ~WALL_TILE_M apart.
     for (let i = 0; i < 4; i++) {
         const p = pts[i], q = pts[(i + 1) % 4];
         const w = len(p, q);
         walls.quad(
             [p.x, baseY, p.z], [q.x, baseY, q.z], [q.x, topY, q.z], [p.x, topY, p.z],
-            [u, 0], [u + w, 0], [u + w, wallH], [u, wallH]);
+            [u, 0], [u + w, 0], [u + w, WALL_TILE_M], [u, WALL_TILE_M]);
         u += w;
     }
-    // gable triangles above the two short walls
+    // Gable triangles: sample a plain band near the top of the tile (above the
+    // window/frame/lintel) so the gable reads as solid wall, never a stray window.
+    const GV0 = WALL_TILE_M * 0.88, GV1 = WALL_TILE_M;
     walls.tri([a.x, topY, a.z], [b.x, topY, b.z], [m0.x, ridgeY, m0.z],
-        [0, 0], [len(a, b), 0], [len(a, b) / 2, ridgeRise]);
+        [0, GV0], [len(a, b), GV0], [len(a, b) / 2, GV1]);
     walls.tri([c.x, topY, c.z], [d.x, topY, d.z], [m1.x, ridgeY, m1.z],
-        [0, 0], [len(c, d), 0], [len(c, d) / 2, ridgeRise]);
+        [0, GV0], [len(c, d), GV0], [len(c, d) / 2, GV1]);
 
     const roof = makePusher();
     const slope = Math.hypot(len(a, b) / 2, ridgeRise) + 0.001;
