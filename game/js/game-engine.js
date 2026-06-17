@@ -7,6 +7,7 @@ const TOTAL_RP = 36;
 const MAX_CP = 10;
 const AP_PER_TURN = 8;
 const MOVE_AP_COST = 1; // moving costs a flat 1 AP regardless of unit tier
+const AI_STEP_MS = 220; // pacing between AI actions (+ render ≈ 0.8s net) so the turn is watchable
 
 class GameEngine {
     constructor() {
@@ -439,10 +440,11 @@ class GameEngine {
         // Mine entry
         const targetHex = this.board.hexes.get(targetHexId);
         if (targetHex?.overlays.has('mined') && !card.abilities?.includes('mine_immune_first')) {
-            const dmg = (card.unitClass === UNIT_CLASS.TRACKED || card.unitClass === UNIT_CLASS.WHEELED) ? 5 : 3;
+            const dmg = (card.unitClass === UNIT_CLASS.TRACKED || card.unitClass === UNIT_CLASS.WHEELED) ? 6 : 3;
             unit.hp = Math.max(0, unit.hp - dmg);
             unit.status.add(STATUS.SUPPRESSED);
             this._log(`Mine triggered: ${card.name} takes ${dmg} damage`);
+            this.board.showAreaEffect([targetHexId], 1400, '#ff6600', 0.5); // mine reveals the hex
         }
 
         // Move
@@ -620,6 +622,12 @@ class GameEngine {
         const result = this.combat.resolveAttack(attacker, defender, s);
         s.playerAP -= apCost;
         attacker.activationsThisTurn++;
+
+        // Opening fire breaks a stealth unit's concealment — it's now spotted.
+        if (card.abilities?.includes('stealth_stationary') && !attacker.status.has(STATUS.RECON_SPOTTED)) {
+            attacker.status.add(STATUS.RECON_SPOTTED);
+            attacker.reconSpottedTurns = this._spotTurns(attacker.faction);
+        }
 
         // Indirect fire that connects reveals what it hit (incl. hidden units)
         if (isIndirect && result.damage > 0 && !defender.status.has(STATUS.RECON_SPOTTED)) {
@@ -1098,9 +1106,14 @@ class GameEngine {
                 // Check stack limit
                 if (this.combat.stackLimitReached(action.targetHex, 'ai', s)) return false;
                 // Mine entry
-                if (targetHex.overlays.has('mined')) {
-                    const dmg = (card.unitClass === UNIT_CLASS.TRACKED) ? 5 : 3;
+                if (targetHex.overlays.has('mined') && !card.abilities?.includes('mine_immune_first')) {
+                    const dmg = (card.unitClass === UNIT_CLASS.TRACKED || card.unitClass === UNIT_CLASS.WHEELED) ? 6 : 3;
                     unit.hp = Math.max(0, unit.hp - dmg);
+                    unit.status.add(STATUS.SUPPRESSED);
+                    unit.status.add(STATUS.RECON_SPOTTED);   // mine reveals the advancing unit
+                    unit.reconSpottedTurns = this._spotTurns('player');
+                    this.board.showAreaEffect([action.targetHex], 1400, '#ff6600', 0.5);
+                    this._log(`Mine triggered: ${card.name} takes ${dmg} damage`);
                     if (unit.hp <= 0) return true;
                 }
                 unit.hexId = action.targetHex;
@@ -1121,6 +1134,13 @@ class GameEngine {
                 if (tHex?.smokeTurns > 0 && dist > 1) return false;
 
                 const result = this.combat.resolveAttack(unit, target, s);
+
+                // Opening fire breaks an AI stealth unit's concealment.
+                const aCard = CARD_CATALOG[unit.cardId];
+                if (aCard?.abilities?.includes('stealth_stationary') && !unit.status.has(STATUS.RECON_SPOTTED)) {
+                    unit.status.add(STATUS.RECON_SPOTTED);
+                    unit.reconSpottedTurns = this._spotTurns('ai');
+                }
 
                 // Make enemy fire visible: log line + flash on the target hex
                 if (result.missed) {
@@ -1322,14 +1342,48 @@ class GameEngine {
         s.activePhase = 'ai';
 
         this._notify();
+        this._runAITurn();
+    }
 
-        const runAI = () => {
-            this.ai.takeTurn(s, this);
+    // Drive the AI turn one action at a time so the player can watch it resolve
+    // (headless sims run it synchronously with no delay).
+    _runAITurn() {
+        const s = this.state;
+        this.ai.beginTurn(s, this);
+        if (this.headless) {
+            while (this.ai.nextAction(s, this)) { /* step to completion */ }
             this._endOfTurnProcessing('ai');
             this._advanceTurn();
+            return;
+        }
+        const step = () => {
+            const acted = this.ai.nextAction(s, this);
+            if (acted) {
+                this._showAIIntent(acted);
+                this._notify();
+                setTimeout(step, AI_STEP_MS);
+            } else {
+                this._endOfTurnProcessing('ai');
+                this._advanceTurn();
+            }
         };
-        if (this.headless) runAI();
-        else setTimeout(runAI, 400); // brief delay so UI can update
+        setTimeout(step, AI_STEP_MS);
+    }
+
+    // Make the acted unit's move/attack legible (attacks already flash the target
+    // in executeAIAction; here we light up moves and narrate the step).
+    _showAIIntent(acted) {
+        const s = this.state;
+        const unit = s.units.get(acted.unitId);
+        const name = unit?.displayName || CARD_CATALOG[unit?.cardId]?.name || 'Enemy';
+        if (acted.action.type === 'move' && unit) {
+            this.board.showAreaEffect([unit.hexId], 900, '#ff8866', 0.35);
+        }
+        const verb = acted.action.type === 'attack' ? 'attacks'
+            : acted.action.type === 'move' ? 'advances'
+            : acted.action.type === 'fortify' ? 'digs in'
+            : acted.action.type;
+        if (this.onAIStep) this.onAIStep(`Enemy: ${name} ${verb}`);
     }
 
     _endOfTurnProcessing(faction) {

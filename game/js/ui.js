@@ -11,6 +11,7 @@ const ABILITY_LABELS = {
     infiltrate:          ['Infiltrate',        'Can enter enemy-occupied hexes'],
     // Attack
     anti_armor:          ['Anti-Armor',        '+2 ATK vs tracked vehicles (tanks, IFV, BTR)'],
+    anti_infantry:       ['Anti-Infantry',     '+2 ATK (dice) vs INFANTRY units — no bonus vs armor'],
     night_hunter:        ['Night Hunter',      '−1 to-hit at night (thermal optics) instead of the usual night penalty'],
     one_shot:            ['One Shot',          'Single use — removed from board after firing'],
     interceptable:       ['Drone',             'Can be intercepted by IGLA units mid-flight'],
@@ -29,7 +30,7 @@ const ABILITY_LABELS = {
     area_suppression:    ['Area Suppression',  'Applies SUPPRESSED to ALL units in target hex'],
     breakthrough:        ['Breakthrough',      '+2 ATK when target is already SUPPRESSED'],
     shoot_and_scoot:     ['Shoot & Scoot',     'Can move 1 hex after firing at no additional AP cost'],
-    nato_ammo:           ['NATO Ammo',         '+1 ATK vs FORTIFIED positions'],
+    nato_ammo:           ['NATO Ammo',         '+1 ATK (die) vs tracked armor'],
     wave_bonus:          ['Wave Bonus',        '+1 ATK per adjacent friendly infantry unit'],
     pack_bonus:          ['Pack Bonus',        '+1 ATK when 2 or more friendly units are adjacent'],
     human_wave_aura:     ['Human Wave Aura',   'Adjacent friendlies gain +1 ATK on all assaults'],
@@ -370,6 +371,8 @@ class GameUI {
         this.engine.onEventFlip = c => this._showEventPopup(c);
         this.engine.onLog = msg => this._addLog(msg);
         this.engine.onVictory = r => this._showVictory(r);
+        // Narrate each AI action in the phase label as the turn plays out step-by-step
+        this.engine.onAIStep = txt => { const el = document.getElementById('phase-label'); if (el) el.textContent = txt; };
 
         try {
             const state = await this.engine.startGame({

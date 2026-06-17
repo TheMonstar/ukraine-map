@@ -118,9 +118,20 @@ class CombatResolver {
             dice += 2;
             log.push('+2 dice anti-armor');
         }
+        if (attackerCard?.abilities?.includes('anti_infantry') &&
+            defenderCard?.unitClass === UNIT_CLASS.INFANTRY) {
+            dice += 2;
+            log.push('+2 dice anti-infantry');
+        }
         if (attackerCard?.abilities?.includes('nato_ammo') && defenderCard?.unitClass === UNIT_CLASS.TRACKED) {
             dice += 1;
             log.push('+1 die NATO ammo');
+        }
+        // Concealed opening shot: a still-hidden stealth unit (sniper) gets +1 die
+        if (attackerCard?.abilities?.includes('stealth_stationary') && !attacker.movedThisTurn &&
+            !attacker.status.has(STATUS.RECON_SPOTTED)) {
+            dice += 1;
+            log.push('+1 die concealed shot');
         }
         const packThreshold = this._doctrine(attacker, gameState) === 'ru_mass' ? 2 : 3;
         if (attackerCard?.abilities?.includes('pack_bonus') &&
@@ -145,6 +156,10 @@ class CombatResolver {
             this._hasAdjacentClass(attacker, UNIT_CLASS.INFANTRY, attacker.faction, gameState)) {
             dice += 1;
             log.push('+1 die infantry+armor adjacency');
+        }
+        if (this._hasMechBrigadeAdjacent(attacker, gameState)) {
+            dice += 1;
+            log.push('+1 die combined arms (Mech Bde)');
         }
         if (attackerCard?.abilities?.includes('indirect_fire') &&
             this._doctrine(attacker, gameState) === 'ru_fires') {
@@ -217,7 +232,7 @@ class CombatResolver {
             this._hasAdjacentClass(unit, UNIT_CLASS.TRACKED, unit.faction, gameState)) bonus += 1;
         if (card?.abilities?.includes('hull_down') && hex?.terrainType === 'ridgeline') bonus += 2;
         if (card?.abilities?.includes('home_ground') && hex?.terrainType?.startsWith('settlement')) bonus += 1;
-        if (unit.faction === 'player' && this._hasMechBrigadeAdjacent(unit, gameState)) bonus += 1;
+        if (this._hasMechBrigadeAdjacent(unit, gameState)) bonus += 1;
         bonus = Math.min(bonus, 3); // cap stacked bonuses, per 1b
 
         let total = Math.min(tier + bonus, 5);
@@ -649,6 +664,46 @@ window.FRONTLINE_DEV = {
         console.log('autoBattle summary:', summary);
         console.table(rows);
         return { summary, rows };
+    },
+
+    // Head-to-head deck check: run each UA battlegroup as the player vs the AI
+    // (random RU deck) and report win%. Tests the "armor auto-wins" claim — the
+    // armored Mech Fist should land ~45–55%, not dominate.
+    // Run: await FRONTLINE_DEV.deckMatchup(20)
+    async deckMatchup(n = 20) {
+        const decks = ['ua_mech_fist', 'ua_drone_war', 'ua_defensive_line'];
+        const results = [];
+        for (const bg of decks) {
+            let wins = 0, turns = 0;
+            for (let i = 0; i < n; i++) {
+                const eng = new GameEngine();
+                let outcome = null;
+                eng.onVictory = r => { outcome = r; };
+                await eng.startGame({
+                    playerFaction: 'ua', difficulty: 1.0, headless: true, battlegroup: bg,
+                    centerLat: 47.8 + Math.random() * 1.2,
+                    centerLng: 35.5 + Math.random() * 2.5
+                });
+                const s = eng.state;
+                let hexIdx = 0;
+                const spawn = s.spawnHexIds.playerHexes;
+                for (const cid of [...s.playerDeck]) {
+                    if (eng.deployPlayerUnit(cid, spawn[(hexIdx * 2) % spawn.length]).ok) hexIdx++;
+                }
+                eng.finishDeployment();
+                let guard = 0;
+                while (s.phase === 'player_action' && guard++ < 100) {
+                    this._driveGreedyPlayer(eng, s);
+                    eng.endPlayerTurn();
+                }
+                const winner = outcome?.winner || (s.playerVP >= s.aiVP ? 'player' : 'ai');
+                if (winner === 'player') wins++;
+                turns += s.turn;
+            }
+            results.push({ deck: bg, winPct: Math.round(wins / n * 100), avgTurns: +(turns / n).toFixed(1), matches: n });
+        }
+        console.table(results);
+        return results;
     },
 
     // Simple greedy routine driving the "player" side in autoBattle:

@@ -163,10 +163,10 @@ const CARD_CATALOG = {
         tier: TIER.U, unitClass: UNIT_CLASS.TRACKED,
         size: 3,
         hp: 10, atk: 6, def: 4, mov: 3, rng: 2, rp: 8,
-        abilities: ['combined_arms', 'can_depot', 'transport'],
+        abilities: ['anti_infantry', 'combined_arms', 'can_depot', 'transport'],
         active: 'smoke_screen',
         iconPath: '../images/ua/icon-4.png',
-        desc: 'M2 Bradley / Marder IFV. 25mm autocannon devastates infantry. Combined arms: adjacent infantry +1 DEF. DEPOT capable. Transports 1 infantry unit.'
+        desc: 'M2 Bradley / Marder IFV. 25mm autocannon devastates infantry (+2 dice vs INFANTRY) — but no edge vs armor, so a tank out-trades it. Combined arms: adjacent infantry +1 DEF. DEPOT capable. Transports 1 infantry unit.'
     },
     ua_isr_drone: {
         id: 'ua_isr_drone', faction: 'ua', name: 'ISR Drone (Bayraktar)',
@@ -181,11 +181,11 @@ const CARD_CATALOG = {
         id: 'ua_tank', faction: 'ua', name: 'Tank (Leopard 2 / T-64BV)',
         tier: TIER.U, unitClass: UNIT_CLASS.TRACKED,
         size: 3,
-        hp: 12, atk: 7, def: 5, mov: 2, rng: 2, rp: 9,
+        hp: 12, atk: 7, def: 5, mov: 2, rng: 3, rp: 9,
         abilities: ['hull_down', 'mine_immune_first', 'nato_ammo'],
         active: 'canister_shot',
         iconPath: '../images/ua/icon-1.png',
-        desc: 'Leopard 2A4/A6 or upgraded T-64BV. Excellent optics and crew training. Hull-down: +2 DEF on ridgeline. First mine ignored. NATO ammo: +1 ATK vs all armored targets.'
+        desc: 'Leopard 2A4/A6 or upgraded T-64BV. Excellent optics and crew training. Long RNG 3 outranges IFVs and infantry. Hull-down: +2 DEF on ridgeline. First mine ignored. NATO ammo: +1 die vs tracked armor.'
     },
     ua_ew: {
         id: 'ua_ew', faction: 'ua', name: 'EW Unit (Bukovel-AD)',
@@ -261,7 +261,7 @@ const CARD_CATALOG = {
         hp: 14, atk: 6, def: 5, mov: 2, rng: 2, rp: 12,
         abilities: ['combined_arms', 'defensive_depth', 'hq_action'],
         iconPath: '../images/ua/icon-31.png',
-        desc: 'Full mechanized brigade with Western IFVs. Combined arms: all adjacent units +1 DEF. Defensive depth: anchors the line. HQ action: once/turn uses 1 Order at no CP cost.'
+        desc: 'Full mechanized brigade with Western IFVs. Combined-arms anchor: all adjacent friendlies +1 ATK AND +1 DEF (force multiplier). Defensive depth: anchors the line. HQ action: once/turn uses 1 Order at no CP cost.'
     },
     // ═══════════════════ RUSSIA ════════════════════════════════════════════
 
@@ -345,10 +345,10 @@ const CARD_CATALOG = {
         tier: TIER.U, unitClass: UNIT_CLASS.WHEELED,
         size: 2,
         hp: 8, atk: 4, def: 3, mov: 4, rng: 2, rp: 7,
-        abilities: ['carrier', 'suppressive_fire', 'can_depot'],
+        abilities: ['anti_infantry', 'carrier', 'suppressive_fire', 'can_depot'],
         active: 'smoke_screen',
         iconPath: '../images/ru/icon-6.png',
-        desc: 'BTR-82A wheeled APC. 14.5mm / 30mm autocannon. Carrier: transports 1 infantry. Suppressive fire. DEPOT capable. Wheeled — fast on roads, vulnerable in broken terrain.'
+        desc: 'BTR-82A wheeled APC. 30mm autocannon shreds infantry (+2 dice vs INFANTRY) but no edge vs armor. Carrier: transports 1 infantry. Suppressive fire. DEPOT capable. Wheeled — fast on roads, vulnerable in broken terrain.'
     },
     ru_lancet: {
         id: 'ru_lancet', faction: 'ru', name: 'Lancet-3 Loitering',
@@ -363,21 +363,21 @@ const CARD_CATALOG = {
         id: 'ru_tank_72', faction: 'ru', name: 'Tank T-72B3 / T-80',
         tier: TIER.U, unitClass: UNIT_CLASS.TRACKED,
         size: 3,
-        hp: 10, atk: 7, def: 4, mov: 2, rng: 2, rp: 8,
+        hp: 10, atk: 7, def: 4, mov: 2, rng: 3, rp: 8,
         abilities: ['breakthrough', 'armor_class', 'mine_immune_first'],
         active: 'canister_shot',
         iconPath: '../images/ru/icon-5.png',
-        desc: 'T-72B3 / T-80BV main battle tank. 125mm gun — high ATK but older armour (DEF 4). Breakthrough: ignores Overwatch on assault. Mine immune first pass. Russia uses these en masse; losses are high but numbers matter.'
+        desc: 'T-72B3 / T-80BV main battle tank. 125mm gun — high ATK, long RNG 3, but older armour (DEF 4). Breakthrough: ignores Overwatch on assault. Mine immune first pass. Russia uses these en masse; losses are high but numbers matter.'
     },
     ru_tank_90: {
         id: 'ru_tank_90', faction: 'ru', name: 'Tank T-90M (Proryv)',
         tier: TIER.U, unitClass: UNIT_CLASS.TRACKED,
         size: 3,
-        hp: 12, atk: 8, def: 5, mov: 2, rng: 2, rp: 9,
+        hp: 12, atk: 8, def: 5, mov: 2, rng: 3, rp: 9,
         abilities: ['reactive_armor', 'breakthrough', 'armor_class'],
         active: 'canister_shot',
         iconPath: '../images/ru/icon-15.png',
-        desc: 'T-90M Proryv — Russia\'s best tank. Kontakt-5 / Relikt ERA: first incoming attack each turn is halved. 125mm 2A46M-4 gun. Breakthrough. Expensive and scarce; losing one is a strategic event.'
+        desc: 'T-90M Proryv — Russia\'s best tank. Kontakt-5 / Relikt ERA: first incoming attack each turn is halved. 125mm 2A46M-4 gun, long RNG 3. Breakthrough. Expensive and scarce; losing one is a strategic event.'
     },
     ru_spetsnaz: {
         id: 'ru_spetsnaz', faction: 'ru', name: 'Spetsnaz / VDV',

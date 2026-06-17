@@ -1471,7 +1471,15 @@ class AttackMapDashboard {
                 L.latLng(north, west)  // NW (index 3)
             ];
 
-            this._updateFreeTransformBound = () => this.updateFreeShapeTransform();
+            this._updateFreeTransformBound = () => {
+                if (!this._freeTransformRafPending) {
+                    this._freeTransformRafPending = true;
+                    requestAnimationFrame(() => {
+                        this._freeTransformRafPending = false;
+                        this.updateFreeShapeTransform();
+                    });
+                }
+            };
             this.map.on('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
             this.updateFreeShapeTransform();
         } else {
@@ -3040,7 +3048,13 @@ class AttackMapDashboard {
 
             this.scheduleUpdateMap();
             const mapStyleEl = this.getEl('map-style');
-            if (mapStyleEl?.value === 'nasa-gibs') this.layers.setBaseLayer('nasa-gibs');
+            if (mapStyleEl?.value === 'nasa-gibs') {
+                const dateStr = this.formatDate(this.endDate);
+                if (dateStr !== this._lastNasaDate) {
+                    this._lastNasaDate = dateStr;
+                    this.layers.setBaseLayer('nasa-gibs');
+                }
+            }
             this.syncDiffSliceRange();
             if (this.dailyPositionsDebounce) clearTimeout(this.dailyPositionsDebounce);
             this.dailyPositionsDebounce = setTimeout(() => {

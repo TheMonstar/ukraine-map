@@ -675,30 +675,43 @@ class HexBoard {
         this.unitMarkers.set(unit.id, marker);
     }
 
-    _isUnitVisible(unit, gameState) {
-        if (unit.faction === 'player') return true;
+    // How far a unit can detect enemies. Drones / dedicated recon are the eyes;
+    // deep-recon scouts see a little; ordinary line units are near-blind alone.
+    detectRange(card) {
+        if (!card) return 1;
+        const a = card.abilities || [];
+        if (card.unitClass === UNIT_CLASS.DRONE || a.includes('recon_reveal') || a.includes('permanent_isr')) {
+            return Math.max(1, card.rng || 1);
+        }
+        if (a.includes('deep_recon')) return 2;
+        return 1;
+    }
+
+    // Is `unit` visible to the side `viewerFaction` ('player' | 'ai')?
+    isVisibleTo(unit, viewerFaction, gameState) {
+        if (unit.faction === viewerFaction) return true;     // own units always visible
         if (unit.status.has(STATUS.RECON_SPOTTED)) return true;
 
-        // Adjacent to any player unit — always visible
-        const neighbours = this.neighbours(unit.hexId);
+        // Stealth-till-attack: a stealth unit that has neither moved nor attacked
+        // this turn is hidden even when adjacent (it's in a hide). Moving sets
+        // movedThisTurn; attacking sets RECON_SPOTTED (handled above).
+        const card = CARD_CATALOG[unit.cardId];
+        if (card?.abilities?.includes('stealth_stationary') && !unit.movedThisTurn) return false;
+
+        // Visible if within the detect range of any friendly viewer unit
         for (const u of gameState.units.values()) {
-            if (u.faction === 'player' && u.hp > 0) {
-                if (u.hexId === unit.hexId || neighbours.includes(u.hexId)) return true;
-            }
+            if (u.faction !== viewerFaction || u.hp <= 0) continue;
+            const dr = this.detectRange(CARD_CATALOG[u.cardId]);
+            if (this.hexDistance(u.hexId, unit.hexId) <= dr) return true;
         }
 
+        // Or inside a friendly intel zone
         const intelZones = gameState.intelZones || new Map();
-        if (!intelZones.has(unit.hexId)) return false;
+        return intelZones.get(unit.hexId) === viewerFaction;
+    }
 
-        // In Intel Zone: visibility depends on unit size and stealth
-        const card = CARD_CATALOG[unit.cardId];
-        const size = card?.size ?? 2;
-        const stealthy = card?.abilities?.includes('stealth_stationary') && !unit.movedThisTurn;
-
-        if (stealthy) return false;           // size-1 stationary snipers/SF are invisible
-        if (size >= 2) return true;            // medium/large always visible in intel zone
-        // size 1 infantry: only visible in intel zone if they moved (disturbed the foliage)
-        return !!unit.movedThisTurn;
+    _isUnitVisible(unit, gameState) {
+        return this.isVisibleTo(unit, 'player', gameState);
     }
 
     // Flash temporary area-effect highlight (e.g. after artillery/MLRS fires)

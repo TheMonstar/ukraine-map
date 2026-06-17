@@ -322,10 +322,13 @@ class UiBindings {
                 console.warn('Enable UA Shadow first');
                 return;
             }
-            const response = await fetch(`${APP_STATIC_URL}/motorlines.json`);
-            const data = await response.json();
+            if (!motorlinesCache) {
+                const response = await fetch(`${APP_STATIC_URL}/motorlines.json`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                motorlinesCache = await response.json();
+            }
             const totals = {};
-            for (const feature of (data.features || [])) {
+            for (const feature of (motorlinesCache.features || [])) {
                 const highway = feature?.properties?.highway;
                 if (!MAJOR_HIGHWAYS.has(highway)) continue;
                 try {
@@ -415,7 +418,14 @@ class UiBindings {
             if (!visibleTypes.size) { console.warn('No motorline types selected'); return; }
             const features = (motorlinesCache.features || []).filter(f => visibleTypes.has(f?.properties?.highway));
 
-            const unionAll = (polys) => polys.reduce((acc, p) => acc ? turf.union(acc, p.geojson) : p.geojson, null);
+            const unionAll = (polys) => {
+                if (polys.length === 0) return null;
+                if (polys.length === 1) return polys[0].geojson;
+                const mid = Math.floor(polys.length / 2);
+                const left = unionAll(polys.slice(0, mid));
+                const right = unionAll(polys.slice(mid));
+                return left && right ? turf.union(left, right) : (left || right);
+            };
 
             const calcByType = (polygon) => {
                 if (!polygon) return {};

@@ -80,6 +80,28 @@ html, body { height: 100%; background: var(--clr-bg); color: var(--clr-text); fo
 
 .setup-status { text-align: center; color: var(--clr-muted); margin-top: 12px; font-size: 11px; min-height: 16px; }
 
+/* ── SETUP SCREEN — mobile ─────────────────────────────────────────────── */
+@media (max-width: 600px) {
+    #setup-screen { align-items: flex-start; padding: 12px 10px; }
+    .setup-box { padding: 20px 16px; border-radius: 6px; }
+    .setup-logo { font-size: 26px; letter-spacing: 5px; }
+    .setup-sub { margin-bottom: 18px; font-size: 11px; letter-spacing: 1px; }
+    .setup-section { margin-bottom: 14px; }
+    .faction-choice { gap: 8px; }
+    .faction-btn { padding: 10px 8px; }
+    .faction-flag { font-size: 18px; }
+    .faction-name { font-size: 13px; }
+    .faction-style { font-size: 9px; }
+    .diff-choice { flex-wrap: wrap; }
+    .diff-btn { flex: 1 1 28%; font-size: 12px; padding: 9px 6px; }
+    .coord-row { gap: 8px; }
+    .coord-row > div { flex: 1 1 40%; }
+    .coord-row input { width: 100%; min-width: 0; }
+    #btn-random-point { flex: 1 1 100%; }
+    .preset-btn { font-size: 10px; padding: 6px 9px; }
+    .btn-start { padding: 13px; font-size: 14px; letter-spacing: 2px; }
+}
+
 /* ── GAME SCREEN ───────────────────────────────────────────────────────── */
 
 #game-screen {
@@ -595,7 +617,7 @@ html, body { height: 100%; background: var(--clr-bg); color: var(--clr-text); fo
 .btn-start-secondary:hover { border-color: var(--clr-gold); }
 .btn-autodeploy { background: #1d3a4a; color: #6fc3e8; border: 1px solid #2e87b5; margin-right: 8px; }
 .btn-autodeploy:hover { background: #25506a; }
-.rec-badge { color: #0d0f12; background: var(--clr-gold); border-radius: 3px; font-size: 9px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
+.rec-badge { display: inline-block; white-space: nowrap; color: #0d0f12; background: var(--clr-gold); border-radius: 3px; font-size: 9px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
 
 #welcome-overlay {
     position: fixed; inset: 0; z-index: 2100;
