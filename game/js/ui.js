@@ -799,7 +799,7 @@ class GameUI {
         const btn = (act, label, cost, disabled, title) =>
             `<button class="bar-btn" data-act="${act}" ${disabled ? 'disabled' : ''} title="${title}">${label}${cost !== null ? ` <span class="bar-ap">${cost}AP</span>` : ''}</button>`;
 
-        let html = `<span class="bar-unit">${unit.realName || card.name}</span>`;
+        let html = `<span class="bar-unit" title="Tap for unit details">${unit.realName || card.name} <span class="bar-unit-info">ⓘ</span></span>`;
         html += btn('move', 'MOVE', 1, ap < 1 || unit.mov <= 0, 'Click a highlighted hex to move (numbers = MOV cost)');
         if (isRecon) {
             html += btn('attack', 'RECON', tierAp, ap < tierAp, 'Spotting pass — reveals enemies by size within drone range');
@@ -824,6 +824,14 @@ class GameUI {
 
         bar.innerHTML = html;
         bar.style.display = '';
+
+        // Tap the unit name to open the detail panel on demand (the main way in on
+        // mobile, where it no longer auto-opens). Toggles closed if already showing.
+        bar.querySelector('.bar-unit')?.addEventListener('click', () => {
+            const panel = document.getElementById('unit-info');
+            if (panel.style.display === 'none') this._showUnitInfo(unit, state);
+            else panel.style.display = 'none';
+        });
 
         bar.querySelectorAll('.bar-btn').forEach(b => {
             b.addEventListener('click', () => {
@@ -1214,7 +1222,14 @@ class GameUI {
             } else {
                 // Select and show range — subsequent hex click will smart-route
                 this.engine.selectUnit(unitId);
-                this._showUnitInfo(unit, state);
+                // On mobile the full info panel covers the board on every tap — keep
+                // the board clear and let the player open it on demand (tap the unit
+                // name in the action bar). The action bar already shows the essentials.
+                if (this._isMobile()) {
+                    document.getElementById('unit-info').style.display = 'none';
+                } else {
+                    this._showUnitInfo(unit, state);
+                }
                 document.getElementById('phase-label').textContent =
                     `${CARD_CATALOG[unit.cardId]?.name || unit.displayName} — click hex to move/attack`;
                 if (unit.mov > 0 && state.moveRange && state.moveRange.size === 0) {
@@ -1253,6 +1268,10 @@ class GameUI {
     }
 
     // ── Unit Info Panel ───────────────────────────────────────────────────────
+
+    _isMobile() {
+        return window.matchMedia('(max-width: 600px)').matches;
+    }
 
     _showUnitInfo(unit, state) {
         const card = CARD_CATALOG[unit.cardId];

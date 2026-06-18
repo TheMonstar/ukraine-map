@@ -501,9 +501,10 @@ html, body { height: 100%; background: var(--clr-bg); color: var(--clr-text); fo
     background: var(--clr-panel); border-top: 1px solid var(--clr-border);
 }
 #action-bar .bar-unit {
-    color: var(--clr-gold); font-size: 11px; font-weight: bold;
+    color: var(--clr-gold); font-size: 11px; font-weight: bold; cursor: pointer;
     margin-right: 6px; flex-shrink: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
 }
+#action-bar .bar-unit-info { color: var(--clr-muted); font-weight: normal; }
 .bar-btn {
     flex-shrink: 0;
     background: #1e2830; border: 1px solid #2e4050; border-radius: 4px;
