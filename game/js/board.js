@@ -435,7 +435,15 @@ class HexBoard {
 
     renderHexes(gameState) {
         if (!this._map) return;
-        if (this.hexLayer) this._map.removeLayer(this.hexLayer);
+
+        // Hex geometry is fixed after board generation — only per-hex styling
+        // changes between renders. Rebuilding the whole layer every _notify()
+        // tore down 160 polygons + their handlers each AI sub-step, making the
+        // board visibly flash/"reload". Build once, then just restyle in place.
+        if (this.hexLayer) {
+            this.hexLayer.setStyle(f => this._hexStyle(f.properties.hexId, gameState));
+            return;
+        }
 
         const features = [];
         this.hexes.forEach(hex => {

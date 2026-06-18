@@ -23,6 +23,7 @@ class GameEngine {
         this.onEventFlip = null;    // callback(card)
         this.onLog = null;          // callback(msg)
         this.onVictory = null;      // callback(result)
+        this.onPlayerTurnStart = null; // callback() — fires when a new player turn begins (turn 2+)
     }
 
     // ── Initialization ────────────────────────────────────────────────────────
@@ -1451,6 +1452,7 @@ class GameEngine {
 
         this._startTurn();
         this._notify();
+        if (this.onPlayerTurnStart) this.onPlayerTurnStart();
     }
 
     // ── VP Scoring ────────────────────────────────────────────────────────────

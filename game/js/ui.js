@@ -184,11 +184,8 @@ class GameUI {
             this._setupBattlegroup = BATTLEGROUPS[this._setupFaction][0].id;
             this._setupDoctrine = DOCTRINES[this._setupFaction][0].id;
             this._setupDiff = 1.0;
-            const pokrovsk = [...document.querySelectorAll('.preset-btn')].find(b => b.textContent.includes('Pokrovsk'));
-            if (pokrovsk) {
-                document.getElementById('input-lat').value = pokrovsk.dataset.lat;
-                document.getElementById('input-lng').value = pokrovsk.dataset.lng;
-            }
+            // Use whatever coordinates are in the inputs (a preset, a typed point,
+            // or the Pokrovsk default) — don't override the user's chosen location.
             this._quickStart = true;
             this._startGame();
         });
@@ -371,6 +368,8 @@ class GameUI {
         this.engine.onEventFlip = c => this._showEventPopup(c);
         this.engine.onLog = msg => this._addLog(msg);
         this.engine.onVictory = r => this._showVictory(r);
+        // Restart the turn timer at the start of each new player turn (turn 2+)
+        this.engine.onPlayerTurnStart = () => this._startTurnTimer();
         // Narrate each AI action in the phase label as the turn plays out step-by-step
         this.engine.onAIStep = txt => { const el = document.getElementById('phase-label'); if (el) el.textContent = txt; };
 
@@ -556,6 +555,9 @@ class GameUI {
     // ── Main Render ───────────────────────────────────────────────────────────
 
     render(state) {
+        // Freeze the turn timer whenever it isn't the player's turn (AI turn,
+        // manual end-turn, game over) so the ring doesn't keep counting down.
+        if (state.phase !== 'player_action') this._stopTimer();
         this._renderAll(state);
     }
 

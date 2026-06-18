@@ -637,3 +637,38 @@ html, body { height: 100%; background: var(--clr-bg); color: var(--clr-text); fo
     font-family: var(--font-mono); font-size: 13px; font-weight: bold; letter-spacing: 2px;
 }
 .welcome-btn:hover { opacity: 0.9; }
+
+/* ── GAME SCREEN — mobile ──────────────────────────────────────────────── */
+@media (max-width: 600px) {
+    /* Top HUD: compact; wrap as a safety net so nothing is clipped off-screen */
+    #hud-top { gap: 5px; padding: 5px 6px; height: auto; min-height: 44px; flex-wrap: wrap; }
+    #hud-faction { min-width: 0; font-size: 11px; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #hud-turn { min-width: 0; font-size: 11px; white-space: nowrap; }
+    #hud-vp { flex: 1 1 60px; min-width: 0; font-size: 11px; white-space: nowrap; }
+    .vp-sep { margin: 0 3px; }
+    #hud-timer-wrap svg { width: 30px; height: 30px; }
+    #hud-victory, #hud-weather { display: none; }     /* secondary; in legend + log */
+    .btn-legend { width: 26px; height: 26px; font-size: 13px; margin-right: 2px; }
+    .btn-end-turn { padding: 6px 10px; font-size: 11px; letter-spacing: 0.5px; }
+
+    /* Resources row */
+    #hud-resources { gap: 8px; padding: 4px 8px; }
+    .res-label { margin-right: 4px; }
+    #phase-label { font-size: 10px; }
+
+    /* Bottom panel: one horizontal-scroll strip — UNITS first and fully visible,
+       swipe right to reach ORDERS then CMD (fixed widths no longer collapse it). */
+    #bottom-panel { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+    #hand-area { flex: 0 0 auto; overflow: visible; }
+    #orders-area { flex: 0 0 auto; width: 200px; overflow: visible; }
+    #commander-area { flex: 0 0 auto; width: 160px; }
+
+    /* Battle log: small corner overlay that doesn't blanket the board */
+    #battle-log { top: 100px; right: 6px; width: 150px; max-width: 52vw; opacity: 0.94; }
+    #log-entries { max-height: 92px; font-size: 9px; line-height: 1.45; }
+    #log-head { font-size: 9px; padding: 4px 8px; }
+
+    /* Floating panels fit the narrow screen */
+    #unit-info { left: 6px; right: 6px; width: auto; top: 96px; max-height: calc(100vh - 300px); }
+    #atk-preview, #event-popup { max-width: 92vw; }
+}
