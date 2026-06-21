@@ -915,6 +915,37 @@ class AttackMapDashboard {
     /**
      * Toggle ruler tool on/off
      */
+    /**
+     * Game tool: click a point on the map to open the hex wargame
+     * (game/game.html) centered on that coordinate. Single-shot — the tool
+     * turns itself off after launching the game in a new tab.
+     */
+    toggleGameTool() {
+        const enabled = this.isChecked('game-tool');
+        if (enabled) {
+            this.map.getContainer().style.cursor = 'crosshair';
+            if (!this.boundGameClickHandler) {
+                this.boundGameClickHandler = this.gameClickHandler.bind(this);
+            }
+            this.map.on('click', this.boundGameClickHandler);
+        } else {
+            this.map.getContainer().style.cursor = '';
+            if (this.boundGameClickHandler) {
+                this.map.off('click', this.boundGameClickHandler);
+            }
+        }
+    }
+
+    gameClickHandler(e) {
+        const { lat, lng } = e.latlng;
+        const url = `game/game.html?lat=${lat.toFixed(4)}&lng=${lng.toFixed(4)}`;
+        window.open(url, '_blank');
+        // Single-shot: disable the tool once a point has been picked
+        const cb = this.getEl('game-tool');
+        if (cb) cb.checked = false;
+        this.toggleGameTool();
+    }
+
     toggleRulerTool() {
         this.rulerEnabled = this.isChecked('ruler-tool');
 

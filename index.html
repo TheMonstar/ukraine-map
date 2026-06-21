@@ -48,7 +48,10 @@
                 <option value="250">4x</option>
             </select>
             <input type="date" id="date-start" class="top-bar-date" />
-            <div id="date-slider" class="top-bar-slider"></div>
+            <div class="top-bar-slider-wrap">
+                <div id="date-slider" class="top-bar-slider"></div>
+                <div id="diff-slices-slider" class="top-bar-diff-slices"></div>
+            </div>
             <input type="date" id="date-end" class="top-bar-date" />
             <label class="toggle-label top-bar-lock">
                 <input type="checkbox" id="lock-sliders" />
@@ -94,31 +97,29 @@
                                         class="toggle-switch"></span>No base</label>
                                 <label class="toggle-label"><input type="checkbox" id="show-date-overlay" checked /><span
                                         class="toggle-switch"></span>Date</label>
-                                <button id="motorlines-by-diff-btn" style="font-size:11px; padding:2px 8px; cursor:pointer;">Road km in diff</button>
                             </div>
+                        </div>
+                        <div class="diff-slices">
+                            <label class="toggle-label" for="diff-slices-count">Diff slices:</label>
+                            <input type="number" id="diff-slices-count" min="0" max="5" value="0" />
+                            <div id="diff-slices-labels" class="slider-labels"></div>
                         </div>
                         <div class="control-group">
                             <label class="control-label">Overlays</label>
                             <div class="toggle-row">
-                                <label class="toggle-label"><input type="checkbox" id="russia-overlay" /><span
-                                        class="toggle-switch"></span>PlayFra</label>
                                 <label class="toggle-label"><input type="checkbox" id="suriyak-overlay" /><span
                                         class="toggle-switch"></span>Suriyak</label>
-                                <label class="toggle-label"><input type="checkbox" id="creamy-overlay" /><span
-                                        class="toggle-switch"></span>Creamy</label>
                             </div>
                         </div>
                         <div class="control-group">
                             <label class="control-label">Layer Comparison</label>
                             <select id="compare-layer-1" class="control-select">
                                 <option value="deepLayer">DeepStateMap</option>
-                                <option value="russianOverlay">Russia (PlayFra)</option>
                                 <option value="suriyakOverlay">Suriyak Overlay</option>
                                 <option value="customKmlOverlay">Custom KML</option>
                             </select>
                             <select id="compare-layer-2" class="control-select">
                                 <option value="deepLayer">DeepStateMap</option>
-                                <option value="russianOverlay">Russia (PlayFra)</option>
                                 <option value="suriyakOverlay" selected>Suriyak Overlay</option>
                                 <option value="customKmlOverlay">Custom KML</option>
                             </select>
@@ -323,6 +324,7 @@
                             <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="motorlines-type-highway" checked /><span class="toggle-switch"></span><span style="color:#d32f2f;">Highway</span></label>
                             <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="motorlines-type-primary" /><span class="toggle-switch"></span><span style="color:#f57c00;">Primary</span></label>
                             <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="motorlines-type-tertiary" /><span class="toggle-switch"></span><span style="color:#fbc02d;">Tertiary</span></label>
+                            <button id="motorlines-by-diff-btn" style="font-size:11px; padding:2px 8px; cursor:pointer;">Road km in diff</button>
                         </div>
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-waterways" /><span
@@ -372,6 +374,10 @@
                                         class="toggle-switch"></span>Polygon Select</label>
                                 <label class="toggle-label"><input type="checkbox" id="ruler-tool" /><span
                                         class="toggle-switch"></span>Ruler</label>
+                            </div>
+                            <div class="toggle-row">
+                                <label class="toggle-label" title="Click a point on the map to open the hex wargame centered there"><input type="checkbox" id="game-tool" /><span
+                                        class="toggle-switch"></span>Game (click a point)</label>
                             </div>
                             <div class="btn-row">
                                 <button id="clear-polygons" class="btn btn-sm">Clear Selection</button>
@@ -867,9 +873,6 @@ Situation report:
     <input type="checkbox" id="regions-highlight" style="display:none;" />
     <input type="checkbox" id="show-line" style="display:none;" />
     <input type="checkbox" id="captured" style="display:none;" />
-    <input type="number" id="diff-slices-count" min="0" max="5" value="0" style="display:none;" />
-    <div id="diff-slices-slider" style="display:none;"></div>
-    <div id="diff-slices-labels" style="display:none;"></div>
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>

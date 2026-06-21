@@ -279,9 +279,14 @@ class GameEngine {
         s.playerRP = 0;
         s.phase = 'player_action';
         s.playerAP = AP_PER_TURN;
-        // Record starting force (both sides now deployed) for attrition victory
-        s.startForce.player = [...s.units.values()].filter(u => u.faction === 'player' && u.hp > 0).length;
-        s.startForce.ai = [...s.units.values()].filter(u => u.faction === 'ai' && u.hp > 0).length;
+        // Record starting force VALUE (sum of unit RP) for the attrition win.
+        // Headcount let losing cheap infantry/drones "shatter" an intact armor
+        // force — value reflects how much real combat power you've actually lost.
+        const forceValue = f => [...s.units.values()]
+            .filter(u => u.faction === f && u.hp > 0)
+            .reduce((sum, u) => sum + (CARD_CATALOG[u.cardId]?.rp || 1), 0);
+        s.startForce.player = forceValue('player');
+        s.startForce.ai = forceValue('ai');
         this._startTurn();
         this._notify();
     }
@@ -324,6 +329,22 @@ class GameEngine {
             if (hex.smokeTurns > 0) hex.smokeTurns--;
             if (hex.illuminatedTurns > 0) hex.illuminatedTurns--;
         });
+
+        // Aura passives, re-evaluated each turn:
+        // Defensive Depth — adjacent friendlies dig in (free Overwatch).
+        s.units.forEach(u => {
+            if (u.hp <= 0 || !CARD_CATALOG[u.cardId]?.abilities?.includes('defensive_depth')) return;
+            this.board.neighbours(u.hexId).forEach(nid => {
+                s.units.forEach(f => {
+                    if (f.faction === u.faction && f.hp > 0 && f.hexId === nid) f.status.add(STATUS.OVERWATCH);
+                });
+            });
+        });
+        // HQ Action — a player HQ unit grants one CP-free Order this turn.
+        if ([...s.units.values()].some(u => u.faction === 'player' && u.hp > 0 &&
+            CARD_CATALOG[u.cardId]?.abilities?.includes('hq_action'))) {
+            s.freeOrderUse = Math.max(s.freeOrderUse || 0, 1);
+        }
 
         // Flip event card at start of player action phase
         if (s.phase === 'player_action') {
@@ -413,7 +434,6 @@ class GameEngine {
 
     moveUnit(unitId, targetHexId) {
         const s = this.state;
-        console.log('[MOVE]', unitId, '→', targetHexId, 'phase:', s.phase, 'AP:', s.playerAP);
         if (s.phase !== 'player_action') return { ok: false, error: 'Not player action phase' };
 
         const unit = s.units.get(unitId);
@@ -424,8 +444,8 @@ class GameEngine {
 
         // A single move reaches up to MOV terrain-weighted points, but can never
         // cost more AP than remain — so total movement per turn is bounded by AP.
-        const movBudget = Math.min(unit.mov, s.playerAP) + (s.eventFlags?.move_cost_plus1 ? -1 : 0);
-        const reachable = this.board.reachableHexes(unit.hexId, movBudget, card.unitClass, 'player', s);
+        const movBudget = Math.min(unit.mov + this._carryLift(unit), s.playerAP) + (s.eventFlags?.move_cost_plus1 ? -1 : 0);
+        const reachable = this.board.reachableHexes(unit.hexId, movBudget, card.unitClass, 'player', s, card.abilities);
 
         // AP cost = real distance: the terrain-weighted movement-point cost of the
         // chosen hex. Grinding across hard/impassable terrain costs all remaining AP.
@@ -467,6 +487,7 @@ class GameEngine {
         s.attackRange = null;
 
         this._checkOverwatchTriggers(unit, targetHexId);
+        this._checkAntiAirTriggers(unit, targetHexId);
         this._checkBreakthrough(unit);
         this._notify();
         return { ok: true };
@@ -638,6 +659,12 @@ class GameEngine {
 
         result.log.forEach(l => this._log(l));
 
+        // Rapid/Double fire: a free second volley at the same target (MLRS / arty regiment)
+        if (defender.hp > 0 && (card.abilities?.includes('rapid_fire') || card.abilities?.includes('double_fire'))) {
+            const r2 = this.combat.resolveAttack(attacker, defender, s);
+            r2.log.forEach(l => this._log(l));
+        }
+
         // Veteran promotion
         const promoResult = this.combat.checkVeteranPromotion(attacker, defender);
         if (promoResult && this.onVeteranPromotion) {
@@ -661,8 +688,12 @@ class GameEngine {
             // Initiative
             s.initiative = Math.min(10, s.initiative + 1);
 
-            // Tempo Attack (spend 2 extra AP for 1 bonus attack)
-            // Handled at UI level: user can optionally choose to use tempo after kill
+            // Assault Tempo: a kill refunds 1 AP (max 2/turn)
+            if (CARD_CATALOG[attacker.cardId]?.abilities?.includes('assault_tempo') && (attacker._tempoAP || 0) < 2) {
+                attacker._tempoAP = (attacker._tempoAP || 0) + 1;
+                s.playerAP = Math.min(AP_PER_TURN, s.playerAP + 1);
+                this._log('Assault tempo: +1 AP');
+            }
 
             this._checkVictory();
         }
@@ -799,7 +830,7 @@ class GameEngine {
             case 'scoot':
             case 'rapid_dash': {
                 const maxRange = this._skillRange(unit, skill);
-                const reachable = this.board.reachableHexes(unit.hexId, maxRange, card.unitClass, faction, s);
+                const reachable = this.board.reachableHexes(unit.hexId, maxRange, card.unitClass, faction, s, card.abilities);
                 if (!target.hexId || !reachable.has(target.hexId)) {
                     return { ok: false, error: 'Target out of range' };
                 }
@@ -933,6 +964,7 @@ class GameEngine {
         targetHex.loiteringCountdown = 2;
         targetHex.loiteringOwner = 'player';
         targetHex.loiteringAtk = card.atk;
+        targetHex.loiteringJammable = card.abilities?.includes('jammable');
         unit.hp = 0; // consumed on designation
         s.playerAP -= apCost;
         this._log(`Loitering munition designated at ${targetHexId}, strikes in 2 turns`);
@@ -1121,6 +1153,7 @@ class GameEngine {
                 unit.status.delete(STATUS.FORTIFIED);
                 unit.status.delete(STATUS.OVERWATCH);
                 this._checkOverwatchTriggers(unit, action.targetHex);
+                this._checkAntiAirTriggers(unit, action.targetHex);
                 this._checkBreakthrough(unit);
                 return true;
             }
@@ -1135,6 +1168,12 @@ class GameEngine {
                 if (tHex?.smokeTurns > 0 && dist > 1) return false;
 
                 const result = this.combat.resolveAttack(unit, target, s);
+
+                // Rapid/Double fire: a free second volley at the same target.
+                if (target.hp > 0 && (CARD_CATALOG[unit.cardId]?.abilities?.includes('rapid_fire') ||
+                    CARD_CATALOG[unit.cardId]?.abilities?.includes('double_fire'))) {
+                    this.combat.resolveAttack(unit, target, s);
+                }
 
                 // Opening fire breaks an AI stealth unit's concealment.
                 const aCard = CARD_CATALOG[unit.cardId];
@@ -1157,6 +1196,11 @@ class GameEngine {
                     s.aiVP += vp;
                     s.initiative = Math.max(0, s.initiative - 1);
                     if (vp > 0) this._log(`Enemy +${vp} VP for destroying ${target.displayName}`);
+                    // Assault Tempo: a kill refunds the AI 1 action point (max 2/turn)
+                    if (CARD_CATALOG[unit.cardId]?.abilities?.includes('assault_tempo') && (unit._tempoAP || 0) < 2) {
+                        unit._tempoAP = (unit._tempoAP || 0) + 1;
+                        if (this.ai) this.ai._apRemaining = (this.ai._apRemaining || 0) + 1;
+                    }
                     this._checkVictory();
                 }
                 this._checkWaveSpawn(unit);
@@ -1175,6 +1219,7 @@ class GameEngine {
                 targetHex.loiteringCountdown = 2;
                 targetHex.loiteringOwner = 'ai';
                 targetHex.loiteringAtk = CARD_CATALOG[unit.cardId]?.atk || 4;
+                targetHex.loiteringJammable = CARD_CATALOG[unit.cardId]?.abilities?.includes('jammable');
                 unit.hp = 0;
                 return true;
             }
@@ -1397,6 +1442,14 @@ class GameEngine {
             }
         });
 
+        // Fragile: a unit (recon drone) with an enemy adjacent at end of turn is overrun.
+        s.units.forEach(u => {
+            if (u.hp <= 0 || !CARD_CATALOG[u.cardId]?.abilities?.includes('fragile')) return;
+            const enemyAdj = this.board.neighbours(u.hexId).some(nid =>
+                [...s.units.values()].some(e => e.faction !== u.faction && e.hp > 0 && e.hexId === nid));
+            if (enemyAdj) { u.hp = 0; this._log(`${u.displayName} (fragile) overrun and destroyed`); }
+        });
+
         // VP scoring + objective-hold streak + alternate win checks — once per
         // full turn, after the AI phase (objective control is fresh).
         if (faction === 'ai') {
@@ -1413,6 +1466,7 @@ class GameEngine {
             u.activationsThisTurn = 0;
             u.movedThisTurn = false;
             u._humanWaveBonus = false;
+            u._tempoAP = 0;
         });
 
         // Clear free-use flags
@@ -1561,7 +1615,9 @@ class GameEngine {
     // Progress toward every win condition, for the HUD + win checks.
     victoryProgress() {
         const s = this.state;
-        const alive = f => [...s.units.values()].filter(u => u.faction === f && u.hp > 0).length;
+        const forceValue = f => [...s.units.values()]
+            .filter(u => u.faction === f && u.hp > 0)
+            .reduce((sum, u) => sum + (CARD_CATALOG[u.cardId]?.rp || 1), 0);
         const groundOn = (faction, hid) => [...s.units.values()].some(u =>
             u.faction === faction && u.hp > 0 && u.hexId === hid &&
             CARD_CATALOG[u.cardId]?.unitClass !== UNIT_CLASS.DRONE);
@@ -1573,13 +1629,13 @@ class GameEngine {
         for (const side of ['player', 'ai']) {
             const foe = side === 'player' ? 'ai' : 'player';
             const startFoe = s.startForce[foe] || 0;
-            const foeAlive = alive(foe);
+            const foeValue = forceValue(foe);
             const enemyRim = (foe === 'player' ? s.rearHexIds?.player : s.rearHexIds?.ai) || [];
             const rimHeld = enemyRim.filter(hid => groundOn(side, hid)).length;
             const objHeld = contested.filter(h => h.controlledBy === side).length;
             out[side] = {
-                foeAlive, foeStart: startFoe,
-                attritionWin: startFoe >= 4 && foeAlive <= Math.ceil(startFoe * 0.25),
+                foeValue, foeStartValue: startFoe,
+                attritionWin: startFoe >= 16 && foeValue <= Math.ceil(startFoe * 0.25),
                 rimHeld, rimNeed: 3, breakthroughWin: rimHeld >= 3,
                 objHeld, objNeed: holdNeed, holdStreak: s.holdStreak[side] || 0,
                 holdWin: contested.length > 0 && (s.holdStreak[side] || 0) >= 3
@@ -1664,6 +1720,46 @@ class GameEngine {
         });
     }
 
+    // Anti-air reaction: an enemy drone moving into the range of an IGLA/ZU-23
+    // (anti_air_reaction) draws a free shot — unless a friendly recon_shield
+    // umbrella is nearby. Called when a DRONE moves.
+    _checkAntiAirTriggers(drone, hexId) {
+        const s = this.state;
+        if (CARD_CATALOG[drone.cardId]?.unitClass !== UNIT_CLASS.DRONE || drone.hp <= 0) return;
+        const shielded = [...s.units.values()].some(u => u.faction === drone.faction && u.hp > 0 &&
+            CARD_CATALOG[u.cardId]?.abilities?.includes('recon_shield') &&
+            this.board.hexDistance(u.hexId, hexId) <= 5);
+        if (shielded) return;
+        for (const u of s.units.values()) {
+            if (u.faction === drone.faction || u.hp <= 0) continue;
+            if (!CARD_CATALOG[u.cardId]?.abilities?.includes('anti_air_reaction')) continue;
+            if (this.board.hexDistance(u.hexId, hexId) <= u.rng) {
+                const dmg = this._rollAA(u);
+                drone.hp = Math.max(0, drone.hp - dmg);
+                this._log(`Anti-air: ${u.displayName} fires at ${drone.displayName} for ${dmg} dmg`);
+                break; // one reaction per move
+            }
+        }
+    }
+
+    _rollAA(unit) {
+        // Aircraft get no terrain save: simple atk-vs-4+ dice (reuse combat roller)
+        return this.combat._rollDice(Math.max(0, unit.atk), 4, 7).damage;
+    }
+
+    // Mechanized lift: infantry beside a friendly carrier/transport (BTR/IFV)
+    // ride forward — +1 MOV. (Activates the carrier/transport abilities without
+    // a load/unload UI: the vehicle's value is moving infantry faster.)
+    _carryLift(unit) {
+        if (CARD_CATALOG[unit.cardId]?.unitClass !== UNIT_CLASS.INFANTRY) return 0;
+        const adj = this.board.neighbours(unit.hexId);
+        const lifted = [...this.state.units.values()].some(u => u.faction === unit.faction && u.hp > 0 &&
+            adj.includes(u.hexId) &&
+            (CARD_CATALOG[u.cardId]?.abilities?.includes('carrier') ||
+             CARD_CATALOG[u.cardId]?.abilities?.includes('transport')));
+        return lifted ? 1 : 0;
+    }
+
     // One-time +2 VP for the first ground unit to enter the enemy rear (board
     // rim on their side — the spawn bands sit at the front and don't count)
     _checkBreakthrough(unit) {
@@ -1704,6 +1800,14 @@ class GameEngine {
         const atk = hex.loiteringAtk || 4;
         const ownerFaction = hex.loiteringOwner || 'player';
         const enemyFaction = ownerFaction === 'player' ? 'ai' : 'player';
+
+        // Jammable: enemy EW that moved over the target during the countdown
+        // cancels the strike (Switchblade lost the link).
+        if (hex.loiteringJammable && s.ewZones?.get(hexId)?.has(enemyFaction)) {
+            hex.loiteringCountdown = 0; hex.loiteringOwner = null; hex.loiteringJammable = false;
+            this._log(`Loitering strike at ${hexId} jammed by EW — link lost`);
+            return;
+        }
 
         s.units.forEach(u => {
             if (u.faction === enemyFaction && u.hexId === hexId && u.hp > 0) {
@@ -1770,8 +1874,8 @@ class GameEngine {
         if (unit.faction === 'player' && s.phase === 'player_action') {
             // Highlight only hexes the unit can both reach (MOV) and afford (AP);
             // labels show the AP cost of each reachable hex.
-            const movBudget = Math.min(unit.mov, s.playerAP);
-            const reachable = this.board.reachableHexes(unit.hexId, movBudget, card.unitClass, 'player', s);
+            const movBudget = Math.min(unit.mov + this._carryLift(unit), s.playerAP);
+            const reachable = this.board.reachableHexes(unit.hexId, movBudget, card.unitClass, 'player', s, card.abilities);
             s.moveRange = reachable;
             s.grindRange = this.board.escapeHexes(unit.hexId, 'player', s, reachable);
 

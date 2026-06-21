@@ -26,15 +26,12 @@ const ABILITY_LABELS = {
     suppressive_fire:    ['Suppressive',       'Always applies SUPPRESSED on hit (target loses 1 AP next turn)'],
     suppress_on_hit:     ['Suppressor',        'Every hit also applies SUPPRESSED to target'],
     ignore_light_cover:  ['Ignore Cover',      'DEF bonus from forests and light terrain is ignored'],
-    dual_role:           ['Dual Role',         'Can attack ground or air targets in the same turn'],
     area_suppression:    ['Area Suppression',  'Applies SUPPRESSED to ALL units in target hex'],
     breakthrough:        ['Breakthrough',      '+2 ATK when target is already SUPPRESSED'],
-    shoot_and_scoot:     ['Shoot & Scoot',     'Can move 1 hex after firing at no additional AP cost'],
     nato_ammo:           ['NATO Ammo',         '+1 ATK (die) vs tracked armor'],
     wave_bonus:          ['Wave Bonus',        '+1 ATK per adjacent friendly infantry unit'],
     pack_bonus:          ['Pack Bonus',        '+1 ATK when 2 or more friendly units are adjacent'],
     human_wave_aura:     ['Human Wave Aura',   'Adjacent friendlies gain +1 ATK on all assaults'],
-    sabotage_order:      ['Sabotage',          'Can use the Sabotage special order once per match'],
     // Defense
     reactive_armor:      ['Reactive Armor',    'First incoming attack each turn is halved (T-90 only)'],
     mine_immune_first:   ['Mine Immunity',     'Ignores the first mine detonation triggered'],
@@ -51,14 +48,12 @@ const ABILITY_LABELS = {
     permanent_isr:       ['Permanent ISR',     'Always provides Intel Zone regardless of movement or status'],
     arty_spotter:        ['Arty Spotter',      'Adjacent artillery gains +1 ATK and ignores terrain cover'],
     arty_relay:          ['Arty Relay',        'Any friendly artillery on the board gains a targeting bonus'],
-    video_feed:          ['Video Feed',        'On entering enemy hex and surviving: opponent reveals 1 hand card'],
     deep_recon:          ['Deep Recon',        'Can enter enemy spawn zone; reveals all units there for 1 turn'],
     night_raid:          ['Night Raid',        'Ignores all night-time penalties to range and accuracy'],
     // EW
     ew_jamming:          ['EW Jamming',        'Creates EW zone: drones lose range, artillery accuracy −30%'],
     starlink_passive:    ['Starlink Passive',  'First enemy comms disruption each match is negated'],
     comms_disruption:    ['Comms Disruption',  'Costs opponent 1 CP per turn while this unit is alive'],
-    zone_denial_passive: ['Zone Denial',       'Enemy units entering this hex are immediately SUPPRESSED'],
     // Drones
     fpv_intercept:       ['IGLA Intercept',    'Free reaction: shoots down 1 enemy drone per turn'],
     anti_air_reaction:   ['Anti-Air',          'Reaction shot vs any drone that enters attack range'],
@@ -67,15 +62,12 @@ const ABILITY_LABELS = {
     // Logistics
     can_depot:           ['DEPOT Mode',        '1AP: enter DEPOT — extends supply range +3 for all adjacent allies'],
     supply_run:          ['Supply Run',        'Counts as a supply source even in enemy territory'],
-    weapon_mount:        ['Weapon Mount',      'Carries light weapons — can attack while in DEPOT mode'],
-    carrier:             ['Carrier',           'Can transport 1 infantry unit across the map'],
-    transport:           ['Transport',         'Can carry 2 infantry units at once'],
+    carrier:             ['Carrier',           'Mechanized lift: adjacent friendly infantry gain +1 MOV'],
+    transport:           ['Transport',         'Mechanized lift: adjacent friendly infantry gain +1 MOV'],
     // Special
     fragile:             ['Fragile',           'Destroyed if any enemy ends a turn adjacent to this unit'],
     no_fortify:          ['No Fortify',        'This unit cannot dig in or take FORTIFIED status'],
     mine_layer:          ['Mine Layer',        '1AP: place hidden mines on current hex'],
-    mine_coordination:   ['Mine Coordination', 'Mortar rounds that land near mines trigger chain detonation'],
-    stealth_mine:        ['Stealth Mines',     'Mines placed are hidden from opponent until triggered'],
     ambush:              ['Ambush',            'First attack each turn from this hex ignores all defender DEF'],
     combined_arms:       ['Combined Arms',     '+1 ATK when adjacent to a unit of a different class'],
     assault_tempo:       ['Assault Tempo',     'Each kill grants 1 free AP immediately (max 2 per turn)'],
@@ -121,6 +113,17 @@ class GameUI {
     // ── Setup Screen ─────────────────────────────────────────────────────────
 
     initSetupScreen() {
+        // Battlefield point passed from the main map (Tools → Game): pre-fill the
+        // coordinate inputs so the battle loads centered on the clicked location.
+        const params = new URLSearchParams(location.search);
+        const urlLat = parseFloat(params.get('lat')), urlLng = parseFloat(params.get('lng'));
+        if (Number.isFinite(urlLat) && Number.isFinite(urlLng)) {
+            const latEl = document.getElementById('input-lat'), lngEl = document.getElementById('input-lng');
+            if (latEl) latEl.value = urlLat.toFixed(2);
+            if (lngEl) lngEl.value = urlLng.toFixed(2);
+            this._coordsFromUrl = true;
+        }
+
         // Faction buttons
         document.querySelectorAll('.faction-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -290,9 +293,10 @@ class GameUI {
                     btn.title = `Snapped to the current front: ${best[0].toFixed(2)}, ${best[1].toFixed(2)}`;
                 }
             });
-            // If the user hasn't touched the inputs, point them at a live preset
+            // If the user hasn't touched the inputs (and no point came from the
+            // main map), point them at a live preset.
             const first = document.querySelector('.preset-btn[data-lat]');
-            if (first &&
+            if (first && !this._coordsFromUrl &&
                 document.getElementById('input-lat').value === defaults.lat &&
                 document.getElementById('input-lng').value === defaults.lng) {
                 const pokrovsk = [...document.querySelectorAll('.preset-btn')]
@@ -593,11 +597,11 @@ class GameUI {
         const vEl = document.getElementById('hud-victory');
         if (vEl && state.phase === 'player_action' && this.engine.victoryProgress) {
             const p = this.engine.victoryProgress().player;
-            const forcePct = p.foeStart ? Math.round(p.foeAlive / p.foeStart * 100) : 100;
+            const forcePct = p.foeStartValue ? Math.round(p.foeValue / p.foeStartValue * 100) : 100;
             vEl.innerHTML =
                 `<span class="vc" title="Hold 3 enemy rear hexes for a Breakthrough win">🚩 ${p.rimHeld}/${p.rimNeed}</span>` +
                 `<span class="vc" title="Hold ${p.objNeed} objectives for 3 turns to win (streak ${p.holdStreak}/3)">★ ${p.objHeld}/${p.objNeed}·${p.holdStreak}/3</span>` +
-                `<span class="vc" title="Reduce enemy to 25% force for an Attrition win">💀 ${forcePct}%</span>`;
+                `<span class="vc" title="Reduce the enemy to 25% of their starting force strength (by unit value) for an Attrition win">💀 ${forcePct}%</span>`;
         }
 
         // Weather icon
@@ -1151,7 +1155,7 @@ class GameUI {
             return;
         }
 
-        const reach = board.reachableHexes(hexId, card.mov, card.unitClass, 'player', state);
+        const reach = board.reachableHexes(hexId, card.mov, card.unitClass, 'player', state, card.abilities);
         state.moveRange = reach;
         state.grindRange = board.escapeHexes(hexId, 'player', state, reach);
         // Draw move/grind cost labels on the non-interactive effect layer only —

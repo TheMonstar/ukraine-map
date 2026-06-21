@@ -235,7 +235,7 @@ class HexBoard {
     }
 
     // BFS reachable hexes within AP budget given terrain costs
-    reachableHexes(fromHexId, apBudget, unitClass, playerFaction, gameState) {
+    reachableHexes(fromHexId, apBudget, unitClass, playerFaction, gameState, abilities = []) {
         const result = new Map(); // hexId → apCost
         const queue = [{ id: fromHexId, cost: 0 }];
         const visited = new Map([[fromHexId, 0]]);
@@ -247,7 +247,7 @@ class HexBoard {
             this.neighbours(id).forEach(nid => {
                 const hex = this.hexes.get(nid);
                 if (!hex) return;
-                const moveCost = this._moveCost(hex, unitClass, gameState);
+                const moveCost = this._moveCost(hex, unitClass, gameState, abilities);
                 const newCost = cost + moveCost;
                 if (newCost <= apBudget && (!visited.has(nid) || visited.get(nid) > newCost)) {
                     visited.set(nid, newCost);
@@ -285,16 +285,20 @@ class HexBoard {
         return count >= limit;
     }
 
-    _moveCost(hex, unitClass, gameState) {
+    _moveCost(hex, unitClass, gameState, abilities = []) {
         // Drones fly: flat cost, no terrain/river/mud penalties
         if (unitClass === UNIT_CLASS.DRONE) return 1;
         const terrain = TERRAIN_RULES[hex.terrainType] || TERRAIN_RULES.open;
         let cost = terrain.moveCost || 1;
-        if (hex.overlays.has('road_paved') || hex.overlays.has('road_motorway')) {
-            cost = Math.max(0, cost - 1);
+        const onRoad = hex.overlays.has('road_paved') || hex.overlays.has('road_motorway');
+        if (onRoad) cost = Math.max(0, cost - 1);
+        if (onRoad && abilities.includes('road_bonus')) cost = Math.max(1, cost - 1); // faster on roads
+        const amphibious = abilities.includes('amphibious');
+        if (hex.overlays.has('river_minor') && !amphibious) cost += 2;
+        if (hex.overlays.has('river_major') && !hex.hasBridge) {
+            if (amphibious) cost += 2;   // crosses rivers freely (at a cost), not blocked
+            else return 99;              // impassable
         }
-        if (hex.overlays.has('river_minor')) cost += 2;
-        if (hex.overlays.has('river_major') && !hex.hasBridge) return 99; // impassable
         if (unitClass === UNIT_CLASS.WHEELED && terrain.noWheeled) return 99;
         if (gameState?.mudTurns > 0 && !hex.hasRoad) cost += 1;
         return Math.max(1, cost);

@@ -95,7 +95,7 @@ const CARD_CATALOG = {
         tier: TIER.C, unitClass: UNIT_CLASS.DRONE,
         size: 1,
         hp: 1, atk: 0, def: 0, mov: 5, rng: 8, rp: 3,
-        abilities: ['recon_reveal', 'intel_zone', 'arty_spotter', 'video_feed', 'fragile'],
+        abilities: ['recon_reveal', 'intel_zone', 'arty_spotter', 'fragile'],
         iconPath: '../images/ua/icon-44.png',
         desc: 'DJI Mavic / Autel commercial drone. Attack action = recon pass: reveals every enemy within range 8 (stationary snipers/SF in hides stay hidden). Passive Intel Zone covers its full range. Fragile: dies on any hit.'
     },
@@ -114,10 +114,10 @@ const CARD_CATALOG = {
         tier: TIER.C, unitClass: UNIT_CLASS.INFANTRY,
         size: 1,
         hp: 3, atk: 4, def: 1, mov: 2, rng: 5, rp: 5,
-        abilities: ['indirect_fire', 'mine_coordination', 'setup_req'],
+        abilities: ['indirect_fire', 'setup_req'],
         active: 'illumination',
         iconPath: '../images/ua/icon-18.png',
-        desc: '120mm mortar team. Indirect fire — ignores LoS. Setup required: cannot fire if moved this turn. Mine coordination: mortar rounds triggering nearby mines cause chain detonation.'
+        desc: '120mm mortar team. Indirect fire — ignores LoS. Setup required: cannot fire if moved this turn.'
     },
     ua_bike: {
         id: 'ua_bike', faction: 'ua', name: 'Bike Infantry',
@@ -143,10 +143,10 @@ const CARD_CATALOG = {
         tier: TIER.C, unitClass: UNIT_CLASS.WHEELED,
         size: 2,
         hp: 4, atk: 3, def: 1, mov: 4, rng: 2, rp: 4,
-        abilities: ['supply_run', 'can_depot', 'weapon_mount'],
+        abilities: ['supply_run', 'can_depot'],
         active: 'field_resupply',
         iconPath: '../images/ua/icon-5.png',
-        desc: 'Armed pickup truck (Hilux / Humvee). Supply run: removes Suppressed from adjacent friendlies. DEPOT mode: extends supply +3 hex. Weapon mount: can attack while in DEPOT.'
+        desc: 'Armed pickup truck (Hilux / Humvee). Supply run: removes Suppressed from adjacent friendlies. DEPOT mode: extends supply +3 hex.'
     },
     ua_drg: {
         id: 'ua_drg', faction: 'ua', name: 'DRG (Recon-Strike)',
@@ -166,7 +166,7 @@ const CARD_CATALOG = {
         abilities: ['anti_infantry', 'combined_arms', 'can_depot', 'transport'],
         active: 'smoke_screen',
         iconPath: '../images/ua/icon-4.png',
-        desc: 'M2 Bradley / Marder IFV. 25mm autocannon devastates infantry (+2 dice vs INFANTRY) — but no edge vs armor, so a tank out-trades it. Combined arms: adjacent infantry +1 DEF. DEPOT capable. Transports 1 infantry unit.'
+        desc: 'M2 Bradley / Marder IFV. 25mm autocannon devastates infantry (+2 dice vs INFANTRY) — but no edge vs armor, so a tank out-trades it. Combined arms: +1 ATK beside a different-class friendly. DEPOT capable. Mechanized lift: adjacent infantry +1 MOV.'
     },
     ua_isr_drone: {
         id: 'ua_isr_drone', faction: 'ua', name: 'ISR Drone (Bayraktar)',
@@ -211,7 +211,7 @@ const CARD_CATALOG = {
         tier: TIER.U, unitClass: UNIT_CLASS.VEHICLE,
         size: 3,
         hp: 6, atk: 7, def: 1, mov: 1, rng: 8, rp: 9,
-        abilities: ['precision_fire', 'shoot_and_scoot', 'counter_battery', 'indirect_fire'],
+        abilities: ['precision_fire', 'counter_battery', 'indirect_fire'],
         active: 'scoot',
         iconPath: '../images/ua/icon-18.png',
         desc: 'M777 howitzer / Caesar wheeled SPH. Precision fire: ignores terrain DEF if target ISR-spotted. Shoot & scoot: move 1 hex after firing. Counter-battery: free return fire vs enemy arty. 155mm — ATK 7.'
@@ -221,7 +221,7 @@ const CARD_CATALOG = {
         tier: TIER.U, unitClass: UNIT_CLASS.INFANTRY,
         size: 1,
         hp: 6, atk: 5, def: 3, mov: 3, rng: 2, rp: 7,
-        abilities: ['deep_recon', 'sabotage_order', 'exfil', 'ambush', 'stealth_stationary'],
+        abilities: ['deep_recon', 'exfil', 'ambush', 'stealth_stationary'],
         active: 'sabotage',
         iconPath: '../images/ua/icon-6.png',
         desc: 'Ukraine SOF (SSO). Highly trained, small signature. Deep recon: can enter enemy spawn zone. Sabotage: disable enemy DEPOT/EW (1 AP). Ambush on first strike. Invisible to drones when stationary.'
@@ -307,10 +307,10 @@ const CARD_CATALOG = {
         tier: TIER.C, unitClass: UNIT_CLASS.INFANTRY,
         size: 1,
         hp: 3, atk: 4, def: 1, mov: 2, rng: 5, rp: 5,
-        abilities: ['indirect_fire', 'stealth_mine'],
+        abilities: ['indirect_fire'],
         active: 'illumination',
         iconPath: '../images/ru/icon-7.png',
-        desc: '82mm / 120mm mortar team. Indirect fire. Stealth mine: lay concealed mines (1 AP) — hidden from enemy until triggered. Russia uses mine-laying extensively as area denial.'
+        desc: '82mm / 120mm mortar team. Indirect fire — ignores LoS. Illumination negates the night to-hit penalty in a radius.'
     },
     ru_recon: {
         id: 'ru_recon', faction: 'ru', name: 'Recon Drone (Orlan-10)',
@@ -348,16 +348,16 @@ const CARD_CATALOG = {
         abilities: ['anti_infantry', 'carrier', 'suppressive_fire', 'can_depot'],
         active: 'smoke_screen',
         iconPath: '../images/ru/icon-6.png',
-        desc: 'BTR-82A wheeled APC. 30mm autocannon shreds infantry (+2 dice vs INFANTRY) but no edge vs armor. Carrier: transports 1 infantry. Suppressive fire. DEPOT capable. Wheeled — fast on roads, vulnerable in broken terrain.'
+        desc: 'BTR-82A wheeled APC. 30mm autocannon shreds infantry (+2 dice vs INFANTRY) but no edge vs armor. Carrier: adjacent infantry +1 MOV (mechanized lift). Suppressive fire. DEPOT capable. Wheeled — fast on roads, vulnerable in broken terrain.'
     },
     ru_lancet: {
         id: 'ru_lancet', faction: 'ru', name: 'Lancet-3 Loitering',
         tier: TIER.U, unitClass: UNIT_CLASS.DRONE,
         size: 1,
         hp: 2, atk: 5, def: 0, mov: 0, rng: 5, rp: 7,
-        abilities: ['delayed_strike', 'anti_armor', 'zone_denial_passive', 'interceptable'],
+        abilities: ['delayed_strike', 'anti_armor', 'interceptable'],
         iconPath: '../images/ru/icon-53.png',
-        desc: 'Lancet-3 anti-armor loitering munition — Russia\'s most effective drone weapon. Designate hex, strikes for 5 ATK (+2 vs armored) after 2 turns. Zone denial. Interceptable. Most feared by UA forces.'
+        desc: 'Lancet-3 anti-armor loitering munition — Russia\'s most effective drone weapon. Designate hex, strikes for 5 ATK (+2 vs armored) after 2 turns. Interceptable. Most feared by UA forces.'
     },
     ru_tank_72: {
         id: 'ru_tank_72', faction: 'ru', name: 'Tank T-72B3 / T-80',
@@ -394,7 +394,7 @@ const CARD_CATALOG = {
         tier: TIER.U, unitClass: UNIT_CLASS.VEHICLE,
         size: 2,
         hp: 5, atk: 4, def: 2, mov: 2, rng: 4, rp: 6,
-        abilities: ['dual_role', 'area_suppression', 'anti_air_reaction'],
+        abilities: ['area_suppression', 'anti_air_reaction'],
         iconPath: '../images/ru/icon-14.png',
         desc: 'ZU-23-2 AA gun / Tunguska system. ATK 4 dual-role vs infantry AND drones. Area suppression hits all units in target hex. Anti-air reaction. Russia fields these extensively for drone defence.'
     },

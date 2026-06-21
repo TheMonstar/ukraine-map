@@ -83,7 +83,7 @@ class AIOpponent {
 
         // The player is one step from a win → drop everything and disrupt.
         if (foe.holdStreak >= 2 || foe.breakthroughWin || foe.rimHeld >= 2 ||
-            (foe.foeStart >= 4 && foe.foeAlive <= Math.ceil(foe.foeStart * 0.4))) {
+            (foe.foeStartValue >= 16 && foe.foeValue <= Math.ceil(foe.foeStartValue * 0.4))) {
             return 'counter';
         }
         // Faction temperament: RU presses/breaks through (mass, tempo); UA holds
@@ -92,7 +92,7 @@ class AIOpponent {
         const ru = gameState.aiFaction === 'ru';
 
         // Enemy nearly destroyed → finish them.
-        if (me.foeStart >= 4 && me.foeAlive <= Math.ceil(me.foeStart * 0.4)) return 'press';
+        if (me.foeStartValue >= 16 && me.foeValue <= Math.ceil(me.foeStartValue * 0.4)) return 'press';
         // Close to a Hold win → garrison what we have (UA leans into this earlier).
         if (me.objNeed > 0 && me.objHeld >= me.objNeed - (ru ? 1 : 0)) return 'hold';
         // Penetration lane → breakthrough is an RU specialty.

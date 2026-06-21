@@ -45,12 +45,23 @@ class CombatResolver {
             log.push('Critical hit: target Suppressed');
         }
 
-        // Sniper suppresses on any wound
-        if (attackerCard?.abilities?.includes('suppress_on_hit') && damage > 0 &&
+        // Suppress on any wound — snipers (suppress_on_hit) and autocannon
+        // infantry carriers / motorized (suppressive_fire)
+        if ((attackerCard?.abilities?.includes('suppress_on_hit') ||
+             attackerCard?.abilities?.includes('suppressive_fire')) && damage > 0 &&
             !statusApplied.includes('suppressed')) {
             this._applySuppress(defender);
             statusApplied.push('suppressed');
-            log.push('Suppressed on hit (sniper)');
+            log.push('Suppressed on hit');
+        }
+
+        // Area suppression: pin every enemy on the target hex (ZU-23 etc.) on a hit
+        if (attackerCard?.abilities?.includes('area_suppression') && dice.hits > 0) {
+            this.unitsOnHex(defender.hexId, gameState).forEach(u => {
+                if (u.faction !== attacker.faction && u.hp > 0) this._applySuppress(u);
+            });
+            if (!statusApplied.includes('suppressed')) statusApplied.push('suppressed');
+            log.push('Area suppression: hex pinned');
         }
 
         // Mine entry damage
@@ -75,6 +86,16 @@ class CombatResolver {
                 overwatchReturn = ow.damage;
                 log.push(`Overwatch return fire: ${ow.damage} dmg`);
             }
+        }
+
+        // Counter-battery: artillery hit by enemy indirect fire returns fire for free
+        if (defender.hp > 0 && defenderCard?.abilities?.includes('counter_battery') &&
+            attackerCard?.abilities?.includes('indirect_fire')) {
+            const cbSave = this._saveTarget(attacker, attackerHex, defenderCard, gameState);
+            const cb = this._rollDice(Math.max(0, defender.atk), 4, cbSave);
+            attacker.hp = Math.max(0, attacker.hp - cb.damage);
+            if (overwatchReturn == null) overwatchReturn = cb.damage;
+            log.push(`Counter-battery return fire: ${cb.damage} dmg`);
         }
 
         // Veteran XP tracking
@@ -132,6 +153,17 @@ class CombatResolver {
             !attacker.status.has(STATUS.RECON_SPOTTED)) {
             dice += 1;
             log.push('+1 die concealed shot');
+        }
+        // Precision optics: +1 die against an ISR-spotted target
+        if (attackerCard?.abilities?.includes('precision_optics') && defender.status.has(STATUS.RECON_SPOTTED)) {
+            dice += 1;
+            log.push('+1 die precision optics');
+        }
+        // Combined arms: +1 die when supported by an adjacent friendly of a different class
+        if (attackerCard?.abilities?.includes('combined_arms') &&
+            this._hasAdjacentDifferentClass(attacker, attackerCard.unitClass, gameState)) {
+            dice += 1;
+            log.push('+1 die combined arms');
         }
         const packThreshold = this._doctrine(attacker, gameState) === 'ru_mass' ? 2 : 3;
         if (attackerCard?.abilities?.includes('pack_bonus') &&
@@ -191,7 +223,7 @@ class CombatResolver {
         if (gameState.timeOfDay === 'night' && !(defenderHex?.illuminatedTurns > 0)) {
             if (attackerCard?.abilities?.includes('night_hunter')) {
                 hitTarget -= 1; log.push('Night hunter: −1 to-hit');
-            } else if (attacker.faction !== 'player') {
+            } else if (attacker.faction !== 'player' && !attackerCard?.abilities?.includes('night_raid')) {
                 hitTarget += 1; log.push('Night: +1 to-hit');
             }
         }
@@ -232,6 +264,13 @@ class CombatResolver {
             this._hasAdjacentClass(unit, UNIT_CLASS.TRACKED, unit.faction, gameState)) bonus += 1;
         if (card?.abilities?.includes('hull_down') && hex?.terrainType === 'ridgeline') bonus += 2;
         if (card?.abilities?.includes('home_ground') && hex?.terrainType?.startsWith('settlement')) bonus += 1;
+        // Armored: harder for infantry to hurt. Trench DEF: dug in on hard cover.
+        // Settlement Hold / Hold the Line: entrenched on built-up / objective ground.
+        if (card?.abilities?.includes('armor_class') && attackerCard?.unitClass === UNIT_CLASS.INFANTRY) bonus += 1;
+        if (card?.abilities?.includes('trench_def') && unit.status.has(STATUS.FORTIFIED) &&
+            (hex?.terrainType?.startsWith('settlement') || hex?.terrainType?.startsWith('forest'))) bonus += 2;
+        if (card?.abilities?.includes('settlement_hold') && hex?.terrainType?.startsWith('settlement')) bonus += 1;
+        if (card?.abilities?.includes('hold_the_line') && hex?.isObjective) bonus += 1;
         if (this._hasMechBrigadeAdjacent(unit, gameState)) bonus += 1;
         bonus = Math.min(bonus, 3); // cap stacked bonuses, per 1b
 
@@ -491,6 +530,16 @@ class CombatResolver {
             if (u.faction === faction && u.hp > 0 && neighbours.includes(u.hexId)) {
                 if (CARD_CATALOG[u.cardId]?.unitClass === cls) return true;
             }
+        }
+        return false;
+    }
+
+    _hasAdjacentDifferentClass(unit, myClass, gameState) {
+        const neighbours = this.board.neighbours(unit.hexId);
+        for (const u of gameState.units.values()) {
+            const cls = CARD_CATALOG[u.cardId]?.unitClass;
+            if (u.faction === unit.faction && u.hp > 0 && u.id !== unit.id &&
+                neighbours.includes(u.hexId) && cls && cls !== myClass) return true;
         }
         return false;
     }
@@ -755,7 +804,7 @@ window.FRONTLINE_DEV = {
             if (d <= u.rng && d >= 1) {
                 eng.attackUnit(u.id, t.hexId);
             } else if (u.mov > 0) {
-                const reach = eng.board.reachableHexes(u.hexId, u.mov, card.unitClass, 'player', s);
+                const reach = eng.board.reachableHexes(u.hexId, u.mov, card.unitClass, 'player', s, card.abilities);
                 // Fall back to a grind escape if no normal move exists, so a unit
                 // on hard terrain never stalls the sim.
                 const options = reach.size ? [...reach.keys()]

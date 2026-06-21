@@ -3058,6 +3058,10 @@ class UiBindings {
             dashboard.toggleRulerTool();
         });
 
+        dashboard.bindUI('game-tool', 'change', () => {
+            dashboard.toggleGameTool();
+        });
+
         dashboard.bindUI('load-image-overlay', 'click', () => {
             dashboard.loadImageOverlay();
         });
