@@ -785,14 +785,17 @@ body {
 
 /* ---- Attack Labels ---- */
 .attack-label {
-    background-color: rgba(255, 255, 255, 0.9);
-    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.95);
+    border-radius: 14px;
     font-weight: bold;
     text-align: center;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+    padding: 0 7px;
+    white-space: nowrap;
+    box-sizing: border-box;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
 }
 
 .attack-label.border-red {

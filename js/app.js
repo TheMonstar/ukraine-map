@@ -17,9 +17,9 @@ class AttackMapDashboard {
         this.regionCoordinates = {
             'Kharkiv': [49.9, 36.25],
             'Kupiansk': [49.8, 37.9],
-            'Lyman': [48.9, 37.4],
+            'Lyman': [49.2, 37.4],
             'Siversk': [48.85, 37.9],
-            'Kramatorsk': [48.7, 37.5],
+            'Kramatorsk': [48.6, 37.5],
             'Toretsk': [48.3, 38.0],
             'Pokrovsk': [48.1, 37.3],
             'Novopavlivka': [47.8, 36.8],
@@ -2198,6 +2198,7 @@ class AttackMapDashboard {
                             const unionedGeojson = deepUtils.unionList(geojsons);
 
                             if (unionedGeojson) {
+                                const sliceFlag = group.polygons.find(p => p.showArea);
                                 optimizedPolygons.push({
                                     geojson: unionedGeojson,
                                     style: group.style,
@@ -2208,7 +2209,10 @@ class AttackMapDashboard {
                                         optimized: true,
                                         originalCount: group.polygons.length
                                     },
-                                    type: `unioned-${colorKey}`
+                                    type: `unioned-${colorKey}`,
+                                    showArea: !!sliceFlag,
+                                    isLoss: sliceFlag?.isLoss,
+                                    sliceLabel: sliceFlag?.sliceLabel
                                 });
                                 console.log(`Unioned ${group.polygons.length} polygons of color ${colorKey}`);
                             } else {
@@ -3653,7 +3657,7 @@ class AttackMapDashboard {
 
 
         // Add region attack labels
-        if (this.isChecked('show-regions')) {
+        if (this.isChecked('show-regions') || this.isChecked('source-gsua-direction')) {
             this.addRegionLabels(stats, filteredData);
         }
 
@@ -3675,27 +3679,84 @@ class AttackMapDashboard {
      * Add region attack labels to map
      */
     addRegionLabels(stats, filteredData) {
+        // When diff slices are active, compare the most recent slice against the
+        // average of the previous slices, per region.
+        const sliceCompare = this.getRegionSliceComparison();
+        const dataSize = filteredData.directionData.length;
+
         Object.keys(this.regionCoordinates).forEach(region => {
             if (this.isChecked('snap-regions') && this.selectRegions.length && !this.selectRegions.includes(region)) return;
-            if (stats.regions[region] !== undefined && stats.regions[region] > 0) {
-                const attackCount = stats.regions[region];
-                const coordinates = this.regionCoordinates[region];
-                const dataSize = filteredData.directionData.length;
 
-                const size = 30 + Math.min(attackCount / dataSize * 0.5, 30);
-                const color = this.getAttackColor(attackCount / dataSize);
+            const recent = sliceCompare ? (sliceCompare.recent[region] || 0) : stats.regions[region];
+            const previousAvg = sliceCompare ? (sliceCompare.previousAvg[region] || 0) : null;
 
-                const attackIcon = L.divIcon({
-                    className: `attack-label border-${color}`,
-                    html: `<div style="width:${size}px; height:${size}px; line-height:${size}px; font-size:${size / 2}px;">${attackCount}</div>`,
-                    iconSize: [size, size],
-                    iconAnchor: [size / 2, size / 2]
-                });
+            if (recent === undefined || (recent <= 0 && !(previousAvg > 0))) return;
 
-                const marker = L.marker(coordinates, { icon: attackIcon });
-                this.markers.addLayer(marker);
+            const coordinates = this.regionCoordinates[region];
+            const ratio = dataSize ? recent / dataSize : 0;
+            // Scale font with attack intensity but keep it readable.
+            const fontSize = Math.round(14 + Math.min(ratio * 40, 9));
+            const color = this.getAttackColor(ratio);
+
+            let inner = `${recent}`;
+            let subLen = 0;
+            if (sliceCompare) {
+                // Fewer attacks than the previous average = improved (green).
+                const improved = recent < previousAvg;
+                const trendColor = improved ? '#2ecc71' : '#e74c3c';
+                const prevText = `${Math.round(previousAvg)}`;
+                inner += `<sub style="color:${trendColor}; font-size:0.62em; margin-left:1px;">${prevText}</sub>`;
+                subLen = prevText.length;
             }
+
+            // Size the box to fit the text so the background always contains it.
+            const charCount = `${recent}`.length + subLen * 0.62;
+            const w = Math.max(30, Math.round(charCount * fontSize * 0.62) + 16);
+            const h = fontSize + 12;
+
+            const attackIcon = L.divIcon({
+                className: `attack-label border-${color}`,
+                html: `<div style="font-size:${fontSize}px; line-height:1;">${inner}</div>`,
+                iconSize: [w, h],
+                iconAnchor: [w / 2, h / 2]
+            });
+
+            const marker = L.marker(coordinates, { icon: attackIcon });
+            this.markers.addLayer(marker);
         });
+    }
+
+    /**
+     * Build per-region attack stats for the most recent diff slice vs. the
+     * average of the previous slices. Returns null when diff slices are inactive.
+     */
+    getRegionSliceComparison() {
+        if (!this.diffSliceCount || !this.diffSliceDates.length) return null;
+
+        const boundaries = [this.startDate, ...this.getDiffSliceDates(), this.endDate];
+        const sliceRegions = [];
+        for (let i = 0; i < boundaries.length - 1; i++) {
+            const start = boundaries[i];
+            const end = boundaries[i + 1];
+            const isLast = i === boundaries.length - 2;
+            const data = this.directionData.filter(item => {
+                const d = item._date || new Date(item.Date);
+                return d >= start && (isLast ? d <= end : d < end);
+            });
+            sliceRegions.push(this.calculateAttackStatistics(data).regions);
+        }
+
+        const recent = sliceRegions[sliceRegions.length - 1];
+        const previous = sliceRegions.slice(0, -1);
+        if (!previous.length) return null;
+
+        const previousAvg = {};
+        Object.keys(this.regionCoordinates).forEach(region => {
+            const sum = previous.reduce((acc, r) => acc + (r[region] || 0), 0);
+            previousAvg[region] = sum / previous.length;
+        });
+
+        return { recent, previousAvg };
     }
 
     /**

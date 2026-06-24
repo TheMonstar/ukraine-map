@@ -134,6 +134,8 @@ class UiBindings {
                             .forEach(polygon => {
                                 polygon.style = { ...polygon.style, color, fillColor: color };
                                 polygon.sliceIndex = i;
+                                polygon.showArea = true;
+                                polygon.sliceLabel = `${dashboard.formatDate(allDates[i])} → ${dashboard.formatDate(allDates[i + 1])} captured`;
                                 diffPolygons.push(polygon);
                                 combinedDifference = safeUnion(combinedDifference, polygon.geojson);
                                 try { sliceGains += turf.area(polygon.geojson) / 1e6; } catch (e) { }
@@ -145,6 +147,8 @@ class UiBindings {
                                 polygon.style = { ...polygon.style, color: 'blue', fillColor: 'blue', fillOpacity: 0.5 };
                                 polygon.sliceIndex = i;
                                 polygon.isLoss = true;
+                                polygon.showArea = true;
+                                polygon.sliceLabel = `${dashboard.formatDate(allDates[i])} → ${dashboard.formatDate(allDates[i + 1])} lost`;
                                 diffPolygons.push(polygon);
                                 try { sliceLosses += turf.area(polygon.geojson) / 1e6; } catch (e) { }
                             });
@@ -591,6 +595,7 @@ class UiBindings {
         });
 
         dashboard.bindUI('source-gsua', 'change', async () => await dashboard.handleSourceChange());
+        dashboard.bindUI('source-gsua-direction', 'change', async () => await dashboard.handleSourceChange());
         dashboard.bindUI('source-gsua-heatmap', 'change', () => dashboard.updateMap());
         dashboard.bindUI('source-mod', 'change', async () => await dashboard.handleSourceChange());
         dashboard.bindUI('source-air', 'change', async () => await dashboard.handleSourceChange());
@@ -624,7 +629,7 @@ class UiBindings {
         const updateFeaturesAttribution = () => {
             const el = document.getElementById('features-attribution');
             if (el) {
-                const any = dashboard.isChecked('feature-ditches') || dashboard.isChecked('feature-wire') || dashboard.isChecked('feature-dragon') || dashboard.isChecked('feature-motorlines');
+                const any = dashboard.isChecked('feature-ditches') || dashboard.isChecked('feature-wire') || dashboard.isChecked('feature-dragon') || dashboard.isChecked('feature-motorlines') || dashboard.isChecked('feature-railways');
                 el.style.display = any ? '' : 'none';
             }
         };
@@ -1064,6 +1069,7 @@ class UiBindings {
         });
 
         let motorlinesCache = null;
+        let railwaysCache = null;
 
         const renderMotorlines = async () => {
             dashboard.featureMotorLayer.clearLayers();
@@ -1075,20 +1081,57 @@ class UiBindings {
                     motorlinesCache = await response.json();
                 }
                 const features = motorlinesCache.features || [];
+                const inSet = (set) => (f) => set.has(f?.properties?.highway);
                 const ROAD_GROUPS = [
-                    { id: 'motorlines-type-highway', types: new Set(['motorway', 'trunk']),     color: '#d32f2f', weight: 3 },
-                    { id: 'motorlines-type-primary',  types: new Set(['primary', 'secondary']), color: '#f57c00', weight: 2 },
-                    { id: 'motorlines-type-tertiary', types: new Set(['tertiary']),              color: '#fbc02d', weight: 1 },
+                    { id: 'motorlines-type-highway', match: inSet(new Set(['motorway', 'trunk'])),     color: '#d32f2f', weight: 3 },
+                    { id: 'motorlines-type-primary',  match: inSet(new Set(['primary', 'secondary'])), color: '#f57c00', weight: 2 },
+                    { id: 'motorlines-type-tertiary', match: inSet(new Set(['tertiary'])),             color: '#fbc02d', weight: 1 },
+                    { id: 'motorlines-type-bridge',   match: f => /"bridge"=>/.test(f?.properties?.other_tags || ''), color: '#7b1fa2', weight: 3 },
                 ];
                 for (const group of ROAD_GROUPS) {
                     if (!dashboard.isChecked(group.id)) continue;
                     L.geoJSON({
                         type: 'FeatureCollection',
-                        features: features.filter(f => group.types.has(f?.properties?.highway))
+                        features: features.filter(group.match)
                     }, { style: () => ({ color: group.color, weight: group.weight }) }).addTo(dashboard.featureMotorLayer);
                 }
             } catch (error) {
                 console.error('Error loading motorlines:', error);
+            }
+        };
+
+        const renderRailways = async () => {
+            if (!dashboard.featureRailwayLayer) {
+                dashboard.featureRailwayLayer = L.layerGroup().addTo(dashboard.map);
+            }
+            dashboard.featureRailwayLayer.clearLayers();
+            if (!dashboard.isChecked('feature-railways')) return;
+            try {
+                if (!railwaysCache) {
+                    const response = await fetch(`${APP_STATIC_URL}/railways.geojson`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    railwaysCache = await response.json();
+                }
+                const features = railwaysCache.features || [];
+                // No usage/bridge tags in the data; approximate bridges from layer != 0 (includes tunnels).
+                const isBridge = f => {
+                    const l = parseInt(f?.properties?.layer, 10);
+                    return Number.isFinite(l) && l !== 0;
+                };
+                const RAIL_GROUPS = [
+                    { id: 'railways-type-rail',    match: f => f?.properties?.railway === 'rail',                  color: '#111111', weight: 1.5, dashArray: '6 4' },
+                    { id: 'railways-type-station', match: f => f?.properties?.railway === 'station',               color: '#00897b', weight: 4 },
+                    { id: 'railways-type-bridge',  match: isBridge,                                                color: '#7b1fa2', weight: 3.5 },
+                ];
+                for (const group of RAIL_GROUPS) {
+                    if (!dashboard.isChecked(group.id)) continue;
+                    L.geoJSON({
+                        type: 'FeatureCollection',
+                        features: features.filter(group.match)
+                    }, { style: () => ({ color: group.color, weight: group.weight, dashArray: group.dashArray }) }).addTo(dashboard.featureRailwayLayer);
+                }
+            } catch (error) {
+                console.error('Error loading railways:', error);
             }
         };
 
@@ -1099,8 +1142,19 @@ class UiBindings {
             updateFeaturesAttribution();
         });
 
-        ['motorlines-type-highway', 'motorlines-type-primary', 'motorlines-type-tertiary'].forEach(id => {
+        ['motorlines-type-highway', 'motorlines-type-primary', 'motorlines-type-tertiary', 'motorlines-type-bridge'].forEach(id => {
             dashboard.bindUI(id, 'change', renderMotorlines);
+        });
+
+        dashboard.bindUI('feature-railways', 'change', async () => {
+            const typesEl = document.getElementById('railways-types');
+            if (typesEl) typesEl.style.display = dashboard.isChecked('feature-railways') ? '' : 'none';
+            await renderRailways();
+            updateFeaturesAttribution();
+        });
+
+        ['railways-type-rail', 'railways-type-station', 'railways-type-bridge'].forEach(id => {
+            dashboard.bindUI(id, 'change', renderRailways);
         });
 
         const kmlCache = {}; // { 'ua:20240419': '<kml>...</kml>', ... }

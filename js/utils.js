@@ -272,9 +272,20 @@ class DeepUtils {
 
             if (polygon.geojson) {
                 // Handle GeoJSON polygons (for merged/difference polygons)
-                L.geoJSON(polygon.geojson, {
+                const layer = L.geoJSON(polygon.geojson, {
                     style: polygon.style
                 }).addTo(this.deepLayer);
+
+                // For diff slices, show the slice size in km² when clicked
+                if (polygon.showArea) {
+                    try {
+                        const km2 = turf.area(polygon.geojson) / 1e6;
+                        const label = polygon.sliceLabel || (polygon.isLoss ? 'Lost' : 'Captured');
+                        layer.bindPopup(
+                            `<b>${label}</b><br>${km2.toLocaleString(undefined, { maximumFractionDigits: 1 })} km²`
+                        );
+                    } catch (e) { /* skip popup if area can't be computed */ }
+                }
             } else if (polygon.coordinates) {
                 // Handle coordinate-based polygons (original format)
                 L.polygon(polygon.coordinates, polygon.style).addTo(this.deepLayer);
