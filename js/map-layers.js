@@ -121,9 +121,195 @@ class MapLayers {
         dashboard.currentTileLayer = L.tileLayer(url, {
             attribution: dashboard.mapStyles[style].attribution
         }).addTo(dashboard.map);
+        dashboard.currentTileLayer.bringToBack();
+        if (dashboard.topoTileLayer) dashboard.topoTileLayer.bringToBack();
+        dashboard.currentTileLayer.bringToBack();
     }
 
-    // MOD and Topographic overlays removed in public version
+    static ELEV_STOPS = [
+        [-5,  70, 170, 210],
+        [0,   80, 200, 130],
+        [20,  120, 210, 100],
+        [50,  170, 220, 80],
+        [90,  210, 220, 70],
+        [130, 240, 210, 80],
+        [170, 245, 185, 120],
+        [220, 245, 160, 155],
+        [270, 240, 155, 170],
+        [320, 245, 180, 190],
+        [360, 255, 225, 220]
+    ];
+
+    static elevColor(e, min, max, bw) {
+        const t01 = max > min ? Math.max(0, Math.min(1, (e - min) / (max - min))) : 0.5;
+        if (bw) {
+            const v = Math.round(t01 * 255);
+            return [v, v, v];
+        }
+        const stops = MapLayers.ELEV_STOPS;
+        const mapped = stops[0][0] + t01 * (stops[stops.length - 1][0] - stops[0][0]);
+        if (mapped <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3]];
+        for (let i = 1; i < stops.length; i++) {
+            if (mapped <= stops[i][0]) {
+                const f = (mapped - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0]);
+                return [
+                    Math.round(stops[i - 1][1] + f * (stops[i][1] - stops[i - 1][1])),
+                    Math.round(stops[i - 1][2] + f * (stops[i][2] - stops[i - 1][2])),
+                    Math.round(stops[i - 1][3] + f * (stops[i][3] - stops[i - 1][3]))
+                ];
+            }
+        }
+        const last = stops[stops.length - 1];
+        return [last[1], last[2], last[3]];
+    }
+
+    static _colorTile(tile, min, max, bw) {
+        const elevData = tile._elevData;
+        if (!elevData) return;
+        const w = tile.width, h = tile.height;
+        const ctx = tile.getContext('2d');
+        const imageData = ctx.createImageData(w, h);
+        const d = imageData.data;
+        for (let j = 0, i = 0; j < elevData.length; j++, i += 4) {
+            const [r, g, b] = MapLayers.elevColor(elevData[j], min, max, bw);
+            d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
+        }
+        ctx.putImageData(imageData, 0, 0);
+    }
+
+    scheduleTopographicOverlayLoad() {
+        const dashboard = this.dashboard;
+        if (dashboard.topoTileLayer) return;
+
+        const self = this;
+        const HypsometricLayer = L.GridLayer.extend({
+            createTile(coords, done) {
+                const tile = document.createElement('canvas');
+                const size = this.getTileSize();
+                tile.width = size.x;
+                tile.height = size.y;
+                const ctx = tile.getContext('2d');
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    ctx.drawImage(img, 0, 0, size.x, size.y);
+                    const srcData = ctx.getImageData(0, 0, size.x, size.y).data;
+                    const elevData = new Float32Array(size.x * size.y);
+                    let tMin = Infinity, tMax = -Infinity;
+                    for (let i = 0, j = 0; i < srcData.length; i += 4, j++) {
+                        const elev = (srcData[i] * 256 + srcData[i + 1] + srcData[i + 2] / 256) - 32768;
+                        elevData[j] = elev;
+                        if (elev < tMin) tMin = elev;
+                        if (elev > tMax) tMax = elev;
+                    }
+                    tile._elevData = elevData;
+                    tile._elevMin = tMin;
+                    tile._elevMax = tMax;
+                    const range = self._topoRange || { min: -5, max: 360 };
+                    MapLayers._colorTile(tile, range.min, range.max, self.dashboard.isChecked('topo-bw'));
+                    done(null, tile);
+                    self._scheduleTopoRecolor();
+                };
+                img.onerror = () => done(null, tile);
+                img.src = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${coords.z}/${coords.x}/${coords.y}.png`;
+                return tile;
+            }
+        });
+
+        dashboard.topoTileLayer = new HypsometricLayer({
+            opacity: 0.85,
+            maxZoom: 15,
+            attribution: 'Elevation: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a>'
+        }).addTo(dashboard.map);
+        dashboard.topoTileLayer.bringToBack();
+        if (dashboard.currentTileLayer) dashboard.currentTileLayer.bringToBack();
+
+        const legend = L.control({ position: 'topright' });
+        legend.onAdd = () => {
+            const div = L.DomUtil.create('div', 'legend elev-legend');
+            div.id = 'elev-legend';
+            return div;
+        };
+        legend.addTo(dashboard.map);
+        dashboard.topoLegend = legend;
+
+        this._topoRecolorHandler = () => this._scheduleTopoRecolor();
+        dashboard.map.on('moveend zoomend', this._topoRecolorHandler);
+    }
+
+    _scheduleTopoRecolor() {
+        clearTimeout(this._topoRecolorTimer);
+        this._topoRecolorTimer = setTimeout(() => this._recolorTopo(), 200);
+    }
+
+    _recolorTopo() {
+        const dashboard = this.dashboard;
+        const layer = dashboard.topoTileLayer;
+        if (!layer || !layer._tiles) return;
+
+        const tiles = [];
+        const samples = [];
+        const zoom = dashboard.map.getZoom();
+        for (const key in layer._tiles) {
+            const t = layer._tiles[key];
+            if (t.current && t.el._elevData && t.coords && t.coords.z === zoom) {
+                tiles.push(t.el);
+                const ed = t.el._elevData;
+                for (let i = 0; i < ed.length; i += 64) {
+                    samples.push(ed[i]);
+                }
+            }
+        }
+        if (!samples.length) return;
+
+        samples.sort((a, b) => a - b);
+        const p = (pct) => samples[Math.floor(pct * (samples.length - 1))];
+        const gMin = Math.max(p(0.02), -50);
+        const gMax = Math.min(p(0.98), 600);
+        if (gMax <= gMin) return;
+
+        this._topoRange = { min: gMin, max: gMax };
+        const bw = this.dashboard.isChecked('topo-bw');
+        for (const tile of tiles) {
+            MapLayers._colorTile(tile, gMin, gMax, bw);
+        }
+        this._updateElevLegend(gMin, gMax);
+    }
+
+    _updateElevLegend(min, max) {
+        const div = document.getElementById('elev-legend');
+        if (!div) return;
+        const bw = this.dashboard.isChecked('topo-bw');
+        const steps = 10;
+        let rows = '';
+        for (let i = steps; i >= 0; i--) {
+            const elev = min + (i / steps) * (max - min);
+            const [r, g, b] = MapLayers.elevColor(elev, min, max, bw);
+            rows += `<div style="display:flex;align-items:center;gap:4px;margin:1px 0;">
+                <span style="width:24px;height:14px;display:inline-block;background:rgb(${r},${g},${b});border:1px solid rgba(0,0,0,0.15);"></span>
+                <span style="font-size:11px;">${Math.round(elev)} m</span>
+            </div>`;
+        }
+        div.innerHTML = rows;
+    }
+
+    clearTopographicOverlay() {
+        const dashboard = this.dashboard;
+        if (this._topoRecolorHandler) {
+            dashboard.map.off('moveend zoomend', this._topoRecolorHandler);
+            this._topoRecolorHandler = null;
+        }
+        clearTimeout(this._topoRecolorTimer);
+        this._topoRange = null;
+        if (dashboard.topoTileLayer) {
+            dashboard.map.removeLayer(dashboard.topoTileLayer);
+            dashboard.topoTileLayer = null;
+        }
+        if (dashboard.topoLegend) {
+            dashboard.map.removeControl(dashboard.topoLegend);
+            dashboard.topoLegend = null;
+        }
+    }
 
     async toggleRussiaOverlay(enabled) {
         const dashboard = this.dashboard;

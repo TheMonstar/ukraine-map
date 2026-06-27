@@ -611,6 +611,12 @@ class UiBindings {
             }
         });
 
+        dashboard.bindUI('topo-bw', 'change', () => {
+            if (dashboard.topoTileLayer) {
+                dashboard.layers._recolorTopo();
+            }
+        });
+
         dashboard.map.on('moveend zoomend', () => {
             if (dashboard.isChecked('topo-ua')) {
                 dashboard.layers.scheduleTopographicOverlayLoad();
