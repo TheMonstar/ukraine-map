@@ -525,6 +525,36 @@ body {
     margin-top: 4px;
 }
 
+/* ---- Saved Image Overlays ---- */
+.image-overlay-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.image-overlay-item {
+    padding: 8px;
+    border: 1px solid var(--sidebar-border);
+    border-radius: 4px;
+}
+
+.image-overlay-item-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.image-overlay-item-label {
+    font-size: 11px;
+    color: var(--sidebar-text, #fff);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* ---- Color Picker Row ---- */
 .color-row {
     display: flex;

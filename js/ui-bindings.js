@@ -3130,6 +3130,10 @@ class UiBindings {
             dashboard.clearImageOverlay();
         });
 
+        dashboard.bindUI('save-image-overlay', 'click', () => {
+            dashboard.saveImageOverlay();
+        });
+
         dashboard.bindUI('enable-image-resize', 'change', () => {
             dashboard.toggleImageResizeMode();
         });

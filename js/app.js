@@ -32,7 +32,8 @@ class AttackMapDashboard {
             "Запад": [49.7, 37.45],
             "Юг": [48.3, 38.0],
             "Центр": [48.1, 37.3],
-            "Север": [51.1, 35.2]
+            "Север": [51.1, 35.2],
+            "Undefined": [48.847940, 35.463912]
         };
         //[[[36.716309,47.739346],[36.303635,47.839905],[36.386719,48.173328],[37.043152,47.977058],[37.493196,47.936982],[36.716309,47.739346]]]
         //[[[36.997833,47.622827],[36.105194,47.89701],[36.386719,48.173328],[37.043152,47.977058],[37.493196,47.936982],[36.997833,47.622827]]]
@@ -139,6 +140,8 @@ class AttackMapDashboard {
         this.imageCornerMarkers = [];
         this.currentImageBounds = null;
         this.customImageObjectUrl = null;
+        this.imageOverlayLayers = []; // committed (saved) image overlays, each with its own opacity
+        this._nextImageOverlayId = 1;
 
         // Region and settlement data
         this.regionsData = null;
@@ -1214,6 +1217,156 @@ class AttackMapDashboard {
     }
 
     /**
+     * Commit the active (currently editable) image overlay to the saved list,
+     * then free up the editing slot so a new image can be loaded. Saved images
+     * stay on the map with their own opacity control and can be removed.
+     */
+    saveImageOverlay() {
+        if (!this.customImageOverlay) {
+            alert('Load an image first, then position it before saving');
+            return;
+        }
+
+        // Capture free-shape corners before tearing down editing mode
+        const freeCorners = (this.imageFreeShapeMode && this.imageFreeCorners)
+            ? this.imageFreeCorners.map(c => L.latLng(c.lat, c.lng))
+            : null;
+
+        // Tear down editing handlers/markers without removing the layer itself
+        if (this._updateFreeTransformBound) {
+            this.map.off('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+            this._updateFreeTransformBound = null;
+        }
+        this.hideImageCornerMarkers();
+
+        // Reset edit toggles and re-enable map dragging
+        const resizeToggle = this.getEl('enable-image-resize');
+        if (resizeToggle) resizeToggle.checked = false;
+        const freeToggle = this.getEl('enable-image-free-shape');
+        if (freeToggle) freeToggle.checked = false;
+        this.imageResizeMode = false;
+        this.imageFreeShapeMode = false;
+        if (this.map.dragging && !this.map.dragging.enabled()) {
+            this.map.dragging.enable();
+        }
+
+        const opacity = parseInt(this.getEl('image-opacity-slider')?.value ?? '70', 10);
+
+        const record = {
+            id: this._nextImageOverlayId++,
+            overlay: this.customImageOverlay,
+            objectUrl: this.customImageObjectUrl,
+            url: this.getEl('image-overlay-url')?.value?.trim() || '',
+            bounds: this.currentImageBounds,
+            opacity,
+            freeCorners,
+            freeHandler: null,
+            _rafPending: false
+        };
+
+        // Saved free-shaped images need their own persistent map handler to keep the
+        // matrix3d transform aligned as the map is panned/zoomed.
+        if (freeCorners) {
+            record.freeHandler = () => {
+                if (!record._rafPending) {
+                    record._rafPending = true;
+                    requestAnimationFrame(() => {
+                        record._rafPending = false;
+                        this._renderFreeTransform(record.overlay, record.bounds, record.freeCorners);
+                    });
+                }
+            };
+            this.map.on('move zoom viewreset zoomend moveend', record.freeHandler);
+            this._renderFreeTransform(record.overlay, record.bounds, record.freeCorners);
+        }
+
+        this.imageOverlayLayers.push(record);
+
+        // Free the editing slot (keep the layer on the map)
+        this.customImageOverlay = null;
+        this.currentImageBounds = null;
+        this.customImageObjectUrl = null;
+        this.imageFreeCorners = null;
+
+        // Reset inputs for the next image
+        const urlInput = this.getEl('image-overlay-url');
+        if (urlInput) urlInput.value = '';
+        const opacitySlider = this.getEl('image-opacity-slider');
+        if (opacitySlider) opacitySlider.value = 70;
+        this.setText('image-opacity-value', 70);
+
+        this.renderImageOverlayList();
+        console.log(`Image overlay saved (${this.imageOverlayLayers.length} total). Slot ready for a new image.`);
+    }
+
+    /**
+     * Render the list of saved image overlays, each with its own opacity slider
+     * and a remove button.
+     */
+    renderImageOverlayList() {
+        const container = this.getEl('image-overlay-list');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        this.imageOverlayLayers.forEach((rec, i) => {
+            const shortLabel = rec.url ? rec.url.split('/').pop().split('?')[0].slice(0, 24) : `Image ${i + 1}`;
+
+            const row = document.createElement('div');
+            row.className = 'image-overlay-item';
+            row.innerHTML = `
+                <div class="image-overlay-item-head">
+                    <span class="image-overlay-item-label" title="${rec.url}">${i + 1}. ${shortLabel}</span>
+                    <button class="btn btn-sm btn-danger image-overlay-remove" data-id="${rec.id}">✕</button>
+                </div>
+                <label class="small-label">Opacity: <span class="image-overlay-op-val">${rec.opacity}</span>%</label>
+                <input type="range" class="control-range image-overlay-op" min="0" max="100" value="${rec.opacity}" data-id="${rec.id}" />
+            `;
+            container.appendChild(row);
+        });
+
+        container.querySelectorAll('.image-overlay-op').forEach(slider => {
+            slider.addEventListener('input', (e) => {
+                const id = parseInt(e.target.dataset.id, 10);
+                const rec = this.imageOverlayLayers.find(r => r.id === id);
+                if (!rec) return;
+                rec.opacity = parseInt(e.target.value, 10);
+                rec.overlay.setOpacity(rec.opacity / 100);
+                const valSpan = e.target.parentElement.querySelector('.image-overlay-op-val');
+                if (valSpan) valSpan.textContent = rec.opacity;
+            });
+        });
+
+        container.querySelectorAll('.image-overlay-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.removeImageOverlayLayer(parseInt(e.currentTarget.dataset.id, 10));
+            });
+        });
+    }
+
+    /**
+     * Remove a saved image overlay by id.
+     */
+    removeImageOverlayLayer(id) {
+        const idx = this.imageOverlayLayers.findIndex(r => r.id === id);
+        if (idx === -1) return;
+
+        const rec = this.imageOverlayLayers[idx];
+        if (rec.freeHandler) {
+            this.map.off('move zoom viewreset zoomend moveend', rec.freeHandler);
+        }
+        if (rec.overlay) {
+            this.map.removeLayer(rec.overlay);
+        }
+        if (rec.objectUrl) {
+            URL.revokeObjectURL(rec.objectUrl);
+        }
+
+        this.imageOverlayLayers.splice(idx, 1);
+        this.renderImageOverlayList();
+    }
+
+    /**
      * Toggle image resize mode
      */
     toggleImageResizeMode() {
@@ -1542,14 +1695,24 @@ class AttackMapDashboard {
 
     updateFreeShapeTransform() {
         if (!this.customImageOverlay || !this.imageFreeCorners || !this.currentImageBounds) return;
+        this._renderFreeTransform(this.customImageOverlay, this.currentImageBounds, this.imageFreeCorners);
+    }
 
-        const el = this.customImageOverlay.getElement();
+    /**
+     * Apply a perspective (matrix3d) transform to an image overlay element so its
+     * rectangular bounds are warped onto four arbitrary free-shape corners. Works on
+     * any overlay/bounds/corners — used both for the active image and saved ones.
+     */
+    _renderFreeTransform(overlay, bounds, corners) {
+        if (!overlay || !corners || !bounds) return;
+
+        const el = overlay.getElement();
         if (!el) return;
 
         // Use layer points (pane coordinate system) — Leaflet positions the element via
         // translate3d(layerPoint.x, layerPoint.y, 0), so the CSS transform we apply must
         // also use absolute layer coordinates to include the positioning translation.
-        const [[south, west], [north, east]] = this.currentImageBounds;
+        const [[south, west], [north, east]] = bounds;
         const nwPt = this.map.latLngToLayerPoint(L.latLng(north, west));
         const sePt = this.map.latLngToLayerPoint(L.latLng(south, east));
 
@@ -1564,7 +1727,7 @@ class AttackMapDashboard {
             return [pt.x, pt.y];
         };
 
-        const [sw, se, ne, nw] = this.imageFreeCorners;
+        const [sw, se, ne, nw] = corners;
         const tlPt = toLayers(nw); // NW → top-left
         const trPt = toLayers(ne); // NE → top-right
         const brPt = toLayers(se); // SE → bottom-right
@@ -3770,7 +3933,7 @@ class AttackMapDashboard {
         const regionNames = [
             'Kharkiv', 'Kupiansk', 'Lyman', 'Siversk', 'Kramatorsk',
             'Toretsk', 'Pokrovsk', 'Novopavlivka', 'Gulyaipole',
-            'Orikhiv', 'Prydniprovske', 'Kursk',
+            'Orikhiv', 'Prydniprovske', 'Kursk', 'Undefined',
             "Восток", "Днепр", "Запад", "Юг", "Центр", "Север"
         ];
 
