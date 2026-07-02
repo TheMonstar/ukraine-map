@@ -1366,6 +1366,177 @@ class AttackMapDashboard {
         this.renderImageOverlayList();
     }
 
+    // ── Session save/load ───────────────────────────────────
+
+    static SESSION_TOGGLE_IDS = [
+        'suriyak-overlay', 'source-gsua', 'source-gsua-direction',
+        'diff-area', 'diff-highlight', 'diff-no-base', 'features-diff',
+        'feature-railways', 'feature-ditches', 'feature-motorlines', 'feature-waterways',
+        'topo-ua', 'topo-bw', 'forest-overlay',
+        'show-settlements', 'show-regions', 'position-change',
+        'hex-tiles', 'show-date-overlay', 'custom-kml-overlay'
+    ];
+
+    /**
+     * Snapshot the current session (view, dates, layers, drawings, MapUML,
+     * image overlays, custom KML) as a plain JSON-serializable object.
+     */
+    serializeSession() {
+        const center = this.map.getCenter();
+        const toggles = {};
+        for (const id of AttackMapDashboard.SESSION_TOGGLE_IDS) {
+            const el = this.getEl(id);
+            if (el) toggles[id] = el.checked;
+        }
+        return {
+            version: 1,
+            savedAt: new Date().toISOString(),
+            view: { lat: center.lat, lng: center.lng, zoom: this.map.getZoom() },
+            dates: {
+                min: this.minDate ? this.minDate.toISOString() : null,
+                max: this.maxDate ? this.maxDate.toISOString() : null,
+                start: this.startDate ? this.startDate.toISOString() : null,
+                end: this.endDate ? this.endDate.toISOString() : null
+            },
+            basemap: this.getEl('map-style')?.value ?? null,
+            toggles,
+            drawings: this.drawTool ? this.drawTool.shapes : [],
+            mapUml: this.getEl('map-uml-input')?.value ?? '',
+            imageOverlays: this.imageOverlayLayers
+                .filter(rec => rec.url && !rec.url.startsWith('blob:'))
+                .map(rec => ({
+                    url: rec.url,
+                    bounds: rec.bounds,
+                    opacity: rec.opacity,
+                    freeCorners: rec.freeCorners
+                        ? rec.freeCorners.map(c => ({ lat: c.lat, lng: c.lng }))
+                        : null
+                })),
+            customKmlUrl: this.getEl('custom-kml-url')?.value?.trim() || ''
+        };
+    }
+
+    /**
+     * Restore a session snapshot produced by serializeSession(). Applies
+     * basemap, dates, viewport, layer toggles (via their existing change
+     * handlers), drawings, MapUML, image overlays and custom KML. Missing
+     * fields are skipped so older/partial files still load.
+     */
+    async restoreSession(state) {
+        if (!state || typeof state !== 'object' || state.version !== 1) {
+            throw new Error('Unsupported session file format');
+        }
+
+        if (state.basemap && this.mapStyles[state.basemap]) {
+            const sel = this.getEl('map-style');
+            if (sel && sel.value !== state.basemap) {
+                sel.value = state.basemap;
+                sel.dispatchEvent(new Event('change'));
+            }
+        }
+
+        if (state.dates?.min && state.dates?.max) {
+            this.minDate = new Date(state.dates.min);
+            this.maxDate = new Date(state.dates.max);
+            const ds = this.getEl('date-start');
+            if (ds) ds.valueAsDate = this.minDate;
+            const de = this.getEl('date-end');
+            if (de) de.valueAsDate = this.maxDate;
+            this.initSlider(this.minDate, this.maxDate,
+                state.dates.start ? new Date(state.dates.start) : 0,
+                state.dates.end ? new Date(state.dates.end) : 0);
+        }
+
+        if (state.view) {
+            this.map.setView([state.view.lat, state.view.lng], state.view.zoom);
+        }
+
+        if (state.toggles) {
+            for (const [id, checked] of Object.entries(state.toggles)) {
+                if (id === 'custom-kml-overlay') continue; // handled with the KML URL below
+                const el = this.getEl(id);
+                if (el && typeof checked === 'boolean' && el.checked !== checked) {
+                    el.checked = checked;
+                    el.dispatchEvent(new Event('change'));
+                }
+            }
+        }
+
+        if (Array.isArray(state.drawings) && this.drawTool) {
+            this.drawTool.shapes = state.drawings;
+            this.drawTool._render();
+        }
+
+        if (state.mapUml) {
+            const uml = this.getEl('map-uml-input');
+            if (uml) uml.value = state.mapUml;
+            if (this.mapUmlEngine) {
+                await this.mapUmlEngine.renderScript(state.mapUml);
+            }
+        }
+
+        if (Array.isArray(state.imageOverlays)) {
+            for (const saved of state.imageOverlays) {
+                if (saved?.url && saved?.bounds) this._restoreImageOverlay(saved);
+            }
+            this.renderImageOverlayList();
+        }
+
+        if (state.customKmlUrl) {
+            const input = this.getEl('custom-kml-url');
+            if (input) input.value = state.customKmlUrl;
+            if (state.toggles?.['custom-kml-overlay']) {
+                const cb = this.getEl('custom-kml-overlay');
+                if (cb) cb.checked = true;
+                await this.layers.loadCustomKml(state.customKmlUrl);
+            }
+        }
+
+        console.log('Session restored', state.savedAt ? `(saved ${state.savedAt})` : '');
+    }
+
+    /**
+     * Rebuild a saved image overlay record from its serialized form,
+     * mirroring the record structure created by saveImageOverlay().
+     */
+    _restoreImageOverlay(saved) {
+        const opacity = Number.isFinite(saved.opacity) ? saved.opacity : 70;
+        const overlay = L.imageOverlay(saved.url, saved.bounds, {
+            opacity: opacity / 100,
+            interactive: false
+        }).addTo(this.map);
+
+        const record = {
+            id: this._nextImageOverlayId++,
+            overlay,
+            objectUrl: null,
+            url: saved.url,
+            bounds: saved.bounds,
+            opacity,
+            freeCorners: saved.freeCorners
+                ? saved.freeCorners.map(c => L.latLng(c.lat, c.lng))
+                : null,
+            freeHandler: null,
+            _rafPending: false
+        };
+
+        if (record.freeCorners) {
+            record.freeHandler = () => {
+                if (!record._rafPending) {
+                    record._rafPending = true;
+                    requestAnimationFrame(() => {
+                        record._rafPending = false;
+                        this._renderFreeTransform(record.overlay, record.bounds, record.freeCorners);
+                    });
+                }
+            };
+            this.map.on('move zoom viewreset zoomend moveend', record.freeHandler);
+            this._renderFreeTransform(record.overlay, record.bounds, record.freeCorners);
+        }
+
+        this.imageOverlayLayers.push(record);
+    }
+
     /**
      * Toggle image resize mode
      */

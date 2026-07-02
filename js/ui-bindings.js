@@ -3122,6 +3122,34 @@ class UiBindings {
             dashboard.toggleGameTool();
         });
 
+        dashboard.bindUI('save-session', 'click', () => {
+            const state = dashboard.serializeSession();
+            const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `ukraine-map-session-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        dashboard.bindUI('load-session', 'click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+            input.addEventListener('change', async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                try {
+                    const state = JSON.parse(await file.text());
+                    await dashboard.restoreSession(state);
+                } catch (err) {
+                    console.error('Session load failed:', err);
+                    alert(`Could not load session: ${err.message}`);
+                }
+            });
+            input.click();
+        });
+
         dashboard.bindUI('load-image-overlay', 'click', () => {
             dashboard.loadImageOverlay();
         });
