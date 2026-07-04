@@ -136,6 +136,9 @@ class AttackMapDashboard {
         this.imageResizeMode = false;
         this.imageFreeShapeMode = false;
         this.imageFreeCorners = null;
+        this.imageMeshPoints = null;   // { n, points } for 9/16-point mesh warp
+        this.imageMeshWarp = null;     // ImageMeshWarp renderer instance
+        this.imageMeshMarkers = [];
         this._updateFreeTransformBound = null;
         this.imageCornerMarkers = [];
         this.currentImageBounds = null;
@@ -1195,8 +1198,14 @@ class AttackMapDashboard {
         }
         this.imageFreeShapeMode = false;
         this.imageFreeCorners = null;
-        const freeShapeToggle = this.getEl('enable-image-free-shape');
-        if (freeShapeToggle) freeShapeToggle.checked = false;
+        if (this.imageMeshWarp) {
+            this.imageMeshWarp.destroy();
+            this.imageMeshWarp = null;
+        }
+        this.imageMeshPoints = null;
+        this.hideMeshMarkers();
+        const warpSel = this.getEl('image-warp-points');
+        if (warpSel) warpSel.value = '0';
 
         // Remove overlay
         if (this.customImageOverlay) {
@@ -1227,9 +1236,12 @@ class AttackMapDashboard {
             return;
         }
 
-        // Capture free-shape corners before tearing down editing mode
+        // Capture warp state before tearing down editing mode
         const freeCorners = (this.imageFreeShapeMode && this.imageFreeCorners)
             ? this.imageFreeCorners.map(c => L.latLng(c.lat, c.lng))
+            : null;
+        const meshPoints = this.imageMeshPoints
+            ? { n: this.imageMeshPoints.n, points: this.imageMeshPoints.points.map(p => L.latLng(p.lat, p.lng)) }
             : null;
 
         // Tear down editing handlers/markers without removing the layer itself
@@ -1238,12 +1250,13 @@ class AttackMapDashboard {
             this._updateFreeTransformBound = null;
         }
         this.hideImageCornerMarkers();
+        this.hideMeshMarkers();
 
         // Reset edit toggles and re-enable map dragging
         const resizeToggle = this.getEl('enable-image-resize');
         if (resizeToggle) resizeToggle.checked = false;
-        const freeToggle = this.getEl('enable-image-free-shape');
-        if (freeToggle) freeToggle.checked = false;
+        const warpSel = this.getEl('image-warp-points');
+        if (warpSel) warpSel.value = '0';
         this.imageResizeMode = false;
         this.imageFreeShapeMode = false;
         if (this.map.dragging && !this.map.dragging.enabled()) {
@@ -1260,9 +1273,18 @@ class AttackMapDashboard {
             bounds: this.currentImageBounds,
             opacity,
             freeCorners,
+            meshPoints,
+            meshWarp: null,
             freeHandler: null,
             _rafPending: false
         };
+
+        // Mesh-warped images: hand the live renderer to the record (it owns it now)
+        if (meshPoints && this.imageMeshWarp) {
+            record.meshWarp = this.imageMeshWarp;
+            record.meshWarp.setOpacity(opacity / 100);
+            this.imageMeshWarp = null;
+        }
 
         // Saved free-shaped images need their own persistent map handler to keep the
         // matrix3d transform aligned as the map is panned/zoomed.
@@ -1287,6 +1309,7 @@ class AttackMapDashboard {
         this.currentImageBounds = null;
         this.customImageObjectUrl = null;
         this.imageFreeCorners = null;
+        this.imageMeshPoints = null;
 
         // Reset inputs for the next image
         const urlInput = this.getEl('image-overlay-url');
@@ -1331,7 +1354,11 @@ class AttackMapDashboard {
                 const rec = this.imageOverlayLayers.find(r => r.id === id);
                 if (!rec) return;
                 rec.opacity = parseInt(e.target.value, 10);
-                rec.overlay.setOpacity(rec.opacity / 100);
+                if (rec.meshWarp) {
+                    rec.meshWarp.setOpacity(rec.opacity / 100);
+                } else {
+                    rec.overlay.setOpacity(rec.opacity / 100);
+                }
                 const valSpan = e.target.parentElement.querySelector('.image-overlay-op-val');
                 if (valSpan) valSpan.textContent = rec.opacity;
             });
@@ -1354,6 +1381,9 @@ class AttackMapDashboard {
         const rec = this.imageOverlayLayers[idx];
         if (rec.freeHandler) {
             this.map.off('move zoom viewreset zoomend moveend', rec.freeHandler);
+        }
+        if (rec.meshWarp) {
+            rec.meshWarp.destroy();
         }
         if (rec.overlay) {
             this.map.removeLayer(rec.overlay);
@@ -1410,6 +1440,9 @@ class AttackMapDashboard {
                     opacity: rec.opacity,
                     freeCorners: rec.freeCorners
                         ? rec.freeCorners.map(c => ({ lat: c.lat, lng: c.lng }))
+                        : null,
+                    meshPoints: rec.meshPoints
+                        ? { n: rec.meshPoints.n, points: rec.meshPoints.points.map(p => ({ lat: p.lat, lng: p.lng })) }
                         : null
                 })),
             customKmlUrl: this.getEl('custom-kml-url')?.value?.trim() || ''
@@ -1501,8 +1534,9 @@ class AttackMapDashboard {
      */
     _restoreImageOverlay(saved) {
         const opacity = Number.isFinite(saved.opacity) ? saved.opacity : 70;
+        const hasMesh = saved.meshPoints?.points?.length > 0;
         const overlay = L.imageOverlay(saved.url, saved.bounds, {
-            opacity: opacity / 100,
+            opacity: hasMesh ? 0 : opacity / 100, // mesh canvas replaces the flat image
             interactive: false
         }).addTo(this.map);
 
@@ -1516,9 +1550,18 @@ class AttackMapDashboard {
             freeCorners: saved.freeCorners
                 ? saved.freeCorners.map(c => L.latLng(c.lat, c.lng))
                 : null,
+            meshPoints: hasMesh
+                ? { n: saved.meshPoints.n, points: saved.meshPoints.points.map(p => L.latLng(p.lat, p.lng)) }
+                : null,
+            meshWarp: null,
             freeHandler: null,
             _rafPending: false
         };
+
+        if (record.meshPoints) {
+            record.meshWarp = new ImageMeshWarp(this.map, saved.url, record.meshPoints);
+            record.meshWarp.setOpacity(opacity / 100);
+        }
 
         if (record.freeCorners) {
             record.freeHandler = () => {
@@ -1566,11 +1609,11 @@ class AttackMapDashboard {
         } else {
             console.log('Image resize mode disabled');
 
-            // If free shape was active, disable it first
-            if (this.imageFreeShapeMode) {
-                const freeShapeToggle = this.getEl('enable-image-free-shape');
-                if (freeShapeToggle) freeShapeToggle.checked = false;
-                this.toggleImageFreeShapeMode();
+            // If a warp mode was active, flatten it first
+            if (this.imageFreeShapeMode || this.imageMeshPoints) {
+                const warpSel = this.getEl('image-warp-points');
+                if (warpSel) warpSel.value = '0';
+                this.setImageWarpPoints(0);
             }
 
             // Re-enable map dragging
@@ -1800,31 +1843,75 @@ class AttackMapDashboard {
         }
     }
 
-    toggleImageFreeShapeMode() {
-        this.imageFreeShapeMode = this.isChecked('enable-image-free-shape');
+    /**
+     * Switch the image warp mode: 0 = flat rect, 4 = perspective (matrix3d
+     * free shape), 9/16 = draggable bilinear mesh. The new control points are
+     * sampled from the current warp so the image never jumps when switching.
+     */
+    setImageWarpPoints(count) {
+        const sel = this.getEl('image-warp-points');
+        if (count > 0 && (!this.customImageOverlay || !this.currentImageBounds)) {
+            alert('Please load an image overlay first');
+            if (sel) sel.value = '0';
+            return;
+        }
+        if (count > 0 && !this.imageResizeMode) {
+            const resizeToggle = this.getEl('enable-image-resize');
+            if (resizeToggle) resizeToggle.checked = true;
+            this.toggleImageResizeMode();
+        }
 
-        if (this.imageFreeShapeMode) {
-            if (!this.customImageOverlay || !this.currentImageBounds) {
-                alert('Please load an image overlay and enable Resize Mode first');
-                const toggle = this.getEl('enable-image-free-shape');
-                if (toggle) toggle.checked = false;
-                this.imageFreeShapeMode = false;
-                return;
-            }
-            if (!this.imageResizeMode) {
-                // Auto-enable resize mode so corner markers are visible
-                const resizeToggle = this.getEl('enable-image-resize');
-                if (resizeToggle) resizeToggle.checked = true;
-                this.toggleImageResizeMode();
-            }
+        // Sample the current warp before tearing it down
+        const proj = this.imageExtractor._makeProjector({
+            bounds: this.currentImageBounds,
+            freeCorners: this.imageFreeCorners,
+            meshPoints: this.imageMeshPoints
+        });
+        const toLL = (u, v) => {
+            const [lng, lat] = proj.fwd(u, v);
+            return L.latLng(lat, lng);
+        };
 
-            const [[south, west], [north, east]] = this.currentImageBounds;
-            this.imageFreeCorners = [
-                L.latLng(south, west), // SW (index 0)
-                L.latLng(south, east), // SE (index 1)
-                L.latLng(north, east), // NE (index 2)
-                L.latLng(north, west)  // NW (index 3)
-            ];
+        // Tear down free-shape state
+        if (this._updateFreeTransformBound) {
+            this.map.off('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+            this._updateFreeTransformBound = null;
+        }
+        this.imageFreeShapeMode = false;
+        this.imageFreeCorners = null;
+        // Tear down mesh state
+        if (this.imageMeshWarp) {
+            this.imageMeshWarp.destroy();
+            this.imageMeshWarp = null;
+        }
+        this.imageMeshPoints = null;
+        this.hideMeshMarkers();
+
+        const el = this.customImageOverlay ? this.customImageOverlay.getElement() : null;
+
+        if (count === 0) {
+            if (this.customImageOverlay) {
+                // Flatten: rect bounds = bbox of the sampled warp corners
+                const cs = [toLL(0, 0), toLL(1, 0), toLL(1, 1), toLL(0, 1)];
+                const lats = cs.map(c => c.lat);
+                const lngs = cs.map(c => c.lng);
+                this.currentImageBounds = [
+                    [Math.min(...lats), Math.min(...lngs)],
+                    [Math.max(...lats), Math.max(...lngs)]
+                ];
+                if (el) el.style.transform = '';
+                this.customImageOverlay.setOpacity(parseInt(this.getEl('image-opacity-slider')?.value ?? '70', 10) / 100);
+                this.customImageOverlay.setBounds(this.currentImageBounds);
+            }
+            if (this.imageResizeMode) this.showImageCornerMarkers();
+            return;
+        }
+
+        if (count === 4) {
+            this.imageFreeShapeMode = true;
+            // [sw, se, ne, nw] — v runs north(0) → south(1)
+            this.imageFreeCorners = [toLL(0, 1), toLL(1, 1), toLL(1, 0), toLL(0, 0)];
+            this.customImageOverlay.setOpacity(parseInt(this.getEl('image-opacity-slider')?.value ?? '70', 10) / 100);
 
             this._updateFreeTransformBound = () => {
                 if (!this._freeTransformRafPending) {
@@ -1837,31 +1924,98 @@ class AttackMapDashboard {
             };
             this.map.on('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
             this.updateFreeShapeTransform();
-        } else {
-            if (this._updateFreeTransformBound) {
-                this.map.off('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
-                this._updateFreeTransformBound = null;
-            }
-
-            // Restore image to bounding box of current free corners
-            if (this.imageFreeCorners && this.customImageOverlay) {
-                const lats = this.imageFreeCorners.map(c => c.lat);
-                const lngs = this.imageFreeCorners.map(c => c.lng);
-                this.currentImageBounds = [
-                    [Math.min(...lats), Math.min(...lngs)],
-                    [Math.max(...lats), Math.max(...lngs)]
-                ];
-                const el = this.customImageOverlay.getElement();
-                if (el) el.style.transform = '';
-                this.customImageOverlay.setBounds(this.currentImageBounds);
-            }
-
-            this.imageFreeCorners = null;
 
             if (this.imageResizeMode) {
                 this.showImageCornerMarkers();
+                // reposition markers onto the (possibly warped) corners
+                if (this.imageCornerMarkers.length === 5) {
+                    for (let i = 0; i < 4; i++) {
+                        this.imageCornerMarkers[i + 1].setLatLng(this.imageFreeCorners[i]);
+                    }
+                    this._updateFreeShapeCenterMarker();
+                }
+            }
+            return;
+        }
+
+        // 9 / 16 → n×n mesh
+        const n = count === 9 ? 3 : 4;
+        const points = [];
+        for (let r = 0; r < n; r++) {
+            for (let c = 0; c < n; c++) {
+                points.push(toLL(c / (n - 1), r / (n - 1)));
             }
         }
+        this.imageMeshPoints = { n, points };
+
+        if (el) {
+            el.style.transform = '';
+            el.style.opacity = '0'; // mesh canvas replaces the flat image
+        }
+        this.hideImageCornerMarkers(); // rect resize handles are meaningless in mesh mode
+
+        this.imageMeshWarp = new ImageMeshWarp(this.map, this.customImageOverlay._url, this.imageMeshPoints);
+        this.imageMeshWarp.setOpacity(parseInt(this.getEl('image-opacity-slider')?.value ?? '70', 10) / 100);
+        this.showMeshMarkers();
+    }
+
+    showMeshMarkers() {
+        this.hideMeshMarkers();
+        if (!this.imageMeshPoints) return;
+        const { points } = this.imageMeshPoints;
+
+        // Blue center mover (translates the whole mesh)
+        const centroid = L.latLng(
+            points.reduce((s, p) => s + p.lat, 0) / points.length,
+            points.reduce((s, p) => s + p.lng, 0) / points.length
+        );
+        const centerMarker = L.marker(centroid, {
+            draggable: true,
+            icon: L.divIcon({
+                className: 'image-center-marker',
+                html: `<div style="width: 24px; height: 24px; background: #0066FF; border: 3px solid white; border-radius: 50%; cursor: move; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            })
+        }).addTo(this.map);
+        centerMarker._prev = centroid;
+        centerMarker.on('drag', () => {
+            const cur = centerMarker.getLatLng();
+            const dLat = cur.lat - centerMarker._prev.lat;
+            const dLng = cur.lng - centerMarker._prev.lng;
+            centerMarker._prev = cur;
+            this.imageMeshPoints.points = this.imageMeshPoints.points.map(
+                p => L.latLng(p.lat + dLat, p.lng + dLng)
+            );
+            if (this.imageMeshWarp) this.imageMeshWarp.setMesh(this.imageMeshPoints);
+            this.imageMeshMarkers.forEach(m => {
+                if (m.meshIndex != null) m.setLatLng(this.imageMeshPoints.points[m.meshIndex]);
+            });
+        });
+        this.imageMeshMarkers.push(centerMarker);
+
+        points.forEach((p, i) => {
+            const marker = L.marker(p, {
+                draggable: true,
+                icon: L.divIcon({
+                    className: 'image-corner-marker',
+                    html: `<div style="width: 14px; height: 14px; background: #FF0000; border: 2px solid white; border-radius: 50%; cursor: move; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7]
+                })
+            }).addTo(this.map);
+            marker.meshIndex = i;
+            marker.on('drag', () => {
+                this.imageMeshPoints.points[i] = marker.getLatLng();
+                if (this.imageMeshWarp) this.imageMeshWarp.setMesh(this.imageMeshPoints);
+            });
+            this.imageMeshMarkers.push(marker);
+        });
+    }
+
+    hideMeshMarkers() {
+        this.imageMeshMarkers.forEach(m => this.map.removeLayer(m));
+        this.imageMeshMarkers = [];
     }
 
     updateFreeShapeTransform() {
@@ -1961,8 +2115,12 @@ class AttackMapDashboard {
         // Convert 0-100 to 0-1
         const opacity = opacityValue / 100;
 
-        // Update overlay opacity
-        this.customImageOverlay.setOpacity(opacity);
+        // Update overlay opacity (mesh canvas replaces the img in mesh mode)
+        if (this.imageMeshWarp) {
+            this.imageMeshWarp.setOpacity(opacity);
+        } else {
+            this.customImageOverlay.setOpacity(opacity);
+        }
 
         // Update display value
         this.setText('image-opacity-value', opacityValue);

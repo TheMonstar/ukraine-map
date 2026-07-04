@@ -800,6 +800,11 @@ class UiBindings {
                                 throw new Error('Custom KML not loaded. Please load a custom KML first.');
                             }
                             return dashboard.customKmlMergedPolygon;
+                        case 'extractedOverlay':
+                            if (!dashboard.extractedMergedPolygon) {
+                                throw new Error('No extracted zones. Run "Detect Red Zones" on an image overlay first.');
+                            }
+                            return dashboard.extractedMergedPolygon;
                         default:
                             throw new Error(`Unknown layer: ${layerName}`);
                     }
@@ -3166,8 +3171,8 @@ class UiBindings {
             dashboard.toggleImageResizeMode();
         });
 
-        dashboard.bindUI('enable-image-free-shape', 'change', () => {
-            dashboard.toggleImageFreeShapeMode();
+        dashboard.bindUI('image-warp-points', 'change', (e) => {
+            dashboard.setImageWarpPoints(parseInt(e.target.value, 10));
         });
 
         dashboard.bindUI('image-opacity-slider', 'input', (e) => {
@@ -3337,6 +3342,244 @@ class UiBindings {
                 const resultsContainer = dashboard.getEl('settlement-search-results');
                 if (resultsContainer) {
                     resultsContainer.style.display = 'none';
+                }
+            }
+        });
+
+        // ── Image Zone Extraction ─────────────────────────────────────────────
+        dashboard.imageExtractor = new ImageExtractor(dashboard);
+
+        const extractStatus = (msg) => {
+            const el = dashboard.getEl('extract-status');
+            if (!el) return;
+            el.style.display = msg ? 'block' : 'none';
+            el.textContent = msg || '';
+        };
+
+        dashboard.bindUI('extract-tolerance', 'input', (e) => {
+            dashboard.setText('extract-tolerance-value', e.target.value);
+        });
+
+        /** Replace the extracted-zones layer with the given features and refresh merged polygon + status. */
+        const setExtractedZones = (features) => {
+            if (dashboard.extractedZoneLayer) {
+                dashboard.map.removeLayer(dashboard.extractedZoneLayer);
+            }
+            if (!features.length) {
+                dashboard.extractedZoneLayer = null;
+                dashboard.extractedMergedPolygon = null;
+                extractStatus('All zones erased');
+                return;
+            }
+            dashboard.extractedZoneLayer = L.geoJSON(turf.featureCollection(features), {
+                style: { color: '#c62828', weight: 2, fillColor: '#e53935', fillOpacity: 0.35 },
+                interactive: false
+            }).addTo(dashboard.map);
+            let merged = features[0];
+            for (let i = 1; i < features.length; i++) {
+                try { merged = turf.union(merged, features[i]); }
+                catch (e) { console.warn('Union failed for polygon', i); }
+            }
+            dashboard.extractedMergedPolygon = merged;
+            const km2 = Math.round(turf.area(merged) / 1e6);
+            extractStatus(`${features.length} zone${features.length > 1 ? 's' : ''}, ${km2.toLocaleString()} km²`);
+        };
+
+        dashboard.bindUI('extract-zones', 'click', async () => {
+            const btn = dashboard.getEl('extract-zones');
+            const tolerance = parseInt(dashboard.getEl('extract-tolerance')?.value ?? '50', 10);
+            if (btn) { btn.disabled = true; btn.textContent = 'Detecting…'; }
+            extractStatus('⏳ Processing image…');
+            // let the browser paint the status before the heavy synchronous work
+            await new Promise(r => setTimeout(r, 50));
+            try {
+                const result = await dashboard.imageExtractor.extract(tolerance);
+                setExtractedZones(result.featureCollection.features);
+            } catch (err) {
+                console.error('Zone extraction failed:', err);
+                extractStatus(null);
+                alert(err.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Detect Red Zones'; }
+            }
+        });
+
+        dashboard.bindUI('clear-extracted-zones', 'click', () => {
+            const eraseCb = dashboard.getEl('extract-erase');
+            if (eraseCb?.checked) {
+                eraseCb.checked = false;
+                eraseCb.dispatchEvent(new Event('change'));
+            }
+            if (dashboard.extractedZoneLayer) {
+                dashboard.map.removeLayer(dashboard.extractedZoneLayer);
+                dashboard.extractedZoneLayer = null;
+            }
+            dashboard.extractedMergedPolygon = null;
+            dashboard.imageExtractor.pickedColor = null;
+            extractStatus(null);
+        });
+
+        dashboard.bindUI('export-extracted-zones', 'click', () => {
+            if (!dashboard.extractedZoneLayer) {
+                alert('Extract zones first');
+                return;
+            }
+            const gj = dashboard.extractedZoneLayer.toGeoJSON();
+            const blob = new Blob([JSON.stringify(gj)], { type: 'application/geo+json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `extracted-zones-${new Date().toISOString().slice(0, 10)}.geojson`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        // Capture-phase DOM listener: clicks must reach us even when interactive
+        // layers (DeepState polygons, extracted zones, markers) sit above the map.
+        const pickColorHandler = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const latlng = dashboard.map.mouseEventToLatLng(e);
+            extractStatus('⏳ Sampling color…');
+            try {
+                const ok = await dashboard.imageExtractor.pickColorAt(latlng);
+                if (ok) {
+                    const c = dashboard.imageExtractor.pickedColor;
+                    extractStatus(`Color picked: rgb(${c.r},${c.g},${c.b}) — run extraction`);
+                } else {
+                    extractStatus('That click was outside the image — try again');
+                    return; // keep pick mode active
+                }
+            } catch (err) {
+                extractStatus(null);
+                alert(err.message);
+            }
+            const cb = dashboard.getEl('extract-pick-color');
+            if (cb) cb.checked = false;
+            dashboard.map.getContainer().removeEventListener('click', pickColorHandler, true);
+        };
+
+        dashboard.bindUI('extract-pick-color', 'change', () => {
+            if (dashboard.isChecked('extract-pick-color')) {
+                extractStatus('Click the zone color on the image…');
+                dashboard.map.getContainer().addEventListener('click', pickColorHandler, true);
+            } else {
+                dashboard.map.getContainer().removeEventListener('click', pickColorHandler, true);
+                dashboard.imageExtractor.pickedColor = null;
+                extractStatus(null);
+            }
+        });
+
+        dashboard.bindUI('load-image-file', 'click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.addEventListener('change', () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                const urlInput = dashboard.getEl('image-overlay-url');
+                if (urlInput) urlInput.value = url;
+                dashboard.loadImageOverlay();
+            });
+            input.click();
+        });
+
+        // ── Extracted-zone eraser (brush) ────────────────────────────────────
+        dashboard.bindUI('erase-size', 'input', (e) => {
+            dashboard.setText('erase-size-value', e.target.value);
+        });
+
+        let erasePoints = null;
+        let eraseStrokePreview = null;
+
+        const eraseBrushPx = () => parseInt(dashboard.getEl('erase-size')?.value ?? '30', 10);
+
+        const applyErase = (latlngs) => {
+            if (!dashboard.extractedZoneLayer) return;
+            // brush radius: pixels → km at current zoom/latitude
+            const center = dashboard.map.getCenter();
+            const mpp = 40075016.686 * Math.abs(Math.cos(center.lat * Math.PI / 180)) /
+                (256 * Math.pow(2, dashboard.map.getZoom()));
+            const radiusKm = (eraseBrushPx() * mpp) / 1000;
+
+            let stroke;
+            try {
+                stroke = latlngs.length === 1
+                    ? turf.circle([latlngs[0].lng, latlngs[0].lat], radiusKm, { units: 'kilometers' })
+                    : turf.buffer(turf.lineString(latlngs.map(p => [p.lng, p.lat])), radiusKm, { units: 'kilometers' });
+            } catch (e) {
+                return;
+            }
+
+            const fc = dashboard.extractedZoneLayer.toGeoJSON();
+            const remaining = [];
+            for (const f of fc.features) {
+                try {
+                    const diff = turf.difference(f, stroke);
+                    if (diff && turf.area(diff) / 1e6 >= 0.5) remaining.push(diff);
+                } catch (e) {
+                    remaining.push(f); // keep untouched on geometry errors
+                }
+            }
+            setExtractedZones(remaining);
+        };
+
+        const eraseStart = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            erasePoints = [dashboard.map.mouseEventToLatLng(e)];
+            eraseStrokePreview = L.polyline(erasePoints, {
+                color: '#333', weight: eraseBrushPx() * 2, opacity: 0.35,
+                lineCap: 'round', lineJoin: 'round', interactive: false
+            }).addTo(dashboard.map);
+        };
+        const eraseMove = (e) => {
+            if (!erasePoints) return;
+            e.preventDefault();
+            e.stopPropagation();
+            erasePoints.push(dashboard.map.mouseEventToLatLng(e));
+            eraseStrokePreview.setLatLngs(erasePoints);
+        };
+        const eraseEnd = (e) => {
+            if (!erasePoints) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const pts = erasePoints;
+            erasePoints = null;
+            if (eraseStrokePreview) {
+                dashboard.map.removeLayer(eraseStrokePreview);
+                eraseStrokePreview = null;
+            }
+            applyErase(pts);
+        };
+
+        dashboard.bindUI('extract-erase', 'change', () => {
+            const container = dashboard.map.getContainer();
+            if (dashboard.isChecked('extract-erase')) {
+                if (!dashboard.extractedZoneLayer) {
+                    alert('Extract zones first');
+                    const cb = dashboard.getEl('extract-erase');
+                    if (cb) cb.checked = false;
+                    return;
+                }
+                dashboard.map.dragging.disable();
+                container.style.cursor = 'crosshair';
+                container.addEventListener('mousedown', eraseStart, true);
+                container.addEventListener('mousemove', eraseMove, true);
+                container.addEventListener('mouseup', eraseEnd, true);
+                container.addEventListener('mouseleave', eraseEnd, true);
+                extractStatus('Erase: drag over areas to remove');
+            } else {
+                dashboard.map.dragging.enable();
+                container.style.cursor = '';
+                container.removeEventListener('mousedown', eraseStart, true);
+                container.removeEventListener('mousemove', eraseMove, true);
+                container.removeEventListener('mouseup', eraseEnd, true);
+                container.removeEventListener('mouseleave', eraseEnd, true);
+                erasePoints = null;
+                if (eraseStrokePreview) {
+                    dashboard.map.removeLayer(eraseStrokePreview);
+                    eraseStrokePreview = null;
                 }
             }
         });
