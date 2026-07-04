@@ -561,11 +561,13 @@
                                         class="toggle-switch"></span>Pick Color</label>
                                 <button id="export-extracted-zones" class="btn btn-sm">Export GeoJSON</button>
                             </div>
-                            <div class="btn-row">
-                                <label class="toggle-label"><input type="checkbox" id="extract-erase" /><span
-                                        class="toggle-switch"></span>Erase</label>
-                                <label class="small-label">Brush: <span id="erase-size-value">30</span>px</label>
-                            </div>
+                            <label class="control-label">Edit Zones</label>
+                            <select id="extract-edit-mode" class="control-select">
+                                <option value="none" selected>None</option>
+                                <option value="brush">Brush (add area)</option>
+                                <option value="eraser">Eraser (remove area)</option>
+                            </select>
+                            <label class="small-label">Brush: <span id="erase-size-value">30</span>px</label>
                             <input type="range" id="erase-size" min="10" max="80" value="30" class="control-range" />
                             <div id="extract-status" class="draw-hint" style="display:none;"></div>
                         </div>

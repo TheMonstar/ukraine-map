@@ -3405,10 +3405,10 @@ class UiBindings {
         });
 
         dashboard.bindUI('clear-extracted-zones', 'click', () => {
-            const eraseCb = dashboard.getEl('extract-erase');
-            if (eraseCb?.checked) {
-                eraseCb.checked = false;
-                eraseCb.dispatchEvent(new Event('change'));
+            const editSel = dashboard.getEl('extract-edit-mode');
+            if (editSel && editSel.value !== 'none') {
+                editSel.value = 'none';
+                editSel.dispatchEvent(new Event('change'));
             }
             if (dashboard.extractedZoneLayer) {
                 dashboard.map.removeLayer(dashboard.extractedZoneLayer);
@@ -3484,23 +3484,24 @@ class UiBindings {
             input.click();
         });
 
-        // ── Extracted-zone eraser (brush) ────────────────────────────────────
+        // ── Extracted-zone editing (brush adds, eraser removes) ─────────────
         dashboard.bindUI('erase-size', 'input', (e) => {
             dashboard.setText('erase-size-value', e.target.value);
         });
 
-        let erasePoints = null;
-        let eraseStrokePreview = null;
+        let editPoints = null;
+        let editStrokePreview = null;
 
-        const eraseBrushPx = () => parseInt(dashboard.getEl('erase-size')?.value ?? '30', 10);
+        const editBrushPx = () => parseInt(dashboard.getEl('erase-size')?.value ?? '30', 10);
+        const editMode = () => dashboard.getEl('extract-edit-mode')?.value ?? 'none';
 
-        const applyErase = (latlngs) => {
-            if (!dashboard.extractedZoneLayer) return;
+        const applyEdit = (latlngs) => {
+            const mode = editMode();
             // brush radius: pixels → km at current zoom/latitude
             const center = dashboard.map.getCenter();
             const mpp = 40075016.686 * Math.abs(Math.cos(center.lat * Math.PI / 180)) /
                 (256 * Math.pow(2, dashboard.map.getZoom()));
-            const radiusKm = (eraseBrushPx() * mpp) / 1000;
+            const radiusKm = (editBrushPx() * mpp) / 1000;
 
             let stroke;
             try {
@@ -3511,77 +3512,106 @@ class UiBindings {
                 return;
             }
 
-            const fc = dashboard.extractedZoneLayer.toGeoJSON();
-            const remaining = [];
-            for (const f of fc.features) {
-                try {
-                    const diff = turf.difference(f, stroke);
-                    if (diff && turf.area(diff) / 1e6 >= 0.5) remaining.push(diff);
-                } catch (e) {
-                    remaining.push(f); // keep untouched on geometry errors
+            const features = dashboard.extractedZoneLayer
+                ? dashboard.extractedZoneLayer.toGeoJSON().features
+                : [];
+
+            if (mode === 'eraser') {
+                const remaining = [];
+                for (const f of features) {
+                    try {
+                        const diff = turf.difference(f, stroke);
+                        if (diff && turf.area(diff) / 1e6 >= 0.5) remaining.push(diff);
+                    } catch (e) {
+                        remaining.push(f); // keep untouched on geometry errors
+                    }
                 }
+                setExtractedZones(remaining);
+            } else if (mode === 'brush') {
+                // merge the stroke with every zone it touches; keep the rest separate
+                let merged = stroke;
+                const remaining = [];
+                for (const f of features) {
+                    try {
+                        if (turf.booleanDisjoint(f, merged)) {
+                            remaining.push(f);
+                        } else {
+                            merged = turf.union(merged, f);
+                        }
+                    } catch (e) {
+                        remaining.push(f);
+                    }
+                }
+                remaining.push(merged);
+                setExtractedZones(remaining);
             }
-            setExtractedZones(remaining);
         };
 
-        const eraseStart = (e) => {
+        const editStart = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            erasePoints = [dashboard.map.mouseEventToLatLng(e)];
-            eraseStrokePreview = L.polyline(erasePoints, {
-                color: '#333', weight: eraseBrushPx() * 2, opacity: 0.35,
+            editPoints = [dashboard.map.mouseEventToLatLng(e)];
+            editStrokePreview = L.polyline(editPoints, {
+                color: editMode() === 'brush' ? '#c62828' : '#333',
+                weight: editBrushPx() * 2, opacity: 0.35,
                 lineCap: 'round', lineJoin: 'round', interactive: false
             }).addTo(dashboard.map);
         };
-        const eraseMove = (e) => {
-            if (!erasePoints) return;
+        const editMoveHandler = (e) => {
+            if (!editPoints) return;
             e.preventDefault();
             e.stopPropagation();
-            erasePoints.push(dashboard.map.mouseEventToLatLng(e));
-            eraseStrokePreview.setLatLngs(erasePoints);
+            editPoints.push(dashboard.map.mouseEventToLatLng(e));
+            editStrokePreview.setLatLngs(editPoints);
         };
-        const eraseEnd = (e) => {
-            if (!erasePoints) return;
+        const editEnd = (e) => {
+            if (!editPoints) return;
             e.preventDefault();
             e.stopPropagation();
-            const pts = erasePoints;
-            erasePoints = null;
-            if (eraseStrokePreview) {
-                dashboard.map.removeLayer(eraseStrokePreview);
-                eraseStrokePreview = null;
+            const pts = editPoints;
+            editPoints = null;
+            if (editStrokePreview) {
+                dashboard.map.removeLayer(editStrokePreview);
+                editStrokePreview = null;
             }
-            applyErase(pts);
+            applyEdit(pts);
         };
 
-        dashboard.bindUI('extract-erase', 'change', () => {
+        const disableZoneEditing = () => {
             const container = dashboard.map.getContainer();
-            if (dashboard.isChecked('extract-erase')) {
-                if (!dashboard.extractedZoneLayer) {
-                    alert('Extract zones first');
-                    const cb = dashboard.getEl('extract-erase');
-                    if (cb) cb.checked = false;
-                    return;
-                }
-                dashboard.map.dragging.disable();
-                container.style.cursor = 'crosshair';
-                container.addEventListener('mousedown', eraseStart, true);
-                container.addEventListener('mousemove', eraseMove, true);
-                container.addEventListener('mouseup', eraseEnd, true);
-                container.addEventListener('mouseleave', eraseEnd, true);
-                extractStatus('Erase: drag over areas to remove');
-            } else {
-                dashboard.map.dragging.enable();
-                container.style.cursor = '';
-                container.removeEventListener('mousedown', eraseStart, true);
-                container.removeEventListener('mousemove', eraseMove, true);
-                container.removeEventListener('mouseup', eraseEnd, true);
-                container.removeEventListener('mouseleave', eraseEnd, true);
-                erasePoints = null;
-                if (eraseStrokePreview) {
-                    dashboard.map.removeLayer(eraseStrokePreview);
-                    eraseStrokePreview = null;
-                }
+            dashboard.map.dragging.enable();
+            container.style.cursor = '';
+            container.removeEventListener('mousedown', editStart, true);
+            container.removeEventListener('mousemove', editMoveHandler, true);
+            container.removeEventListener('mouseup', editEnd, true);
+            container.removeEventListener('mouseleave', editEnd, true);
+            editPoints = null;
+            if (editStrokePreview) {
+                dashboard.map.removeLayer(editStrokePreview);
+                editStrokePreview = null;
             }
+        };
+
+        dashboard.bindUI('extract-edit-mode', 'change', () => {
+            const mode = editMode();
+            disableZoneEditing(); // idempotent reset before (re)arming
+            if (mode === 'none') return;
+            if (mode === 'eraser' && !dashboard.extractedZoneLayer) {
+                alert('Extract zones first');
+                const sel = dashboard.getEl('extract-edit-mode');
+                if (sel) sel.value = 'none';
+                return;
+            }
+            const container = dashboard.map.getContainer();
+            dashboard.map.dragging.disable();
+            container.style.cursor = 'crosshair';
+            container.addEventListener('mousedown', editStart, true);
+            container.addEventListener('mousemove', editMoveHandler, true);
+            container.addEventListener('mouseup', editEnd, true);
+            container.addEventListener('mouseleave', editEnd, true);
+            extractStatus(mode === 'brush'
+                ? 'Brush: drag to add area'
+                : 'Erase: drag over areas to remove');
         });
 
         // ── Drawing Tool ──────────────────────────────────────────────────────
