@@ -700,6 +700,18 @@ class UiBindings {
             await dashboard.layers.loadCustomKml(url);
         });
 
+        // Load custom layer from a local file
+        dashboard.bindUI('load-custom-kml-file', 'click', () => {
+            dashboard.getEl('custom-kml-file')?.click();
+        });
+
+        dashboard.bindUI('custom-kml-file', 'change', async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            await dashboard.layers.loadCustomKmlFile(file);
+            e.target.value = ''; // allow re-loading the same file
+        });
+
         dashboard.bindUI('custom-kml-overlay', 'change', async () => {
             await dashboard.layers.toggleCustomKmlOverlay(dashboard.isChecked('custom-kml-overlay'));
         });

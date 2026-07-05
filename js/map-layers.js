@@ -1239,17 +1239,46 @@ class MapLayers {
 
             // Detect if it's GeoJSON or KML based on URL extension or content
             const isGeoJson = url.toLowerCase().endsWith('.geojson') || url.toLowerCase().endsWith('.json');
+            const text = await response.text();
 
+            this.processCustomKmlText(text, isGeoJson);
+        } catch (error) {
+            console.error('Error loading custom KML:', error);
+            alert('Failed to load custom KML. Check console for details.');
+        }
+    }
+
+    async loadCustomKmlFile(file) {
+        const dashboard = this.dashboard;
+        try {
+            console.log(`Loading custom layer from file: ${file.name}`);
+
+            // Local files have no URL; clear any previously stored one
+            dashboard.customKmlUrl = '';
+
+            const name = file.name.toLowerCase();
+            const isGeoJson = name.endsWith('.geojson') || name.endsWith('.json');
+            const text = await file.text();
+
+            this.processCustomKmlText(text, isGeoJson);
+        } catch (error) {
+            console.error('Error loading custom KML file:', error);
+            alert('Failed to load custom KML file. Check console for details.');
+        }
+    }
+
+    processCustomKmlText(text, isGeoJson) {
+        const dashboard = this.dashboard;
+        try {
             let geojson;
             if (isGeoJson) {
                 // Parse as GeoJSON directly
-                geojson = await response.json();
+                geojson = JSON.parse(text);
                 console.log('Detected GeoJSON format');
             } else {
                 // Parse as KML
-                const kmlText = await response.text();
                 const parser = new DOMParser();
-                const kmlDoc = parser.parseFromString(kmlText, 'text/xml');
+                const kmlDoc = parser.parseFromString(text, 'text/xml');
                 geojson = this.parseKmlToGeoJSON(kmlDoc);
                 console.log('Detected KML format');
             }
@@ -1290,8 +1319,8 @@ class MapLayers {
             }
 
         } catch (error) {
-            console.error('Error loading custom KML:', error);
-            alert('Failed to load custom KML. Check console for details.');
+            console.error('Error parsing custom KML:', error);
+            alert('Failed to parse custom KML. Check console for details.');
         }
     }
 
