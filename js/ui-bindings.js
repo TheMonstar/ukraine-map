@@ -3506,6 +3506,54 @@ class UiBindings {
 
         const editBrushPx = () => parseInt(dashboard.getEl('erase-size')?.value ?? '30', 10);
         const editMode = () => dashboard.getEl('extract-edit-mode')?.value ?? 'none';
+        const editTarget = () => dashboard.getEl('extract-edit-target')?.value ?? 'extracted';
+
+        const isPolygonal = (f) =>
+            f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
+
+        /** Apply a brush/eraser stroke to a feature list; returns the edited list. */
+        const editFeatures = (features, stroke, mode) => {
+            const result = [];
+            if (mode === 'eraser') {
+                for (const f of features) {
+                    if (!isPolygonal(f)) {
+                        result.push(f);
+                        continue;
+                    }
+                    try {
+                        const diff = turf.difference(f, stroke);
+                        if (diff && turf.area(diff) / 1e6 >= 0.5) {
+                            diff.properties = f.properties;
+                            result.push(diff);
+                        }
+                    } catch (e) {
+                        result.push(f); // keep untouched on geometry errors
+                    }
+                }
+            } else { // brush: merge the stroke with every zone it touches
+                let merged = stroke;
+                let mergedProps = null;
+                for (const f of features) {
+                    if (!isPolygonal(f)) {
+                        result.push(f);
+                        continue;
+                    }
+                    try {
+                        if (turf.booleanDisjoint(f, merged)) {
+                            result.push(f);
+                        } else {
+                            merged = turf.union(merged, f);
+                            if (!mergedProps) mergedProps = f.properties;
+                        }
+                    } catch (e) {
+                        result.push(f);
+                    }
+                }
+                if (mergedProps) merged.properties = mergedProps;
+                result.push(merged);
+            }
+            return result;
+        };
 
         const applyEdit = (latlngs) => {
             const mode = editMode();
@@ -3524,39 +3572,37 @@ class UiBindings {
                 return;
             }
 
+            if (editTarget() === 'custom') {
+                if (!dashboard.customKmlData) return;
+                dashboard.customKmlData.features =
+                    editFeatures(dashboard.customKmlData.features, stroke, mode);
+
+                // Recompute merged polygon for Layer Comparison
+                const polys = [];
+                dashboard.customKmlData.features.forEach(f => {
+                    if (isPolygonal(f)) polys.push(...GeometryUtils.toTurfPolygons(f.geometry));
+                });
+                let merged = polys[0] || null;
+                for (let i = 1; i < polys.length; i++) {
+                    try { merged = turf.union(merged, polys[i]); }
+                    catch (e) { /* keep partial union */ }
+                }
+                dashboard.customKmlMergedPolygon = merged;
+
+                // Re-render the overlay (enable it if hidden so the edit is visible)
+                const cb = dashboard.getEl('custom-kml-overlay');
+                if (cb && !cb.checked) cb.checked = true;
+                dashboard.layers.toggleCustomKmlOverlay(true);
+
+                const km2 = merged ? Math.round(turf.area(merged) / 1e6) : 0;
+                extractStatus(`Custom layer: ${dashboard.customKmlData.features.length} features, ${km2.toLocaleString()} km²`);
+                return;
+            }
+
             const features = dashboard.extractedZoneLayer
                 ? dashboard.extractedZoneLayer.toGeoJSON().features
                 : [];
-
-            if (mode === 'eraser') {
-                const remaining = [];
-                for (const f of features) {
-                    try {
-                        const diff = turf.difference(f, stroke);
-                        if (diff && turf.area(diff) / 1e6 >= 0.5) remaining.push(diff);
-                    } catch (e) {
-                        remaining.push(f); // keep untouched on geometry errors
-                    }
-                }
-                setExtractedZones(remaining);
-            } else if (mode === 'brush') {
-                // merge the stroke with every zone it touches; keep the rest separate
-                let merged = stroke;
-                const remaining = [];
-                for (const f of features) {
-                    try {
-                        if (turf.booleanDisjoint(f, merged)) {
-                            remaining.push(f);
-                        } else {
-                            merged = turf.union(merged, f);
-                        }
-                    } catch (e) {
-                        remaining.push(f);
-                    }
-                }
-                remaining.push(merged);
-                setExtractedZones(remaining);
-            }
+            setExtractedZones(editFeatures(features, stroke, mode));
         };
 
         const editStart = (e) => {
@@ -3596,7 +3642,9 @@ class UiBindings {
             container.removeEventListener('mousedown', editStart, true);
             container.removeEventListener('mousemove', editMoveHandler, true);
             container.removeEventListener('mouseup', editEnd, true);
-            container.removeEventListener('mouseleave', editEnd, true);
+            // non-capture: mouseleave must only fire when leaving the map itself,
+            // not when the cursor crosses overlay polygons/tooltips inside it
+            container.removeEventListener('mouseleave', editEnd, false);
             editPoints = null;
             if (editStrokePreview) {
                 dashboard.map.removeLayer(editStrokePreview);
@@ -3608,7 +3656,14 @@ class UiBindings {
             const mode = editMode();
             disableZoneEditing(); // idempotent reset before (re)arming
             if (mode === 'none') return;
-            if (mode === 'eraser' && !dashboard.extractedZoneLayer) {
+            if (editTarget() === 'custom') {
+                if (!dashboard.customKmlData) {
+                    alert('Load a custom layer first');
+                    const sel = dashboard.getEl('extract-edit-mode');
+                    if (sel) sel.value = 'none';
+                    return;
+                }
+            } else if (mode === 'eraser' && !dashboard.extractedZoneLayer) {
                 alert('Extract zones first');
                 const sel = dashboard.getEl('extract-edit-mode');
                 if (sel) sel.value = 'none';
@@ -3620,10 +3675,15 @@ class UiBindings {
             container.addEventListener('mousedown', editStart, true);
             container.addEventListener('mousemove', editMoveHandler, true);
             container.addEventListener('mouseup', editEnd, true);
-            container.addEventListener('mouseleave', editEnd, true);
+            container.addEventListener('mouseleave', editEnd, false);
             extractStatus(mode === 'brush'
                 ? 'Brush: drag to add area'
                 : 'Erase: drag over areas to remove');
+        });
+
+        dashboard.bindUI('extract-edit-target', 'change', () => {
+            const sel = dashboard.getEl('extract-edit-mode');
+            if (sel && sel.value !== 'none') sel.dispatchEvent(new Event('change'));
         });
 
         // ── Drawing Tool ──────────────────────────────────────────────────────
