@@ -1402,6 +1402,9 @@ class AttackMapDashboard {
         'suriyak-overlay', 'source-gsua', 'source-gsua-direction',
         'diff-area', 'diff-highlight', 'diff-no-base', 'features-diff',
         'feature-railways', 'feature-ditches', 'feature-motorlines', 'feature-waterways',
+        'motorlines-type-highway', 'motorlines-type-primary', 'motorlines-type-tertiary', 'motorlines-type-bridge',
+        'railways-type-rail', 'railways-type-station', 'railways-type-bridge',
+        'waterways-type-river', 'waterways-type-stream',
         'topo-ua', 'topo-bw', 'forest-overlay',
         'show-settlements', 'show-regions', 'position-change',
         'hex-tiles', 'show-date-overlay', 'custom-kml-overlay'
