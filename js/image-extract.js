@@ -52,18 +52,31 @@ class ImageExtractor {
         });
     }
 
-    /** Build the pixel→LatLng mapper for the source georeferencing. */
+    /**
+     * Build the pixel→LatLng mapper for the source georeferencing.
+     * All interpolation runs in projected Web Mercator (EPSG:3857) space, because
+     * that is how Leaflet renders the overlay (imageOverlay / matrix3d / mesh all
+     * interpolate layer points). Interpolating raw latitudes instead skews zones
+     * north–south on images with a large latitude span.
+     */
     _makeProjector(src) {
+        const crs = L.CRS.EPSG3857;
+        const prj = ll => crs.project(L.latLng(ll.lat, ll.lng));       // → {x, y} meters
+        const unprj = (x, y) => {
+            const ll = crs.unproject(L.point(x, y));
+            return [ll.lng, ll.lat];
+        };
         if (src.meshPoints && src.meshPoints.points?.length) {
-            const { n, points } = src.meshPoints;
+            const { n } = src.meshPoints;
+            const points = src.meshPoints.points.map(prj);
             const cells = n - 1;
             const cellCorners = (ri, ci) => [
                 points[ri * n + ci], points[ri * n + ci + 1],
                 points[(ri + 1) * n + ci], points[(ri + 1) * n + ci + 1]
             ];
             const bilinear = (p00, p10, p01, p11, s, t) => [
-                (1 - t) * ((1 - s) * p00.lng + s * p10.lng) + t * ((1 - s) * p01.lng + s * p11.lng),
-                (1 - t) * ((1 - s) * p00.lat + s * p10.lat) + t * ((1 - s) * p01.lat + s * p11.lat)
+                (1 - t) * ((1 - s) * p00.x + s * p10.x) + t * ((1 - s) * p01.x + s * p11.x),
+                (1 - t) * ((1 - s) * p00.y + s * p10.y) + t * ((1 - s) * p01.y + s * p11.y)
             ];
             const fwd = (u, v) => {
                 const cu = Math.min(Math.max(u, 0), 1) * cells;
@@ -71,29 +84,30 @@ class ImageExtractor {
                 const ci = Math.min(Math.floor(cu), cells - 1);
                 const ri = Math.min(Math.floor(cv), cells - 1);
                 const [p00, p10, p01, p11] = cellCorners(ri, ci);
-                return bilinear(p00, p10, p01, p11, cu - ci, cv - ri);
+                return unprj(...bilinear(p00, p10, p01, p11, cu - ci, cv - ri));
             };
             // Newton inversion per cell (≤9 cells, cheap); used by the eyedropper
             const inv = (lng, lat) => {
+                const target = prj({ lat, lng });
                 for (let ri = 0; ri < cells; ri++) {
                     for (let ci = 0; ci < cells; ci++) {
                         const [p00, p10, p01, p11] = cellCorners(ri, ci);
                         let s = 0.5, t = 0.5;
                         for (let it = 0; it < 15; it++) {
                             const [X, Y] = bilinear(p00, p10, p01, p11, s, t);
-                            const rx = X - lng, ry = Y - lat;
-                            const dXds = (1 - t) * (p10.lng - p00.lng) + t * (p11.lng - p01.lng);
-                            const dXdt = (1 - s) * (p01.lng - p00.lng) + s * (p11.lng - p10.lng);
-                            const dYds = (1 - t) * (p10.lat - p00.lat) + t * (p11.lat - p01.lat);
-                            const dYdt = (1 - s) * (p01.lat - p00.lat) + s * (p11.lat - p10.lat);
+                            const rx = X - target.x, ry = Y - target.y;
+                            const dXds = (1 - t) * (p10.x - p00.x) + t * (p11.x - p01.x);
+                            const dXdt = (1 - s) * (p01.x - p00.x) + s * (p11.x - p10.x);
+                            const dYds = (1 - t) * (p10.y - p00.y) + t * (p11.y - p01.y);
+                            const dYdt = (1 - s) * (p01.y - p00.y) + s * (p11.y - p10.y);
                             const det = dXds * dYdt - dXdt * dYds;
-                            if (Math.abs(det) < 1e-15) break;
+                            if (Math.abs(det) < 1e-9) break;
                             s -= (rx * dYdt - ry * dXdt) / det;
                             t -= (ry * dXds - rx * dYds) / det;
                         }
                         if (s >= -0.01 && s <= 1.01 && t >= -0.01 && t <= 1.01) {
                             const [X, Y] = bilinear(p00, p10, p01, p11, s, t);
-                            if (Math.abs(X - lng) < 1e-6 && Math.abs(Y - lat) < 1e-6) {
+                            if (Math.abs(X - target.x) < 0.5 && Math.abs(Y - target.y) < 0.5) {
                                 return [(ci + Math.min(Math.max(s, 0), 1)) / cells,
                                         (ri + Math.min(Math.max(t, 0), 1)) / cells];
                             }
@@ -106,29 +120,32 @@ class ImageExtractor {
         }
         if (src.freeCorners && src.freeCorners.length === 4) {
             // saveImageOverlay order: [sw, se, ne, nw]; image space: nw=TL, ne=TR, se=BR, sw=BL
-            const [sw, se, ne, nw] = src.freeCorners;
-            const H = ImageExtractor._squareToQuad(
-                { x: nw.lng, y: nw.lat }, { x: ne.lng, y: ne.lat },
-                { x: se.lng, y: se.lat }, { x: sw.lng, y: sw.lat }
-            );
+            const [sw, se, ne, nw] = src.freeCorners.map(prj);
+            const H = ImageExtractor._squareToQuad(nw, ne, se, sw);
             const fwd = (u, v) => {
                 const w = H[6] * u + H[7] * v + 1;
-                return [(H[0] * u + H[1] * v + H[2]) / w, (H[3] * u + H[4] * v + H[5]) / w]; // [lng, lat]
+                return unprj((H[0] * u + H[1] * v + H[2]) / w, (H[3] * u + H[4] * v + H[5]) / w);
             };
             const Hinv = ImageExtractor._invert3x3(H);
             const inv = (lng, lat) => {
-                const w = Hinv[6] * lng + Hinv[7] * lat + Hinv[8];
+                const p = prj({ lat, lng });
+                const w = Hinv[6] * p.x + Hinv[7] * p.y + Hinv[8];
                 return [
-                    (Hinv[0] * lng + Hinv[1] * lat + Hinv[2]) / w,
-                    (Hinv[3] * lng + Hinv[4] * lat + Hinv[5]) / w
+                    (Hinv[0] * p.x + Hinv[1] * p.y + Hinv[2]) / w,
+                    (Hinv[3] * p.x + Hinv[4] * p.y + Hinv[5]) / w
                 ]; // [u, v]
             };
             return { fwd, inv };
         }
         const [[south, west], [north, east]] = src.bounds;
+        const nwPt = prj({ lat: north, lng: west });
+        const sePt = prj({ lat: south, lng: east });
         return {
-            fwd: (u, v) => [west + u * (east - west), north - v * (north - south)],
-            inv: (lng, lat) => [(lng - west) / (east - west), (north - lat) / (north - south)]
+            fwd: (u, v) => unprj(nwPt.x + u * (sePt.x - nwPt.x), nwPt.y + v * (sePt.y - nwPt.y)),
+            inv: (lng, lat) => {
+                const p = prj({ lat, lng });
+                return [(p.x - nwPt.x) / (sePt.x - nwPt.x), (p.y - nwPt.y) / (sePt.y - nwPt.y)];
+            }
         };
     }
 

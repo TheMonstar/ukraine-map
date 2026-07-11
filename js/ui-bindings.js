@@ -3371,6 +3371,7 @@ class UiBindings {
             const link = dashboard.getEl('stream-link')?.value;
             if (link) navigator.clipboard.writeText(link).catch(() => {});
         });
+        dashboard.bindUI('stream-request-draw', 'click', () => dashboard.streamer.requestDraw());
 
         // Auto-join when opened via a share link
         const followMatch = location.hash.match(/#follow=([\w-]+)/);
