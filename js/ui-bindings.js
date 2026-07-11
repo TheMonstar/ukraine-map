@@ -3361,6 +3361,23 @@ class UiBindings {
         // ── Image Zone Extraction ─────────────────────────────────────────────
         dashboard.imageExtractor = new ImageExtractor(dashboard);
 
+        // ── Streaming / Presenter Mode ────────────────────────────────────────
+        dashboard.streamer = new MapStreamer(dashboard);
+
+        dashboard.bindUI('stream-start', 'click', () => dashboard.streamer.startPresenting());
+        dashboard.bindUI('stream-stop', 'click', () => dashboard.streamer.stop());
+        dashboard.bindUI('stream-leave', 'click', () => dashboard.streamer.stop());
+        dashboard.bindUI('stream-copy-link', 'click', () => {
+            const link = dashboard.getEl('stream-link')?.value;
+            if (link) navigator.clipboard.writeText(link).catch(() => {});
+        });
+
+        // Auto-join when opened via a share link
+        const followMatch = location.hash.match(/#follow=([\w-]+)/);
+        if (followMatch) {
+            dashboard.streamer.join(followMatch[1]);
+        }
+
         const extractStatus = (msg) => {
             const el = dashboard.getEl('extract-status');
             if (!el) return;
@@ -3396,6 +3413,7 @@ class UiBindings {
             const km2 = Math.round(turf.area(merged) / 1e6);
             extractStatus(`${features.length} zone${features.length > 1 ? 's' : ''}, ${km2.toLocaleString()} km²`);
         };
+        dashboard.setExtractedZones = setExtractedZones;
 
         dashboard.bindUI('extract-zones', 'click', async () => {
             const btn = dashboard.getEl('extract-zones');

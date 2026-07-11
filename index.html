@@ -581,6 +581,33 @@
                     </div>
                 </div>
 
+                <!-- Streaming -->
+                <div class="accordion-section" data-section="streaming">
+                    <div class="accordion-header">
+                        <span class="accordion-arrow">&#9654;</span>
+                        Streaming
+                    </div>
+                    <div class="accordion-body" style="display:none;">
+                        <div class="control-group">
+                            <label class="control-label">Presenter</label>
+                            <div class="btn-row">
+                                <button id="stream-start" class="btn btn-sm">Start Presenting</button>
+                                <button id="stream-stop" class="btn btn-sm btn-danger">Stop</button>
+                            </div>
+                            <input type="text" id="stream-link" class="control-input" readonly
+                                   placeholder="Share link appears here..." />
+                            <button id="stream-copy-link" class="btn btn-sm">Copy Link</button>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Viewer</label>
+                            <label class="toggle-label"><input type="checkbox" id="stream-follow-view" checked /><span
+                                    class="toggle-switch"></span>Follow presenter's view</label>
+                            <button id="stream-leave" class="btn btn-sm btn-danger">Stop Following</button>
+                        </div>
+                        <div id="stream-status" class="draw-hint" style="display:none;"></div>
+                    </div>
+                </div>
+
                 <!-- Air Defense Range -->
                 <div class="accordion-section" data-section="air-defense">
                     <div class="accordion-header">
@@ -969,6 +996,7 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="https://unpkg.com/@tmcw/togeojson@4.4.1/dist/togeojson.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="js/utils.js?544"></script>
     <script src="js/hex-tiles.js?544"></script>
     <script src="js/geometry-utils.js?544"></script>
@@ -979,6 +1007,7 @@ Situation report:
     <script src="js/image-mesh.js?544"></script>
     <script src="js/image-extract.js?544"></script>
     <script src="js/terrain-analysis.js?544"></script>
+    <script src="js/stream.js?544"></script>
     <script src="js/ui-bindings.js?544"></script>
     <script src="js/map-uml-engine.js?544"></script>
     <script src="js/app.js?544"></script>
