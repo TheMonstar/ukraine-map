@@ -392,6 +392,7 @@
                             <div class="btn-row">
                                 <button id="save-session" class="btn btn-sm">Save Session</button>
                                 <button id="load-session" class="btn btn-sm">Load Session</button>
+                                <button id="share-session-link" class="btn btn-sm" style="display:none;">Copy Share Link</button>
                             </div>
                         </div>
 
@@ -557,6 +558,7 @@
                                 class="control-range" />
                             <div class="btn-row">
                                 <button id="extract-zones" class="btn btn-sm">Detect Red Zones</button>
+                                <button id="extract-undo" class="btn btn-sm" disabled>Undo</button>
                                 <button id="clear-extracted-zones" class="btn btn-sm btn-danger">Clear</button>
                             </div>
                             <div class="btn-row">
@@ -1000,6 +1002,7 @@ Situation report:
     <script src="https://unpkg.com/@tmcw/togeojson@4.4.1/dist/togeojson.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
     <script src="js/utils.js?544"></script>
     <script src="js/hex-tiles.js?544"></script>
     <script src="js/geometry-utils.js?544"></script>

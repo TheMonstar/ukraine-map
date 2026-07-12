@@ -1066,6 +1066,15 @@ class AttackMapDashboard {
         // Convert to km
         const distanceKm = (totalDistance / 1000).toFixed(2);
 
+        // When chained into 3+ points, also show the enclosed area
+        let content = `${distanceKm} km`;
+        if (points.length > 2) {
+            const ring = points.map(p => [p.lng, p.lat]);
+            ring.push(ring[0]);
+            const areaKm2 = turf.area(turf.polygon([ring])) / 1e6;
+            content += ` | ${areaKm2.toFixed(2)} km²`;
+        }
+
         // Show tooltip at last point
         const lastPoint = points[points.length - 1];
 
@@ -1076,12 +1085,12 @@ class AttackMapDashboard {
                 className: 'ruler-tooltip'
             })
                 .setLatLng(lastPoint)
-                .setContent(`${distanceKm} km`)
+                .setContent(content)
                 .addTo(this.map);
         } else {
             this.rulerTooltip
                 .setLatLng(lastPoint)
-                .setContent(`${distanceKm} km`);
+                .setContent(content);
         }
     }
 

@@ -3167,6 +3167,30 @@ class UiBindings {
             input.click();
         });
 
+        dashboard.bindUI('share-session-link', 'click', () => {
+            const btn = dashboard.getEl('share-session-link');
+            try {
+                const state = dashboard.serializeSession();
+                // data: URLs can be megabytes — links carry only fetchable image URLs
+                state.imageOverlays = (state.imageOverlays || []).filter(
+                    o => o.url && !o.url.startsWith('data:'));
+                const packed = LZString.compressToEncodedURIComponent(JSON.stringify(state));
+                const link = `${location.origin}${location.pathname}#session=${packed}`;
+                dashboard.lastShareLink = link; // used by automated verification
+                navigator.clipboard.writeText(link).catch(() => {});
+                if (link.length > 30000) {
+                    alert('Link copied, but it is very long (heavy drawings) — some messengers may truncate it. Consider Save Session to a file instead.');
+                } else if (btn) {
+                    const orig = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    setTimeout(() => { btn.textContent = orig; }, 1500);
+                }
+            } catch (err) {
+                console.error('Share link failed:', err);
+                alert(`Could not create share link: ${err.message}`);
+            }
+        });
+
         dashboard.bindUI('load-image-overlay', 'click', () => {
             dashboard.loadImageOverlay();
         });
@@ -3379,6 +3403,22 @@ class UiBindings {
             dashboard.streamer.join(followMatch[1]);
         }
 
+        // Auto-restore when opened via a share link
+        const sessionMatch = location.hash.match(/#session=(.+)/);
+        if (!followMatch && sessionMatch) {
+            setTimeout(async () => {
+                try {
+                    const json = LZString.decompressFromEncodedURIComponent(sessionMatch[1]);
+                    if (!json) throw new Error('corrupted link data');
+                    await dashboard.restoreSession(JSON.parse(json));
+                    console.log('✓ Session restored from share link');
+                } catch (err) {
+                    console.error('Session link restore failed:', err);
+                    alert(`Could not restore session from link: ${err.message}`);
+                }
+            }, 0);
+        }
+
         const extractStatus = (msg) => {
             const el = dashboard.getEl('extract-status');
             if (!el) return;
@@ -3416,6 +3456,67 @@ class UiBindings {
         };
         dashboard.setExtractedZones = setExtractedZones;
 
+        // ── Edit undo stack (extracted zones + custom layer) ─────────────────
+        const editUndoStack = [];   // entries: { target: 'extracted'|'custom', payload }
+        const MAX_UNDO = 10;
+
+        const updateUndoBtn = () => {
+            const btn = dashboard.getEl('extract-undo');
+            if (btn) btn.disabled = editUndoStack.length === 0;
+        };
+
+        /** Snapshot the given target BEFORE mutating it. */
+        const pushEditUndo = (target) => {
+            let payload;
+            if (target === 'custom') {
+                payload = dashboard.customKmlData
+                    ? JSON.parse(JSON.stringify(dashboard.customKmlData))
+                    : null;
+            } else {
+                payload = dashboard.extractedZoneLayer
+                    ? dashboard.extractedZoneLayer.toGeoJSON().features
+                    : [];
+            }
+            editUndoStack.push({ target, payload });
+            if (editUndoStack.length > MAX_UNDO) editUndoStack.shift();
+            updateUndoBtn();
+        };
+
+        /** Recompute merged polygon + re-render the custom overlay from customKmlData. */
+        const refreshCustomLayer = () => {
+            const polys = [];
+            (dashboard.customKmlData?.features || []).forEach(f => {
+                if (f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')) {
+                    polys.push(...GeometryUtils.toTurfPolygons(f.geometry));
+                }
+            });
+            let merged = polys[0] || null;
+            for (let i = 1; i < polys.length; i++) {
+                try { merged = turf.union(merged, polys[i]); }
+                catch (e) { /* keep partial union */ }
+            }
+            dashboard.customKmlMergedPolygon = merged;
+            dashboard.layers.toggleCustomKmlOverlay(!!dashboard.getEl('custom-kml-overlay')?.checked);
+            return merged;
+        };
+
+        dashboard.bindUI('extract-undo', 'click', () => {
+            const entry = editUndoStack.pop();
+            updateUndoBtn();
+            if (!entry) return;
+            if (entry.target === 'custom') {
+                dashboard.customKmlData = entry.payload;
+                const merged = refreshCustomLayer();
+                const km2 = merged ? Math.round(turf.area(merged) / 1e6) : 0;
+                extractStatus(entry.payload
+                    ? `Undo: custom layer restored (${entry.payload.features.length} features, ${km2.toLocaleString()} km²)`
+                    : 'Undo: custom layer cleared');
+            } else {
+                setExtractedZones(entry.payload);
+                if (!entry.payload.length) extractStatus('Undo: no zones');
+            }
+        });
+
         dashboard.bindUI('extract-zones', 'click', async () => {
             const btn = dashboard.getEl('extract-zones');
             const tolerance = parseInt(dashboard.getEl('extract-tolerance')?.value ?? '50', 10);
@@ -3425,6 +3526,7 @@ class UiBindings {
             await new Promise(r => setTimeout(r, 50));
             try {
                 const result = await dashboard.imageExtractor.extract(tolerance);
+                pushEditUndo('extracted');
                 setExtractedZones(result.featureCollection.features);
             } catch (err) {
                 console.error('Zone extraction failed:', err);
@@ -3442,6 +3544,7 @@ class UiBindings {
                 editSel.dispatchEvent(new Event('change'));
             }
             if (dashboard.extractedZoneLayer) {
+                pushEditUndo('extracted');
                 dashboard.map.removeLayer(dashboard.extractedZoneLayer);
                 dashboard.extractedZoneLayer = null;
             }
@@ -3593,31 +3696,21 @@ class UiBindings {
 
             if (editTarget() === 'custom') {
                 if (!dashboard.customKmlData) return;
+                pushEditUndo('custom');
                 dashboard.customKmlData.features =
                     editFeatures(dashboard.customKmlData.features, stroke, mode);
 
-                // Recompute merged polygon for Layer Comparison
-                const polys = [];
-                dashboard.customKmlData.features.forEach(f => {
-                    if (isPolygonal(f)) polys.push(...GeometryUtils.toTurfPolygons(f.geometry));
-                });
-                let merged = polys[0] || null;
-                for (let i = 1; i < polys.length; i++) {
-                    try { merged = turf.union(merged, polys[i]); }
-                    catch (e) { /* keep partial union */ }
-                }
-                dashboard.customKmlMergedPolygon = merged;
-
-                // Re-render the overlay (enable it if hidden so the edit is visible)
+                // Enable the overlay if hidden so the edit is visible
                 const cb = dashboard.getEl('custom-kml-overlay');
                 if (cb && !cb.checked) cb.checked = true;
-                dashboard.layers.toggleCustomKmlOverlay(true);
+                const merged = refreshCustomLayer();
 
                 const km2 = merged ? Math.round(turf.area(merged) / 1e6) : 0;
                 extractStatus(`Custom layer: ${dashboard.customKmlData.features.length} features, ${km2.toLocaleString()} km²`);
                 return;
             }
 
+            pushEditUndo('extracted');
             const features = dashboard.extractedZoneLayer
                 ? dashboard.extractedZoneLayer.toGeoJSON().features
                 : [];
