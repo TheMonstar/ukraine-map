@@ -773,11 +773,19 @@ class UiBindings {
                             if (!dashboard.deepLayer) {
                                 throw new Error('DeepStateMap frontline data not loaded');
                             }
-                            const deepGeoJSON = dashboard.deepLayer.toGeoJSON();
+                            const excludeGreyZone = dashboard.isChecked('diff-no-base');
                             const deepPolygons = [];
-                            deepGeoJSON.features.forEach(feature => {
-                                deepPolygons.push(...GeometryUtils.toTurfPolygons(feature.geometry));
-                            });
+                            const collectDeepLayer = (layer) => {
+                                if (typeof layer.eachLayer === 'function') {
+                                    layer.eachLayer(collectDeepLayer);
+                                    return;
+                                }
+                                // grey zone (contested/undetermined) excluded when diff-no-base is enabled
+                                if (excludeGreyZone && layer.options?.fillColor === '#bcaaa4') return;
+                                const geometry = layer.toGeoJSON?.()?.geometry;
+                                if (geometry) deepPolygons.push(...GeometryUtils.toTurfPolygons(geometry));
+                            };
+                            dashboard.deepLayer.eachLayer(collectDeepLayer);
                             if (deepPolygons.length === 0) {
                                 throw new Error('No polygons in DeepStateMap layer');
                             }
