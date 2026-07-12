@@ -376,6 +376,24 @@
                         <div id="events-attribution" class="attribution" style="display:none;">
                             Data: <a href="https://x.com/AndrewPerpetua" target="_blank">@AndrewPerpetua</a>
                         </div>
+                        <div class="control-group">
+                            <label class="control-label">FIRMS Fires (NASA)</label>
+                            <label class="toggle-label"><input type="checkbox" id="firms-overlay" /><span
+                                    class="toggle-switch"></span>Fire detections</label>
+                            <select id="firms-source" class="control-select">
+                                <option value="ALL_VIIRS" selected>All VIIRS (3 satellites)</option>
+                                <option value="VIIRS_NOAA20_NRT">VIIRS NOAA-20</option>
+                                <option value="VIIRS_SNPP_NRT">VIIRS Suomi-NPP</option>
+                                <option value="VIIRS_NOAA21_NRT">VIIRS NOAA-21</option>
+                                <option value="MODIS_NRT">MODIS</option>
+                            </select>
+                            <label class="small-label">Days back: <span id="firms-days-value">2</span></label>
+                            <input type="range" id="firms-days" min="1" max="10" value="2" class="control-range" />
+                            <input type="text" id="firms-key" class="control-input" placeholder="FIRMS map key..." />
+                            <div class="draw-hint">Free key: <a href="https://firms.modaps.eosdis.nasa.gov/api/map_key/"
+                                    target="_blank">firms.modaps.eosdis.nasa.gov</a></div>
+                            <div id="firms-status" class="draw-hint" style="display:none;"></div>
+                        </div>
                     </div>
                 </div>
 

@@ -1396,6 +1396,109 @@ class MapLayers {
             dashboard.customKmlOverlay.clearLayers();
         }
     }
+
+    /**
+     * NASA FIRMS fire detections over Ukraine (bbox 22,44,41,53) for the
+     * last N days. Requires a free FIRMS MAP_KEY (stored like the Mapbox
+     * token). CSV parsed with PapaParse; points rendered on a canvas
+     * renderer, colored by fire radiative power.
+     */
+    async toggleFirmsOverlay(enabled) {
+        const dashboard = this.dashboard;
+        const status = (msg) => {
+            const el = dashboard.getEl('firms-status');
+            if (!el) return;
+            el.style.display = msg ? 'block' : 'none';
+            el.textContent = msg || '';
+        };
+
+        if (!enabled) {
+            if (dashboard.firmsOverlay) dashboard.firmsOverlay.clearLayers();
+            status(null);
+            return;
+        }
+
+        const key = dashboard.getEl('firms-key')?.value?.trim();
+        if (!key) {
+            status('Enter a FIRMS map key first');
+            const cb = dashboard.getEl('firms-overlay');
+            if (cb) cb.checked = false;
+            return;
+        }
+        const selected = dashboard.getEl('firms-source')?.value || 'ALL_VIIRS';
+        const sources = selected === 'ALL_VIIRS'
+            ? ['VIIRS_NOAA20_NRT', 'VIIRS_SNPP_NRT', 'VIIRS_NOAA21_NRT']
+            : [selected];
+        const days = parseInt(dashboard.getEl('firms-days')?.value ?? '2', 10);
+
+        status('⏳ Loading fire detections…');
+        if (!(this._firmsCache instanceof Map)) this._firmsCache = new Map();
+
+        const loadSource = async (source) => {
+            const cacheKey = `${source}/${days}`;
+            const cached = this._firmsCache.get(cacheKey);
+            if (cached && Date.now() - cached.at < 10 * 60 * 1000) {
+                return cached.rows; // NRT data updates slowly — 10-min cache
+            }
+            const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${key}/${source}/22,44,41,53/${days}`;
+            const resp = await fetch(url);
+            const text = await resp.text();
+            if (!resp.ok) throw new Error(text.slice(0, 120) || `HTTP ${resp.status}`);
+            const rows = Papa.parse(text, { header: true, skipEmptyLines: true }).data;
+            this._firmsCache.set(cacheKey, { rows, at: Date.now() });
+            return rows;
+        };
+
+        const results = await Promise.allSettled(sources.map(loadSource));
+        const rows = [];
+        let failures = 0;
+        let firstError = null;
+        for (const res of results) {
+            if (res.status === 'fulfilled') {
+                rows.push(...res.value);
+            } else {
+                failures++;
+                if (!firstError) firstError = res.reason;
+                console.error('FIRMS source failed:', res.reason);
+            }
+        }
+
+        if (failures === sources.length) {
+            status(firstError instanceof TypeError
+                ? 'FIRMS blocked by CORS — needs a proxy'
+                : `FIRMS error: ${firstError?.message ?? 'unknown'}`);
+            const cb = dashboard.getEl('firms-overlay');
+            if (cb) cb.checked = false;
+            return;
+        }
+
+        if (!dashboard.firmsOverlay) {
+            dashboard.firmsRenderer = L.canvas({ padding: 0.3 }); // thousands of points → canvas
+            dashboard.firmsOverlay = L.layerGroup().addTo(dashboard.map);
+            dashboard.map.attributionControl.addAttribution('Fires: NASA FIRMS');
+        }
+        dashboard.firmsOverlay.clearLayers();
+
+        let plotted = 0;
+        for (const r of rows) {
+            const lat = parseFloat(r.latitude), lng = parseFloat(r.longitude);
+            if (!isFinite(lat) || !isFinite(lng)) continue;
+            const frp = parseFloat(r.frp) || 0;
+            // color by fire radiative power: yellow → orange → red
+            const color = frp > 20 ? '#d32f2f' : frp > 5 ? '#f57c00' : '#fbc02d';
+            const time = String(r.acq_time ?? '').padStart(4, '0').replace(/(\d\d)(\d\d)/, '$1:$2');
+            L.circleMarker([lat, lng], {
+                renderer: dashboard.firmsRenderer,
+                radius: 4, color, weight: 1, fillColor: color, fillOpacity: 0.7
+            }).bindTooltip(
+                `<strong>${r.acq_date} ${time} UTC</strong><br>` +
+                `${r.satellite || source} | FRP ${frp} MW | conf ${r.confidence}`
+            ).addTo(dashboard.firmsOverlay);
+            plotted++;
+        }
+        status(`${plotted.toLocaleString()} detections, last ${days} day${days > 1 ? 's' : ''}` +
+            (failures ? ` (${failures} source${failures > 1 ? 's' : ''} failed)` : ''));
+    }
 }
 
 window.MapLayers = MapLayers;

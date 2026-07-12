@@ -1416,7 +1416,7 @@ class AttackMapDashboard {
         'waterways-type-river', 'waterways-type-stream',
         'topo-ua', 'topo-bw', 'forest-overlay',
         'show-settlements', 'show-regions', 'position-change',
-        'hex-tiles', 'show-date-overlay', 'custom-kml-overlay'
+        'hex-tiles', 'show-date-overlay', 'custom-kml-overlay', 'firms-overlay'
     ];
 
     /**

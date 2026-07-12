@@ -690,6 +690,24 @@ class UiBindings {
             await dashboard.layers.toggleCreamyOverlay(dashboard.isChecked('creamy-overlay'));
         });
 
+        // FIRMS fire-detection bindings
+        dashboard.bindUI('firms-overlay', 'change', async () => {
+            await dashboard.layers.toggleFirmsOverlay(dashboard.isChecked('firms-overlay'));
+        });
+        const reloadFirms = async () => {
+            if (dashboard.isChecked('firms-overlay')) await dashboard.layers.toggleFirmsOverlay(true);
+        };
+        dashboard.bindUI('firms-source', 'change', reloadFirms);
+        dashboard.bindUI('firms-days', 'change', reloadFirms); // 'change' not 'input' — fire once on release
+        dashboard.bindUI('firms-days', 'input', (e) => dashboard.setText('firms-days-value', e.target.value));
+        const firmsKeyInput = dashboard.getEl('firms-key');
+        if (firmsKeyInput) {
+            firmsKeyInput.value = localStorage.getItem('firmsMapKey') || '';
+            firmsKeyInput.addEventListener('change', () => {
+                localStorage.setItem('firmsMapKey', firmsKeyInput.value.trim());
+            });
+        }
+
         // Custom KML bindings
         dashboard.bindUI('load-custom-kml', 'click', async () => {
             const url = dashboard.getEl('custom-kml-url')?.value?.trim();
