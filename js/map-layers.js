@@ -595,6 +595,155 @@ class MapLayers {
         }
     }
 
+    /**
+     * RIA overlay — a single dated GeoJSON of extracted control-zone polygons
+     * (produced by an offline extraction pipeline from the RIA briefing-map
+     * SVG), keyed by the currently selected end date. Same fetch-by-date
+     * pattern as toggleCreamyOverlay, but the source is already GeoJSON.
+     */
+    static _riaDateStr(date) {
+        const d = new Date(date);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}${m}${day}`;
+    }
+
+    /** Fetch a day's RIA zones GeoJSON (raw, unmerged). */
+    async _loadRiaZones(dateStr) {
+        const url = `${API_BASE_URL}/daily/${dateStr}/zones-${dateStr}.geojson`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+        return resp.json();
+    }
+
+    /** Fetch + union a day's RIA zones into a single polygon (or null). */
+    async _loadRiaMerged(dateStr) {
+        const geojson = await this._loadRiaZones(dateStr);
+        const polys = [];
+        (geojson.features || []).forEach(f => {
+            if (f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')) {
+                polys.push(...GeometryUtils.toTurfPolygons(f.geometry));
+            }
+        });
+        let merged = polys[0] || null;
+        for (let i = 1; i < polys.length; i++) {
+            try { merged = turf.union(merged, polys[i]); }
+            catch (e) { /* keep partial union */ }
+        }
+        return merged;
+    }
+
+    /**
+     * Gains/losses between two dates' RIA zones, in the same {gains, losses,
+     * net} shape as getManifestDiffAreaKm2 — used for the "Total" stats line.
+     */
+    async getRiaDiffAreaKm2(startDate, endDate) {
+        const result = { gains: 0, losses: 0, net: 0 };
+        let startUnion = null, endUnion = null;
+        try { startUnion = await this._loadRiaMerged(MapLayers._riaDateStr(startDate)); }
+        catch (e) { console.warn('RIA diff: start load failed:', e); }
+        try { endUnion = await this._loadRiaMerged(MapLayers._riaDateStr(endDate)); }
+        catch (e) { console.warn('RIA diff: end load failed:', e); }
+
+        if (!startUnion && !endUnion) return result;
+
+        if (startUnion && endUnion) {
+            try {
+                const diff = turf.difference(endUnion, startUnion);
+                if (diff) result.gains = turf.area(diff) / 1e6;
+            } catch (e) { result.gains = turf.area(endUnion) / 1e6; }
+            try {
+                const reverseDiff = turf.difference(startUnion, endUnion);
+                if (reverseDiff) result.losses = turf.area(reverseDiff) / 1e6;
+            } catch (e) { /* ignore */ }
+        } else if (endUnion) {
+            result.gains = turf.area(endUnion) / 1e6;
+        } else if (startUnion) {
+            result.losses = turf.area(startUnion) / 1e6;
+        }
+
+        result.net = result.gains - result.losses;
+        return result;
+    }
+
+    async toggleRiaOverlay(enabled) {
+        const dashboard = this.dashboard;
+        if (!dashboard.riaOverlay) {
+            dashboard.riaOverlay = L.layerGroup().addTo(dashboard.map);
+        }
+        dashboard.riaOverlay.clearLayers();
+        dashboard.riaMergedPolygon = null;
+        if (!enabled) return;
+
+        const endDate = dashboard.endDate || dashboard.maxDate || new Date();
+        const startDate = dashboard.startDate || dashboard.minDate;
+        const diffEnabled = dashboard.isChecked('diff-highlight');
+        const endStr = MapLayers._riaDateStr(endDate);
+
+        let endMerged;
+        try {
+            endMerged = await this._loadRiaMerged(endStr);
+            dashboard.riaMergedPolygon = endMerged;
+        } catch (error) {
+            console.warn(`RIA overlay: failed to load zones for ${endStr}:`, error);
+            const cb = dashboard.getEl('ria-overlay');
+            if (cb) cb.checked = false;
+            alert(`Failed to load RIA zones for ${endStr}: ${error.message}`);
+            return;
+        }
+
+        const startStr = startDate ? MapLayers._riaDateStr(startDate) : null;
+
+        // Difference mode: color-distinguish gains (red) / losses (blue) between
+        // start and end dates, matching the Suriyak/AMK/ISW/Radov diff style.
+        if (diffEnabled && startStr && startStr !== endStr) {
+            let startMerged = null;
+            try {
+                startMerged = await this._loadRiaMerged(startStr);
+            } catch (e) {
+                console.warn('RIA: failed to load startDate layer:', e);
+            }
+
+            const startFeature = startMerged ? { type: 'Feature', properties: {}, geometry: startMerged.geometry || startMerged } : null;
+            const endFeature = endMerged ? { type: 'Feature', properties: {}, geometry: endMerged.geometry || endMerged } : null;
+
+            let gains = null, losses = null;
+            if (startFeature && endFeature) {
+                try { gains = turf.difference(endFeature, startFeature); }
+                catch (e) { gains = endFeature; }
+                try { losses = turf.difference(startFeature, endFeature); }
+                catch (e) { /* ignore */ }
+            } else if (endFeature) {
+                gains = endFeature;
+            } else if (startFeature) {
+                losses = startFeature;
+            }
+
+            if (startFeature) {
+                L.geoJSON(startFeature, {
+                    style: { color: '#FF655C', weight: 1, fillColor: '#FF655C', fillOpacity: 0.2 }
+                }).bindTooltip('RIA start').addTo(dashboard.riaOverlay);
+            }
+            if (gains) {
+                const gainsKm2 = turf.area(gains) / 1e6;
+                L.geoJSON(gains, {
+                    style: { color: 'red', weight: 2, fillColor: 'red', fillOpacity: 0.5 }
+                }).bindTooltip(`Gains: ${gainsKm2.toFixed(2)} km²`).addTo(dashboard.riaOverlay);
+            }
+            if (losses) {
+                const lossesKm2 = turf.area(losses) / 1e6;
+                L.geoJSON(losses, {
+                    style: { color: 'blue', weight: 2, fillColor: 'blue', fillOpacity: 0.5 }
+                }).bindTooltip(`Losses: ${lossesKm2.toFixed(2)} km²`).addTo(dashboard.riaOverlay);
+            }
+        } else if (endMerged) {
+            L.geoJSON({ type: 'Feature', properties: {}, geometry: endMerged.geometry || endMerged }, {
+                style: { color: '#FF655C', weight: 2, fillColor: '#FF655C', fillOpacity: 0.35 }
+            }).addTo(dashboard.riaOverlay);
+        }
+    }
+
     async toggleCreamyOverlay(enabled) {
         const dashboard = this.dashboard;
         if (!dashboard.creamyOverlay) {

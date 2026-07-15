@@ -109,6 +109,8 @@
                             <div class="toggle-row">
                                 <label class="toggle-label"><input type="checkbox" id="suriyak-overlay" /><span
                                         class="toggle-switch"></span>Suriyak</label>
+                                <label class="toggle-label"><input type="checkbox" id="ria-overlay" /><span
+                                        class="toggle-switch"></span>RIA</label>
                                 <label class="toggle-label"><input type="checkbox" id="source-gsua" /><span
                                         class="toggle-switch"></span>GSUA</label>
                                 <label class="toggle-label"><input type="checkbox" id="source-gsua-direction" /><span
@@ -120,12 +122,14 @@
                             <select id="compare-layer-1" class="control-select">
                                 <option value="deepLayer">DeepStateMap</option>
                                 <option value="suriyakOverlay">Suriyak Overlay</option>
+                                <option value="riaOverlay">RIA Overlay</option>
                                 <option value="customKmlOverlay">Custom KML</option>
                                 <option value="extractedOverlay">Extracted Zones</option>
                             </select>
                             <select id="compare-layer-2" class="control-select">
                                 <option value="deepLayer">DeepStateMap</option>
                                 <option value="suriyakOverlay" selected>Suriyak Overlay</option>
+                                <option value="riaOverlay">RIA Overlay</option>
                                 <option value="customKmlOverlay">Custom KML</option>
                                 <option value="extractedOverlay">Extracted Zones</option>
                             </select>
@@ -452,6 +456,12 @@
                                 <option value="9">9 (3×3 mesh)</option>
                                 <option value="16">16 (4×4 mesh)</option>
                             </select>
+                            <label class="toggle-label"><input type="checkbox" id="align-points" /><span
+                                    class="toggle-switch"></span>Align by Points</label>
+                            <div class="btn-row">
+                                <button id="align-reset" class="btn btn-sm">Reset Points</button>
+                            </div>
+                            <div id="align-status" class="draw-hint" style="display:none;"></div>
                             <button id="save-image-overlay" class="btn btn-sm">Save &amp; Add New</button>
                             <div id="image-overlay-list" class="image-overlay-list"></div>
                         </div>
@@ -1021,20 +1031,21 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
-    <script src="js/utils.js?544"></script>
-    <script src="js/hex-tiles.js?544"></script>
-    <script src="js/geometry-utils.js?544"></script>
-    <script src="js/data-store.js?544"></script>
-    <script src="js/map-layers.js?544"></script>
-    <script src="js/settlements.js?544"></script>
-    <script src="js/draw.js?544"></script>
-    <script src="js/image-mesh.js?544"></script>
-    <script src="js/image-extract.js?544"></script>
-    <script src="js/terrain-analysis.js?544"></script>
-    <script src="js/stream.js?544"></script>
-    <script src="js/ui-bindings.js?544"></script>
-    <script src="js/map-uml-engine.js?544"></script>
-    <script src="js/app.js?544"></script>
+    <script src="js/utils.js?558"></script>
+    <script src="js/hex-tiles.js?558"></script>
+    <script src="js/geometry-utils.js?558"></script>
+    <script src="js/data-store.js?558"></script>
+    <script src="js/map-layers.js?558"></script>
+    <script src="js/settlements.js?558"></script>
+    <script src="js/draw.js?558"></script>
+    <script src="js/image-mesh.js?558"></script>
+    <script src="js/image-align.js?558"></script>
+    <script src="js/image-extract.js?558"></script>
+    <script src="js/terrain-analysis.js?558"></script>
+    <script src="js/stream.js?558"></script>
+    <script src="js/ui-bindings.js?558"></script>
+    <script src="js/map-uml-engine.js?558"></script>
+    <script src="js/app.js?558"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

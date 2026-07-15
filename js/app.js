@@ -1138,15 +1138,52 @@ class AttackMapDashboard {
     }
 
     /**
+     * SVG overlays letterbox inside the bounds box (preserveAspectRatio
+     * "xMidYMid meet" centers the drawing with empty bars on aspect mismatch),
+     * which desyncs the visible image from bounds-based georeferencing
+     * (extraction, alignment). Normalize SVGs to preserveAspectRatio="none"
+     * so they stretch to the bounds exactly like raster images.
+     * Returns a blob URL for normalized SVGs, else the original URL.
+     */
+    async _normalizeOverlayUrl(url) {
+        try {
+            const isSvgUrl = /^data:image\/svg/i.test(url) || /\.svg([?#]|$)/i.test(url);
+            let text = null;
+            if (isSvgUrl || url.startsWith('blob:')) {
+                const resp = await fetch(url);
+                const blob = await resp.blob();
+                if (isSvgUrl || blob.type.includes('svg')) {
+                    text = await blob.text();
+                }
+            }
+            if (!text || !/viewBox\s*=/.test(text)) return url;
+
+            let normalized;
+            if (/preserveAspectRatio\s*=/.test(text)) {
+                normalized = text.replace(/preserveAspectRatio\s*=\s*["'][^"']*["']/,
+                    'preserveAspectRatio="none"');
+            } else {
+                normalized = text.replace(/<svg\b/, '<svg preserveAspectRatio="none"');
+            }
+            return URL.createObjectURL(new Blob([normalized], { type: 'image/svg+xml' }));
+        } catch (e) {
+            console.warn('SVG normalization skipped:', e);
+            return url;
+        }
+    }
+
+    /**
      * Load custom image overlay
      */
-    loadImageOverlay() {
-        const imageUrl = this.getEl('image-overlay-url')?.value?.trim();
+    async loadImageOverlay() {
+        let imageUrl = this.getEl('image-overlay-url')?.value?.trim();
 
         if (!imageUrl) {
             alert('Please enter an image URL');
             return;
         }
+
+        imageUrl = await this._normalizeOverlayUrl(imageUrl);
 
         // Clear existing overlay
         this.clearImageOverlay();
@@ -1408,7 +1445,7 @@ class AttackMapDashboard {
     // ── Session save/load ───────────────────────────────────
 
     static SESSION_TOGGLE_IDS = [
-        'suriyak-overlay', 'source-gsua', 'source-gsua-direction',
+        'suriyak-overlay', 'ria-overlay', 'source-gsua', 'source-gsua-direction',
         'diff-area', 'diff-highlight', 'diff-no-base', 'features-diff',
         'feature-railways', 'feature-ditches', 'feature-motorlines', 'feature-waterways',
         'motorlines-type-highway', 'motorlines-type-primary', 'motorlines-type-tertiary', 'motorlines-type-bridge',
@@ -1522,7 +1559,7 @@ class AttackMapDashboard {
 
         if (Array.isArray(state.imageOverlays)) {
             for (const saved of state.imageOverlays) {
-                if (saved?.url && saved?.bounds) this._restoreImageOverlay(saved);
+                if (saved?.url && saved?.bounds) await this._restoreImageOverlay(saved);
             }
             this.renderImageOverlayList();
         }
@@ -1544,10 +1581,11 @@ class AttackMapDashboard {
      * Rebuild a saved image overlay record from its serialized form,
      * mirroring the record structure created by saveImageOverlay().
      */
-    _restoreImageOverlay(saved) {
+    async _restoreImageOverlay(saved) {
         const opacity = Number.isFinite(saved.opacity) ? saved.opacity : 70;
         const hasMesh = saved.meshPoints?.points?.length > 0;
-        const overlay = L.imageOverlay(saved.url, saved.bounds, {
+        const displayUrl = await this._normalizeOverlayUrl(saved.url);
+        const overlay = L.imageOverlay(displayUrl, saved.bounds, {
             opacity: hasMesh ? 0 : opacity / 100, // mesh canvas replaces the flat image
             interactive: false
         }).addTo(this.map);
@@ -1555,7 +1593,7 @@ class AttackMapDashboard {
         const record = {
             id: this._nextImageOverlayId++,
             overlay,
-            objectUrl: null,
+            objectUrl: displayUrl !== saved.url ? displayUrl : null,
             url: saved.url,
             bounds: saved.bounds,
             opacity,
@@ -1571,7 +1609,7 @@ class AttackMapDashboard {
         };
 
         if (record.meshPoints) {
-            record.meshWarp = new ImageMeshWarp(this.map, saved.url, record.meshPoints);
+            record.meshWarp = new ImageMeshWarp(this.map, displayUrl, record.meshPoints);
             record.meshWarp.setOpacity(opacity / 100);
         }
 
@@ -3604,6 +3642,18 @@ class AttackMapDashboard {
             this.eventsRefreshDebounce = setTimeout(() => this.refreshEvents(), 800);
             if (this.ditchesRefreshDebounce) clearTimeout(this.ditchesRefreshDebounce);
             this.ditchesRefreshDebounce = setTimeout(() => this.refreshDitches(), 800);
+            // RIA overlay is one file per day — re-fetch when the selected date settles
+            if (this.riaRefreshDebounce) clearTimeout(this.riaRefreshDebounce);
+            this.riaRefreshDebounce = setTimeout(() => {
+                if (this.isChecked('ria-overlay')) this.layers.toggleRiaOverlay(true);
+            }, 800);
+            // DeepState territory/diff only re-renders on checkbox toggles otherwise —
+            // without this, dragging the date slider leaves the diff frozen on stale
+            // start/end dates while other date-tied layers keep following the slider
+            if (this.deepLayerRefreshDebounce) clearTimeout(this.deepLayerRefreshDebounce);
+            this.deepLayerRefreshDebounce = setTimeout(() => {
+                if (this.isChecked('diff-area') && this.renderDeepLayer) this.renderDeepLayer();
+            }, 800);
         });
     }
 

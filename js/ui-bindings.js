@@ -517,6 +517,11 @@ class UiBindings {
                         }
                     }
                 }
+                if (dashboard.isChecked('ria-overlay')) {
+                    const riaResult = await dashboard.layers.getRiaDiffAreaKm2(dashboard.startDate, dashboard.endDate);
+                    totalGains += riaResult.gains || 0;
+                    totalLosses += riaResult.losses || 0;
+                }
                 const netChange = totalGains - totalLosses;
                 dashboard.setText('total-gains', `${Math.round(netChange)} (↑${Math.round(totalGains)} ↓${Math.round(totalLosses)})`);
                 console.log(`📊 Total: Gains ${totalGains.toFixed(2)} km², Losses ${totalLosses.toFixed(2)} km², Net ${netChange.toFixed(2)} km²`);
@@ -535,6 +540,9 @@ class UiBindings {
             }
             if (dashboard.isChecked('suriyak-overlay')) {
                 await dashboard.layers.toggleSuriyakOverlay(true);
+            }
+            if (dashboard.isChecked('ria-overlay')) {
+                await dashboard.layers.toggleRiaOverlay(true);
             }
 
             // Update casualties density if enabled
@@ -686,6 +694,10 @@ class UiBindings {
             await dashboard.layers.toggleSuriyakOverlay(dashboard.isChecked('suriyak-overlay'));
         });
 
+        dashboard.bindUI('ria-overlay', 'change', async () => {
+            await dashboard.layers.toggleRiaOverlay(dashboard.isChecked('ria-overlay'));
+        });
+
         dashboard.bindUI('creamy-overlay', 'change', async () => {
             await dashboard.layers.toggleCreamyOverlay(dashboard.isChecked('creamy-overlay'));
         });
@@ -763,6 +775,7 @@ class UiBindings {
                         radovOverlay: 'radovLayer',
                         iswOverlay: 'iswLayer',
                         suriyakOverlay: 'suriyakLayer',
+                        riaOverlay: 'riaLayer',
                         russianOverlay: 'russiaLayer',
                         ukraineOverlay: 'ukraineLayer',
                         customKmlOverlay: 'customKmlLayer'
@@ -823,6 +836,11 @@ class UiBindings {
                                 throw new Error('Suriyak data not loaded. Please enable Suriyak overlay first.');
                             }
                             return dashboard.suriyakMergedPolygon;
+                        case 'riaLayer':
+                            if (!dashboard.riaMergedPolygon) {
+                                throw new Error('RIA data not loaded. Please enable RIA overlay first.');
+                            }
+                            return dashboard.riaMergedPolygon;
                         case 'russiaLayer':
                             if (!dashboard.russiaMergedPolygon) {
                                 throw new Error('Russia data not loaded. Please enable Russia overlay first.');
@@ -3235,6 +3253,13 @@ class UiBindings {
 
         dashboard.bindUI('image-warp-points', 'change', (e) => {
             dashboard.setImageWarpPoints(parseInt(e.target.value, 10));
+            // while align mode is armed, edit markers must stay hidden
+            // (they intercept alignment clicks) and panning stays enabled
+            if (dashboard.imageAligner?.active) {
+                dashboard.hideImageCornerMarkers();
+                dashboard.hideMeshMarkers();
+                dashboard.map.dragging.enable();
+            }
         });
 
         dashboard.bindUI('image-opacity-slider', 'input', (e) => {
@@ -3404,6 +3429,48 @@ class UiBindings {
                 const resultsContainer = dashboard.getEl('settlement-search-results');
                 if (resultsContainer) {
                     resultsContainer.style.display = 'none';
+                }
+            }
+        });
+
+        // ── Image Alignment (control-point registration) ─────────────────────
+        dashboard.imageAligner = new ImageAligner(dashboard);
+
+        dashboard.bindUI('align-points', 'change', () => {
+            if (dashboard.isChecked('align-points')) {
+                if (!dashboard.customImageOverlay) {
+                    alert('Load an image overlay first');
+                    const cb = dashboard.getEl('align-points');
+                    if (cb) cb.checked = false;
+                    return;
+                }
+                // one armed capture-mode at a time
+                const pick = dashboard.getEl('extract-pick-color');
+                if (pick?.checked) {
+                    pick.checked = false;
+                    pick.dispatchEvent(new Event('change'));
+                }
+                const editSel = dashboard.getEl('extract-edit-mode');
+                if (editSel && editSel.value !== 'none') {
+                    editSel.value = 'none';
+                    editSel.dispatchEvent(new Event('change'));
+                }
+                dashboard.imageAligner.start();
+            } else {
+                dashboard.imageAligner.stop();
+            }
+        });
+
+        dashboard.bindUI('align-reset', 'click', () => {
+            dashboard.imageAligner.resetPairs();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && dashboard.imageAligner.active) {
+                const cb = dashboard.getEl('align-points');
+                if (cb) {
+                    cb.checked = false;
+                    cb.dispatchEvent(new Event('change'));
                 }
             }
         });
@@ -3610,8 +3677,8 @@ class UiBindings {
                     return; // keep pick mode active
                 }
             } catch (err) {
-                extractStatus(null);
-                alert(err.message);
+                extractStatus(err.message);
+                return; // keep pick mode active so the user can retry
             }
             const cb = dashboard.getEl('extract-pick-color');
             if (cb) cb.checked = false;

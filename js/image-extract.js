@@ -11,8 +11,9 @@ class ImageExtractor {
     constructor(dashboard) {
         this.dashboard = dashboard;
         this.pickedColor = null;   // {r,g,b} sampled via eyedropper, null = red preset
-        this.MAX_DIM = 1400;       // cap canvas long side
-        this.MIN_COMPONENT_PX = 30;
+        this.MAX_DIM = 1400;       // cap canvas long side (raster images)
+        this.SVG_MAX_DIM = 4096;   // vector sources rasterize larger — no quality cost
+        this.MIN_COMPONENT_PX = 12;
         this.MIN_AREA_KM2 = 5;
     }
 
@@ -46,7 +47,28 @@ class ImageExtractor {
             if (!url.startsWith('data:') && !url.startsWith('blob:')) {
                 img.crossOrigin = 'anonymous';
             }
-            img.onload = () => resolve(img);
+            img.onload = async () => {
+                // Detect SVG sources — they rasterize at higher resolution
+                // (vector data loses zone detail at photo-sized canvases)
+                img._isSvg = /^data:image\/svg/i.test(url) || /\.svg([?#]|$)/i.test(url);
+                if (!img._isSvg && url.startsWith('blob:')) {
+                    try {
+                        const b = await (await fetch(url)).blob();
+                        img._isSvg = b.type.includes('svg');
+                    } catch (e) { /* keep false */ }
+                }
+                // SVGs without intrinsic size: recover the aspect from the viewBox
+                // so rasterization matches the on-map rendering (no letterboxing)
+                if ((!img.naturalWidth || !img.naturalHeight)) {
+                    img._isSvg = true;
+                    try {
+                        const text = await (await fetch(url)).text();
+                        const vb = text.match(/viewBox\s*=\s*["']\s*[\d.eE+-]+[\s,]+[\d.eE+-]+[\s,]+([\d.eE+-]+)[\s,]+([\d.eE+-]+)/);
+                        if (vb) img._vbSize = { w: parseFloat(vb[1]), h: parseFloat(vb[2]) };
+                    } catch (e) { /* fall back to square rasterization */ }
+                }
+                resolve(img);
+            };
             img.onerror = () => reject(new Error('Could not load overlay image'));
             img.src = url;
         });
@@ -232,25 +254,56 @@ class ImageExtractor {
 
         const img = await this._loadImage(src.url);
         const { canvas, ctx } = this._drawToCanvas(img);
-        let px;
+        // sample a 7x7 neighborhood and average the opaque-enough pixels —
+        // robust against antialiasing, hairline gaps and transparent backgrounds
+        const cx = Math.min(canvas.width - 1, Math.max(0, Math.round(u * canvas.width)));
+        const cy = Math.min(canvas.height - 1, Math.max(0, Math.round(v * canvas.height)));
+        const R = 3;
+        const x0 = Math.max(0, cx - R), y0 = Math.max(0, cy - R);
+        const wN = Math.min(canvas.width, cx + R + 1) - x0;
+        const hN = Math.min(canvas.height, cy + R + 1) - y0;
+        let data;
         try {
-            px = ctx.getImageData(
-                Math.min(canvas.width - 1, Math.round(u * canvas.width)),
-                Math.min(canvas.height - 1, Math.round(v * canvas.height)),
-                1, 1
-            ).data;
+            data = ctx.getImageData(x0, y0, wN, hN).data;
         } catch (e) {
             throw new Error('Image is cross-origin and blocks pixel access. Use "Load Local Image" instead.');
         }
-        this.pickedColor = { r: px[0], g: px[1], b: px[2] };
+        let r = 0, g = 0, b = 0, n = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] >= 2) {
+                r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
+            }
+        }
+        if (!n) {
+            throw new Error('That spot is transparent — click a filled area of the image');
+        }
+        this.pickedColor = { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) };
         return true;
     }
 
     _drawToCanvas(img) {
-        const scale = Math.min(1, this.MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+        // Vector sources rasterize at higher resolution — SVG zone exports often
+        // use huge coordinate spaces with sub-pixel fragments that vanish at
+        // photo-sized canvases. Raster images gain nothing beyond native size.
+        const maxDim = img._isSvg ? this.SVG_MAX_DIM : this.MAX_DIM;
+        // SVGs without explicit width/height report naturalWidth/Height 0 —
+        // rasterize at the viewBox aspect when known (matches on-map rendering),
+        // else square (aspect distortion is harmless: georeferencing runs in
+        // normalized uv space)
+        let w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) {
+            if (img._vbSize?.w > 0 && img._vbSize?.h > 0) {
+                w = img._vbSize.w;
+                h = img._vbSize.h;
+            } else {
+                w = maxDim;
+                h = maxDim;
+            }
+        }
+        const scale = (img._isSvg ? maxDim / Math.max(w, h) : Math.min(1, maxDim / Math.max(w, h)));
         const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
-        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        canvas.width = Math.max(1, Math.round(w * scale));
+        canvas.height = Math.max(1, Math.round(h * scale));
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         return { canvas, ctx };
@@ -274,12 +327,40 @@ class ImageExtractor {
         const w = canvas.width, h = canvas.height;
         const classify = this._makeClassifier(tolerance);
         const mask = new Uint8Array(w * h);
+        let maskCount = 0;
         for (let i = 0, j = 0; j < mask.length; i += 4, j++) {
-            if (data[i + 3] > 100 && classify(data[i], data[i + 1], data[i + 2])) mask[j] = 1;
+            // alpha >= 2: translucent fills and sub-pixel vector fragments keep
+            // their true RGB — only fully transparent pixels carry no color
+            // (the color classifier is the real gate)
+            if (data[i + 3] >= 2 && classify(data[i], data[i + 1], data[i + 2])) {
+                mask[j] = 1;
+                maskCount++;
+            }
         }
+
+        // morphological closing (dilate+erode, r=1): bridges hairline gaps between
+        // the fragment paths that vector zone exports are often tiled from,
+        // so they trace as coherent zones instead of thousands of slivers
+        this._morphClose(mask, w, h);
 
         const rings = this._traceComponents(mask, w, h);
         const { fwd } = this._makeProjector(src);
+
+        // adaptive thresholds: small overlays (or thin frontline strips) must not
+        // be wiped out by limits tuned for country-scale briefing maps
+        const cornerLL = [fwd(0, 0), fwd(1, 0), fwd(1, 1), fwd(0, 1)];
+        let overlayKm2 = 0;
+        try {
+            overlayKm2 = turf.area(turf.polygon([[...cornerLL, cornerLL[0]]])) / 1e6;
+        } catch (e) { /* keep 0 → minimum thresholds */ }
+        const minAreaKm2 = Math.max(0.01, Math.min(this.MIN_AREA_KM2, overlayKm2 * 1e-4));
+        const lats = cornerLL.map(c => c[1]);
+        const lngs = cornerLL.map(c => c[0]);
+        const spanDeg = Math.max(
+            Math.max(...lats) - Math.min(...lats),
+            Math.max(...lngs) - Math.min(...lngs)
+        );
+        const simplifyTol = Math.min(0.003, Math.max(1e-5, spanDeg / 800));
 
         const polygons = [];
         for (const ring of rings) {
@@ -288,14 +369,18 @@ class ImageExtractor {
             if (coords.length < 5) continue;
             try {
                 let poly = turf.polygon([coords]);
-                poly = turf.simplify(poly, { tolerance: 0.003, highQuality: false });
+                poly = turf.simplify(poly, { tolerance: simplifyTol, highQuality: false });
                 poly = turf.cleanCoords(poly);
-                if (turf.area(poly) / 1e6 >= this.MIN_AREA_KM2) polygons.push(poly);
+                if (turf.area(poly) / 1e6 >= minAreaKm2) polygons.push(poly);
             } catch (e) { /* skip degenerate ring */ }
         }
 
         if (!polygons.length) {
-            throw new Error('No zones matched. Try raising tolerance or picking the zone color.');
+            if (!maskCount) {
+                throw new Error('No pixels matched the color. Try raising tolerance or picking the zone color.');
+            }
+            throw new Error(`Color matched ${maskCount.toLocaleString()} px, but every zone was below ` +
+                `${minAreaKm2.toFixed(2)} km² after tracing. Zones may be too thin/small at this overlay size.`);
         }
 
         let merged = polygons[0];
@@ -310,6 +395,41 @@ class ImageExtractor {
             totalKm2: turf.area(merged) / 1e6,
             count: polygons.length
         };
+    }
+
+    /** In-place morphological closing (3x3 dilate, then 3x3 erode). */
+    _morphClose(mask, w, h) {
+        const dil = new Uint8Array(mask.length);
+        for (let y = 0; y < h; y++) {
+            const y0 = Math.max(0, y - 1), y1 = Math.min(h - 1, y + 1);
+            for (let x = 0; x < w; x++) {
+                const i = y * w + x;
+                if (mask[i]) { dil[i] = 1; continue; }
+                const x0 = Math.max(0, x - 1), x1 = Math.min(w - 1, x + 1);
+                let hit = 0;
+                for (let yy = y0; yy <= y1 && !hit; yy++) {
+                    for (let xx = x0; xx <= x1; xx++) {
+                        if (mask[yy * w + xx]) { hit = 1; break; }
+                    }
+                }
+                dil[i] = hit;
+            }
+        }
+        for (let y = 0; y < h; y++) {
+            const y0 = Math.max(0, y - 1), y1 = Math.min(h - 1, y + 1);
+            for (let x = 0; x < w; x++) {
+                const i = y * w + x;
+                if (!dil[i]) { mask[i] = 0; continue; }
+                const x0 = Math.max(0, x - 1), x1 = Math.min(w - 1, x + 1);
+                let all = 1;
+                for (let yy = y0; yy <= y1 && all; yy++) {
+                    for (let xx = x0; xx <= x1; xx++) {
+                        if (!dil[yy * w + xx]) { all = 0; break; }
+                    }
+                }
+                mask[i] = all;
+            }
+        }
     }
 
     /**
@@ -359,7 +479,11 @@ class ImageExtractor {
 
         const ring = [[sx, sy]];
         let cx = sx, cy = sy;
-        let dir = 6; // came heading north (start is top-left, previous is outside above-left)
+        // start convention: the scan that found the start pixel moved east
+        // (row-major search), so the backtrack is W and the clockwise scan
+        // begins at NW — guaranteed background for a topmost-leftmost pixel
+        let dir = 0;
+        let firstX = null, firstY = null; // the first boundary step out of the start
         const maxSteps = w * h * 4;
 
         for (let step = 0; step < maxSteps; step++) {
@@ -370,8 +494,14 @@ class ImageExtractor {
                 if (inside(cx + dx[nd], cy + dy[nd])) { found = nd; break; }
             }
             if (found === -1) break; // isolated pixel
-            cx += dx[found]; cy += dy[found]; dir = found;
-            if (cx === sx && cy === sy) break;
+            const nx = cx + dx[found], ny = cy + dy[found];
+            // Jacob's stopping criterion: the boundary may legitimately pass
+            // through the start pixel several times (pinch points, common in
+            // fragment-tiled zones) — stop only when re-entering the start AND
+            // about to repeat the very first boundary move
+            if (cx === sx && cy === sy && step > 0 && nx === firstX && ny === firstY) break;
+            cx = nx; cy = ny; dir = found;
+            if (step === 0) { firstX = cx; firstY = cy; }
             // decimate: keep every pixel; simplify() reduces later
             ring.push([cx, cy]);
         }
