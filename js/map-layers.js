@@ -62,7 +62,13 @@ class MapLayers {
     initMap() {
         const dashboard = this.dashboard;
 
-        dashboard.map = L.map('map').setView([49.0, 37.0], 6);
+        dashboard.map = L.map('map', {
+            rotate: true,
+            bearing: 0,
+            rotateControl: false, // custom control matching this app's dark theme, wired in ui-bindings.js
+            touchRotate: true,
+            shiftKeyRotate: true
+        }).setView([49.0, 37.0], 6);
 
         dashboard.currentTileLayer = L.tileLayer(dashboard.mapStyles['esri-elevation'].url, {
             attribution: dashboard.mapStyles['esri-elevation'].attribution
@@ -234,7 +240,7 @@ class MapLayers {
         dashboard.topoLegend = legend;
 
         this._topoRecolorHandler = () => this._scheduleTopoRecolor();
-        dashboard.map.on('moveend zoomend', this._topoRecolorHandler);
+        dashboard.map.on('moveend zoomend rotate', this._topoRecolorHandler);
     }
 
     _scheduleTopoRecolor() {
@@ -296,7 +302,7 @@ class MapLayers {
     clearTopographicOverlay() {
         const dashboard = this.dashboard;
         if (this._topoRecolorHandler) {
-            dashboard.map.off('moveend zoomend', this._topoRecolorHandler);
+            dashboard.map.off('moveend zoomend rotate', this._topoRecolorHandler);
             this._topoRecolorHandler = null;
         }
         clearTimeout(this._topoRecolorTimer);

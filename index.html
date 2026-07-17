@@ -87,6 +87,16 @@
                             </select>
                         </div>
                         <div class="control-group">
+                            <label class="control-label">Rotation</label>
+                            <div class="btn-row">
+                                <button id="rotate-left" class="btn btn-sm">↺ 15°</button>
+                                <button id="rotate-right" class="btn btn-sm">↻ 15°</button>
+                                <button id="rotate-reset" class="btn btn-sm">Reset North</button>
+                            </div>
+                            <label class="small-label">Bearing: <span id="rotate-bearing-value">0</span>°</label>
+                            <input type="range" id="rotate-bearing" min="0" max="359" value="0" class="control-range" />
+                        </div>
+                        <div class="control-group">
                             <label class="control-label">DeepState</label>
                             <div class="toggle-row">
                                 <label class="toggle-label"><input type="checkbox" id="diff-area" /><span
@@ -1022,6 +1032,7 @@ Situation report:
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -1031,21 +1042,21 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
-    <script src="js/utils.js?558"></script>
-    <script src="js/hex-tiles.js?558"></script>
-    <script src="js/geometry-utils.js?558"></script>
-    <script src="js/data-store.js?558"></script>
-    <script src="js/map-layers.js?558"></script>
-    <script src="js/settlements.js?558"></script>
-    <script src="js/draw.js?558"></script>
-    <script src="js/image-mesh.js?558"></script>
-    <script src="js/image-align.js?558"></script>
-    <script src="js/image-extract.js?558"></script>
-    <script src="js/terrain-analysis.js?558"></script>
-    <script src="js/stream.js?558"></script>
-    <script src="js/ui-bindings.js?558"></script>
-    <script src="js/map-uml-engine.js?558"></script>
-    <script src="js/app.js?558"></script>
+    <script src="js/utils.js?559"></script>
+    <script src="js/hex-tiles.js?559"></script>
+    <script src="js/geometry-utils.js?559"></script>
+    <script src="js/data-store.js?559"></script>
+    <script src="js/map-layers.js?559"></script>
+    <script src="js/settlements.js?559"></script>
+    <script src="js/draw.js?559"></script>
+    <script src="js/image-mesh.js?559"></script>
+    <script src="js/image-align.js?559"></script>
+    <script src="js/image-extract.js?559"></script>
+    <script src="js/terrain-analysis.js?559"></script>
+    <script src="js/stream.js?559"></script>
+    <script src="js/ui-bindings.js?559"></script>
+    <script src="js/map-uml-engine.js?559"></script>
+    <script src="js/app.js?559"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

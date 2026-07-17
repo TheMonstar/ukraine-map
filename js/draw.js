@@ -51,7 +51,7 @@ class DrawingTool {
     }
 
     _bindMapEvents() {
-        this.map.on('move zoom resize', () => {
+        this.map.on('move zoom resize rotate', () => {
             this._resize();
             this._render();
         });

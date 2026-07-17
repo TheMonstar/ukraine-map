@@ -68,7 +68,7 @@ class TerrainAnalysis {
         this._forestMoveHandler = this._debounceForest(() => {
             if (this._forestEnabled) this._fetchForestData();
         }, 600);
-        this.dashboard.map.on('moveend zoomend', this._forestMoveHandler);
+        this.dashboard.map.on('moveend zoomend rotate', this._forestMoveHandler);
     }
 
     _debounceForest(fn, ms) {
@@ -107,7 +107,7 @@ class TerrainAnalysis {
         this._losCanvas = canvas;
         this._losCtx = canvas.getContext('2d');
 
-        this.dashboard.map.on('move zoom resize', () => this._rerenderLos());
+        this.dashboard.map.on('move zoom resize rotate', () => this._rerenderLos());
 
         const resizeObserver = new ResizeObserver(() => {
             canvas.width = mapContainer.offsetWidth;

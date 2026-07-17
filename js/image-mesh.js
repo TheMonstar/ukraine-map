@@ -30,7 +30,7 @@ class ImageMeshWarp {
                 this._redraw();
             });
         };
-        map.on('zoom zoomend viewreset moveend', this._onViewChange);
+        map.on('zoom zoomend viewreset moveend rotate', this._onViewChange);
 
         const img = new Image();
         if (!imageUrl.startsWith('data:') && !imageUrl.startsWith('blob:')) {
@@ -54,7 +54,7 @@ class ImageMeshWarp {
     }
 
     destroy() {
-        this.map.off('zoom zoomend viewreset moveend', this._onViewChange);
+        this.map.off('zoom zoomend viewreset moveend rotate', this._onViewChange);
         this.canvas.remove();
     }
 

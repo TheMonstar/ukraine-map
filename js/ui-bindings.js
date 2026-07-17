@@ -305,6 +305,30 @@ class UiBindings {
             dashboard.layers.setBaseLayer(e.target.value);
         });
 
+        // ── Map rotation (leaflet-rotate) ─────────────────────────────────────
+        const bearingSlider = dashboard.getEl('rotate-bearing');
+        const setBearingUI = (deg) => {
+            const norm = ((deg % 360) + 360) % 360;
+            if (bearingSlider) bearingSlider.value = norm;
+            dashboard.setText('rotate-bearing-value', Math.round(norm));
+        };
+
+        dashboard.bindUI('rotate-left', 'click', () => {
+            dashboard.map.setBearing(dashboard.map.getBearing() - 15);
+        });
+        dashboard.bindUI('rotate-right', 'click', () => {
+            dashboard.map.setBearing(dashboard.map.getBearing() + 15);
+        });
+        dashboard.bindUI('rotate-reset', 'click', () => {
+            dashboard.map.setBearing(0);
+        });
+        dashboard.bindUI('rotate-bearing', 'input', (e) => {
+            dashboard.map.setBearing(parseInt(e.target.value, 10));
+        });
+        // keep the slider/label in sync with gesture-driven rotation too
+        // (touch two-finger rotate, shift+drag) — not just the UI controls
+        dashboard.map.on('rotate', () => setBearingUI(dashboard.map.getBearing()));
+
         dashboard.bindUI('shadow-line', 'change', () => {
             const shadowDepthControls = document.getElementById('shadow-depth-controls');
             if (shadowDepthControls) {
@@ -398,7 +422,7 @@ class UiBindings {
         dashboard.bindUI('match-the-front', 'change', scheduleHexUpdate);
         dashboard.bindUI('hex-viewbox', 'change', scheduleHexUpdate);
 
-        dashboard.map.on('moveend zoomend', () => {
+        dashboard.map.on('moveend zoomend rotate', () => {
             if (dashboard.isChecked('hex-tiles') && dashboard.isChecked('hex-viewbox')) {
                 scheduleHexUpdate();
             }

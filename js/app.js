@@ -1239,7 +1239,7 @@ class AttackMapDashboard {
     clearImageOverlay() {
         // Clean up free shape state
         if (this._updateFreeTransformBound) {
-            this.map.off('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+            this.map.off('move zoom viewreset zoomend moveend rotate', this._updateFreeTransformBound);
             this._updateFreeTransformBound = null;
         }
         this.imageFreeShapeMode = false;
@@ -1292,7 +1292,7 @@ class AttackMapDashboard {
 
         // Tear down editing handlers/markers without removing the layer itself
         if (this._updateFreeTransformBound) {
-            this.map.off('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+            this.map.off('move zoom viewreset zoomend moveend rotate', this._updateFreeTransformBound);
             this._updateFreeTransformBound = null;
         }
         this.hideImageCornerMarkers();
@@ -1344,7 +1344,7 @@ class AttackMapDashboard {
                     });
                 }
             };
-            this.map.on('move zoom viewreset zoomend moveend', record.freeHandler);
+            this.map.on('move zoom viewreset zoomend moveend rotate', record.freeHandler);
             this._renderFreeTransform(record.overlay, record.bounds, record.freeCorners);
         }
 
@@ -1426,7 +1426,7 @@ class AttackMapDashboard {
 
         const rec = this.imageOverlayLayers[idx];
         if (rec.freeHandler) {
-            this.map.off('move zoom viewreset zoomend moveend', rec.freeHandler);
+            this.map.off('move zoom viewreset zoomend moveend rotate', rec.freeHandler);
         }
         if (rec.meshWarp) {
             rec.meshWarp.destroy();
@@ -1623,7 +1623,7 @@ class AttackMapDashboard {
                     });
                 }
             };
-            this.map.on('move zoom viewreset zoomend moveend', record.freeHandler);
+            this.map.on('move zoom viewreset zoomend moveend rotate', record.freeHandler);
             this._renderFreeTransform(record.overlay, record.bounds, record.freeCorners);
         }
 
@@ -1924,7 +1924,7 @@ class AttackMapDashboard {
 
         // Tear down free-shape state
         if (this._updateFreeTransformBound) {
-            this.map.off('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+            this.map.off('move zoom viewreset zoomend moveend rotate', this._updateFreeTransformBound);
             this._updateFreeTransformBound = null;
         }
         this.imageFreeShapeMode = false;
@@ -1972,7 +1972,7 @@ class AttackMapDashboard {
                     });
                 }
             };
-            this.map.on('move zoom viewreset zoomend moveend', this._updateFreeTransformBound);
+            this.map.on('move zoom viewreset zoomend moveend rotate', this._updateFreeTransformBound);
             this.updateFreeShapeTransform();
 
             if (this.imageResizeMode) {
