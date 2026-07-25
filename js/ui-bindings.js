@@ -635,22 +635,20 @@ class UiBindings {
             dashboard.layers.setModOverlayEnabled(dashboard.isChecked('feature-mod'));
         });
 
-        dashboard.bindUI('topo-ua', 'change', async () => {
-            if (dashboard.isChecked('topo-ua')) {
-                dashboard.layers.scheduleTopographicOverlayLoad();
-            } else {
+        dashboard.bindUI('topo-mode', 'change', () => {
+            const mode = dashboard.getEl('topo-mode')?.value;
+            if (!mode || mode === 'off') {
                 dashboard.layers.clearTopographicOverlay();
-            }
-        });
-
-        dashboard.bindUI('topo-bw', 'change', () => {
-            if (dashboard.topoTileLayer) {
+            } else if (dashboard.topoTileLayer) {
                 dashboard.layers._recolorTopo();
+            } else {
+                dashboard.layers.scheduleTopographicOverlayLoad();
             }
         });
 
         dashboard.map.on('moveend zoomend', () => {
-            if (dashboard.isChecked('topo-ua')) {
+            const mode = dashboard.getEl('topo-mode')?.value;
+            if (mode && mode !== 'off') {
                 dashboard.layers.scheduleTopographicOverlayLoad();
             }
         });

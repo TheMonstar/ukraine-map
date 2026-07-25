@@ -693,16 +693,12 @@
                     <div class="accordion-body" style="display:none;">
                         <div class="control-group">
                             <label class="control-label">Topography</label>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="topo-ua" />
-                                    <span class="toggle-switch"></span>Elevation Tint
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="topo-bw" />
-                                    <span class="toggle-switch"></span>B/W
-                                </label>
-                            </div>
+                            <select id="topo-mode" class="control-select">
+                                <option value="off" selected>Off</option>
+                                <option value="color">Color</option>
+                                <option value="bw">B/W</option>
+                                <option value="black-transparent">Black / Transparent</option>
+                            </select>
                         </div>
                         <div class="control-group">
                             <label class="control-label">Forest Layer</label>
@@ -1042,21 +1038,21 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
-    <script src="js/utils.js?559"></script>
-    <script src="js/hex-tiles.js?559"></script>
-    <script src="js/geometry-utils.js?559"></script>
-    <script src="js/data-store.js?559"></script>
-    <script src="js/map-layers.js?559"></script>
-    <script src="js/settlements.js?559"></script>
-    <script src="js/draw.js?559"></script>
-    <script src="js/image-mesh.js?559"></script>
-    <script src="js/image-align.js?559"></script>
-    <script src="js/image-extract.js?559"></script>
-    <script src="js/terrain-analysis.js?559"></script>
-    <script src="js/stream.js?559"></script>
-    <script src="js/ui-bindings.js?559"></script>
-    <script src="js/map-uml-engine.js?559"></script>
-    <script src="js/app.js?559"></script>
+    <script src="js/utils.js?561"></script>
+    <script src="js/hex-tiles.js?561"></script>
+    <script src="js/geometry-utils.js?561"></script>
+    <script src="js/data-store.js?561"></script>
+    <script src="js/map-layers.js?561"></script>
+    <script src="js/settlements.js?561"></script>
+    <script src="js/draw.js?561"></script>
+    <script src="js/image-mesh.js?561"></script>
+    <script src="js/image-align.js?561"></script>
+    <script src="js/image-extract.js?561"></script>
+    <script src="js/terrain-analysis.js?561"></script>
+    <script src="js/stream.js?561"></script>
+    <script src="js/ui-bindings.js?561"></script>
+    <script src="js/map-uml-engine.js?561"></script>
+    <script src="js/app.js?561"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

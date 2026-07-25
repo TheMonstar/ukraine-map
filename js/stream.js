@@ -32,6 +32,7 @@ class MapStreamer {
             view: s.view,
             dates: s.dates,
             basemap: s.basemap,
+            topoMode: s.topoMode,
             toggles: s.toggles,
             drawings: s.drawings,
             mapUml: s.mapUml,
@@ -249,6 +250,14 @@ class MapStreamer {
             if (sel && sel.value !== sections.basemap) {
                 sel.value = sections.basemap;
                 sel.dispatchEvent(new Event('change'));
+            }
+        }
+
+        if (sections.topoMode) {
+            const topoSel = dashboard.getEl('topo-mode');
+            if (topoSel && topoSel.value !== sections.topoMode) {
+                topoSel.value = sections.topoMode;
+                topoSel.dispatchEvent(new Event('change'));
             }
         }
 

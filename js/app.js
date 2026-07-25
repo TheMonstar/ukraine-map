@@ -1451,7 +1451,7 @@ class AttackMapDashboard {
         'motorlines-type-highway', 'motorlines-type-primary', 'motorlines-type-tertiary', 'motorlines-type-bridge',
         'railways-type-rail', 'railways-type-station', 'railways-type-bridge',
         'waterways-type-river', 'waterways-type-stream',
-        'topo-ua', 'topo-bw', 'forest-overlay',
+        'forest-overlay',
         'show-settlements', 'show-regions', 'position-change',
         'hex-tiles', 'show-date-overlay', 'custom-kml-overlay', 'firms-overlay'
     ];
@@ -1478,6 +1478,7 @@ class AttackMapDashboard {
                 end: this.endDate ? this.endDate.toISOString() : null
             },
             basemap: this.getEl('map-style')?.value ?? null,
+            topoMode: this.getEl('topo-mode')?.value ?? 'off',
             toggles,
             drawings: this.drawTool ? this.drawTool.shapes : [],
             mapUml: this.getEl('map-uml-input')?.value ?? '',
@@ -1514,6 +1515,14 @@ class AttackMapDashboard {
             if (sel && sel.value !== state.basemap) {
                 sel.value = state.basemap;
                 sel.dispatchEvent(new Event('change'));
+            }
+        }
+
+        if (state.topoMode) {
+            const topoSel = this.getEl('topo-mode');
+            if (topoSel && topoSel.value !== state.topoMode) {
+                topoSel.value = state.topoMode;
+                topoSel.dispatchEvent(new Event('change'));
             }
         }
 

@@ -146,30 +146,35 @@ class MapLayers {
         [360, 255, 225, 220]
     ];
 
-    static elevColor(e, min, max, bw) {
+    static elevColor(e, min, max, mode) {
         const t01 = max > min ? Math.max(0, Math.min(1, (e - min) / (max - min))) : 0.5;
-        if (bw) {
+        if (mode === 'bw') {
             const v = Math.round(t01 * 255);
-            return [v, v, v];
+            return [v, v, v, 255];
+        }
+        if (mode === 'black-transparent') {
+            // low elevation opaque black, high elevation transparent (basemap shows through)
+            return [0, 0, 0, Math.round((1 - t01) * 255)];
         }
         const stops = MapLayers.ELEV_STOPS;
         const mapped = stops[0][0] + t01 * (stops[stops.length - 1][0] - stops[0][0]);
-        if (mapped <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3]];
+        if (mapped <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], 255];
         for (let i = 1; i < stops.length; i++) {
             if (mapped <= stops[i][0]) {
                 const f = (mapped - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0]);
                 return [
                     Math.round(stops[i - 1][1] + f * (stops[i][1] - stops[i - 1][1])),
                     Math.round(stops[i - 1][2] + f * (stops[i][2] - stops[i - 1][2])),
-                    Math.round(stops[i - 1][3] + f * (stops[i][3] - stops[i - 1][3]))
+                    Math.round(stops[i - 1][3] + f * (stops[i][3] - stops[i - 1][3])),
+                    255
                 ];
             }
         }
         const last = stops[stops.length - 1];
-        return [last[1], last[2], last[3]];
+        return [last[1], last[2], last[3], 255];
     }
 
-    static _colorTile(tile, min, max, bw) {
+    static _colorTile(tile, min, max, mode) {
         const elevData = tile._elevData;
         if (!elevData) return;
         const w = tile.width, h = tile.height;
@@ -177,8 +182,8 @@ class MapLayers {
         const imageData = ctx.createImageData(w, h);
         const d = imageData.data;
         for (let j = 0, i = 0; j < elevData.length; j++, i += 4) {
-            const [r, g, b] = MapLayers.elevColor(elevData[j], min, max, bw);
-            d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
+            const [r, g, b, a] = MapLayers.elevColor(elevData[j], min, max, mode);
+            d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a;
         }
         ctx.putImageData(imageData, 0, 0);
     }
@@ -212,7 +217,7 @@ class MapLayers {
                     tile._elevMin = tMin;
                     tile._elevMax = tMax;
                     const range = self._topoRange || { min: -5, max: 360 };
-                    MapLayers._colorTile(tile, range.min, range.max, self.dashboard.isChecked('topo-bw'));
+                    MapLayers._colorTile(tile, range.min, range.max, self.dashboard.getEl('topo-mode')?.value);
                     done(null, tile);
                     self._scheduleTopoRecolor();
                 };
@@ -275,9 +280,9 @@ class MapLayers {
         if (gMax <= gMin) return;
 
         this._topoRange = { min: gMin, max: gMax };
-        const bw = this.dashboard.isChecked('topo-bw');
+        const mode = this.dashboard.getEl('topo-mode')?.value;
         for (const tile of tiles) {
-            MapLayers._colorTile(tile, gMin, gMax, bw);
+            MapLayers._colorTile(tile, gMin, gMax, mode);
         }
         this._updateElevLegend(gMin, gMax);
     }
@@ -285,14 +290,14 @@ class MapLayers {
     _updateElevLegend(min, max) {
         const div = document.getElementById('elev-legend');
         if (!div) return;
-        const bw = this.dashboard.isChecked('topo-bw');
+        const mode = this.dashboard.getEl('topo-mode')?.value;
         const steps = 10;
         let rows = '';
         for (let i = steps; i >= 0; i--) {
             const elev = min + (i / steps) * (max - min);
-            const [r, g, b] = MapLayers.elevColor(elev, min, max, bw);
+            const [r, g, b, a] = MapLayers.elevColor(elev, min, max, mode);
             rows += `<div style="display:flex;align-items:center;gap:4px;margin:1px 0;">
-                <span style="width:24px;height:14px;display:inline-block;background:rgb(${r},${g},${b});border:1px solid rgba(0,0,0,0.15);"></span>
+                <span style="width:24px;height:14px;display:inline-block;background:rgb(${r},${g},${b});opacity:${(a / 255).toFixed(2)};border:1px solid rgba(0,0,0,0.15);"></span>
                 <span style="font-size:11px;">${Math.round(elev)} m</span>
             </div>`;
         }
