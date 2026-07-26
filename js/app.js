@@ -115,6 +115,8 @@ class AttackMapDashboard {
         this.drawControl = null;
         this.drawnItems = null;
         this.selectedPolygons = [];
+        this.selectedRoadFeatures = new Set();
+        this.lastClickedRoadFeature = null;
         this.polygonVersion = 0;
         this.polygonSelectionEnabled = false;
         this.currentDiffResult = null;
