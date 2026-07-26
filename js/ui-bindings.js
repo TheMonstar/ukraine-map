@@ -4592,6 +4592,200 @@ class UiBindings {
                     setHint('');
                 }
             });
+
+            // ---- Full AD (known positions from KML survey) ----
+            const fullAdMarkerLayer = L.layerGroup().addTo(dashboard.map);
+            const fullAdRangeLayer = L.layerGroup().addTo(dashboard.map);
+            let fullAdData = [];
+
+            const FULL_AD_COLORS = {
+                'Pantsir': '#ff9800',
+                'S-300/400': '#e53935',
+                'Radio Technical positions': '#ffd54f',
+                'Shahed launch sites': '#ab47bc',
+                'Alabuga towers A (tent)': '#9e9e9e',
+                'Alabuga towers B (cabins)': '#9e9e9e',
+                'others': '#bdbdbd'
+            };
+
+            // Radar detection radius (not an intercept range) — approximate, since most
+            // placemarks are just labeled "RT" with no specific radar model.
+            const radar = (title, radiusM) => ({ meta: { title: { en: title } }, rounds: [{ range: { max: radiusM } }] });
+
+            // Only categories with a known range/detection envelope get a range circle.
+            const resolveFullAdWeapon = (folder, name) => {
+                const lower = (name || '').toLowerCase();
+                if (folder === 'Pantsir') {
+                    const pantsir = adWeapons.find(w => w.id === 'Pantsir-S1');
+                    if (!pantsir) return null;
+                    const roundId = dashboard.getEl('full-ad-pantsir-round')?.value || '57E6 missile';
+                    const round = pantsir.rounds.find(r => r.id === roundId) || pantsir.rounds[0];
+                    return { meta: pantsir.meta, rounds: [round] };
+                }
+                if (folder === 'S-300/400') {
+                    let weaponId = 'S-400'; // ambiguous/blank name in this folder — assume the longer-ranged S-400
+                    if (lower.includes('400')) weaponId = 'S-400';
+                    else if (lower.includes('300')) weaponId = 'S-300';
+                    const weapon = adWeapons.find(w => w.id === weaponId);
+                    if (!weapon) return null;
+
+                    const mode = dashboard.getEl('full-ad-s300-mode')?.value || 'short';
+                    // "short" = the smaller, more maneuverable missile plausible for engaging
+                    // drones/cruise missiles; "long" = the big aircraft/ballistic interceptor.
+                    const shortRoundId = weaponId === 'S-400' ? '9M96E2' : '5В55Р';
+                    const round = mode === 'short'
+                        ? (weapon.rounds.find(r => r.id === shortRoundId) || weapon.rounds[0])
+                        : weapon.rounds.reduce((a, b) => (b.range.max > a.range.max ? b : a));
+                    return { meta: weapon.meta, rounds: [round] };
+                }
+                if (folder === 'Radio Technical positions') {
+                    if (lower.includes('nebo')) return radar('Nebo radar (approx.)', 400000);
+                    if (lower.includes('kasta')) return radar('Kasta-2E2 radar (approx.)', 180000);
+                    if (lower.includes('68u') || lower.includes('podlet')) return radar('Podlet radar (approx.)', 200000);
+                    return radar('RT radar (approx.)', 250000);
+                }
+                return null;
+            };
+
+            // Which folders/categories are currently enabled in the type filter. Populated
+            // (all-on) once a KML is loaded; absence of a key is treated as enabled.
+            let fullAdCategoryEnabled = {};
+            const isFullAdCategoryOn = (folder) => fullAdCategoryEnabled[folder] !== false;
+
+            const buildFullAdCategoryFilter = () => {
+                const container = dashboard.getEl('full-ad-categories');
+                if (!container) return;
+                container.innerHTML = '';
+                const folders = [...new Set(fullAdData.map(p => p.f))].sort();
+                folders.forEach(folder => {
+                    if (!(folder in fullAdCategoryEnabled)) fullAdCategoryEnabled[folder] = true;
+                    const count = fullAdData.filter(p => p.f === folder).length;
+                    const color = FULL_AD_COLORS[folder] || '#bdbdbd';
+
+                    const row = document.createElement('label');
+                    row.className = 'full-ad-category-row';
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = fullAdCategoryEnabled[folder];
+                    checkbox.addEventListener('change', () => {
+                        fullAdCategoryEnabled[folder] = checkbox.checked;
+                        renderFullAdPositions();
+                        renderFullAdRanges();
+                    });
+
+                    const swatch = document.createElement('span');
+                    swatch.className = 'full-ad-category-swatch';
+                    swatch.style.background = color;
+
+                    row.appendChild(checkbox);
+                    row.appendChild(swatch);
+                    row.appendChild(document.createTextNode(`${folder} (${count})`));
+                    container.appendChild(row);
+                });
+            };
+
+            const renderFullAdPositions = () => {
+                fullAdMarkerLayer.clearLayers();
+                if (!dashboard.isChecked('full-ad-positions')) return;
+                fullAdData.filter(p => isFullAdCategoryOn(p.f)).forEach(p => {
+                    const color = FULL_AD_COLORS[p.f] || '#bdbdbd';
+                    L.circleMarker([p.lat, p.lon], {
+                        radius: 4,
+                        color,
+                        fillColor: color,
+                        fillOpacity: 0.8,
+                        weight: 1
+                    })
+                    .bindTooltip(`${p.n || p.f}<br>${p.f}`, { sticky: false })
+                    .addTo(fullAdMarkerLayer);
+                });
+            };
+
+            const renderFullAdRanges = () => {
+                fullAdRangeLayer.clearLayers();
+                if (!dashboard.isChecked('full-ad-ranges')) return;
+                fullAdData.filter(p => isFullAdCategoryOn(p.f)).forEach(p => {
+                    const weapon = resolveFullAdWeapon(p.f, p.n);
+                    if (!weapon) return;
+                    const radiusM = Math.max(...weapon.rounds.map(r => r.range.max));
+                    L.circle([p.lat, p.lon], {
+                        radius: radiusM,
+                        color: '#66bb6a',
+                        fillColor: '#66bb6a',
+                        fillOpacity: 0.03,
+                        weight: 1,
+                        dashArray: '4 3',
+                        interactive: false
+                    })
+                    .bindTooltip(`${p.n || p.f}<br>${weapon.meta.title.en}: ${(radiusM / 1000).toFixed(0)} km`, { sticky: false })
+                    .addTo(fullAdRangeLayer);
+                });
+            };
+
+            // Parses a KML into {n: name, f: folder, lat, lon} points. Runs entirely
+            // client-side — the file is never uploaded or written to disk, since this
+            // is expected to be a private/local dataset (e.g. a survey of real positions).
+            const directChild = (el, tag) => Array.from(el.children).find(c => c.tagName === tag);
+
+            const parseFullAdKml = (text) => {
+                const doc = new DOMParser().parseFromString(text, 'text/xml');
+                if (doc.querySelector('parsererror')) return [];
+                const out = [];
+                const walk = (el, folder) => {
+                    Array.from(el.children).forEach(child => {
+                        const tag = child.tagName;
+                        if (tag === 'Folder') {
+                            const nm = directChild(child, 'name')?.textContent?.trim() || folder;
+                            walk(child, nm);
+                        } else if (tag === 'Placemark') {
+                            if (!folder) return; // skip ungrouped/legend placemarks outside any folder
+                            const pointEl = child.getElementsByTagName('Point')[0];
+                            const coordsEl = pointEl && pointEl.getElementsByTagName('coordinates')[0];
+                            if (!coordsEl || !coordsEl.textContent) return;
+                            const [lonStr, latStr] = coordsEl.textContent.trim().split(',');
+                            const lon = parseFloat(lonStr), lat = parseFloat(latStr);
+                            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+                            const nm = directChild(child, 'name')?.textContent?.trim() || '';
+                            out.push({ n: nm, f: folder, lat, lon });
+                        } else if (tag === 'Document' || tag === 'kml') {
+                            walk(child, folder);
+                        }
+                    });
+                };
+                walk(doc.documentElement, '');
+                return out;
+            };
+
+            const fullAdHint = () => dashboard.getEl('full-ad-hint');
+
+            dashboard.bindUI('full-ad-load-file', 'click', () => {
+                dashboard.getEl('full-ad-file')?.click();
+            });
+
+            dashboard.bindUI('full-ad-file', 'change', (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                file.text().then(text => {
+                    fullAdData = parseFullAdKml(text);
+                    fullAdCategoryEnabled = {};
+                    buildFullAdCategoryFilter();
+                    renderFullAdPositions();
+                    renderFullAdRanges();
+                    const hint = fullAdHint();
+                    if (hint) hint.textContent = `Loaded ${fullAdData.length} positions from ${file.name}`;
+                }).catch(err => {
+                    console.warn('Failed to parse Full AD KML', err);
+                    const hint = fullAdHint();
+                    if (hint) hint.textContent = 'Failed to parse KML file';
+                });
+                e.target.value = '';
+            });
+
+            dashboard.bindUI('full-ad-positions', 'change', renderFullAdPositions);
+            dashboard.bindUI('full-ad-ranges', 'change', renderFullAdRanges);
+            dashboard.bindUI('full-ad-pantsir-round', 'change', renderFullAdRanges);
+            dashboard.bindUI('full-ad-s300-mode', 'change', renderFullAdRanges);
         }
     }
 }

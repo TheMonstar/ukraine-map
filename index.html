@@ -682,6 +682,33 @@
                             <button id="air-defense-clear" class="btn btn-sm btn-danger">Clear All</button>
                         </div>
                         <div id="air-defense-hint" class="draw-hint"></div>
+                        <div class="control-group">
+                            <label class="control-label">Full AD (local KML, not saved)</label>
+                            <input type="file" id="full-ad-file" accept=".kml" style="display:none" />
+                            <button id="full-ad-load-file" class="btn btn-sm">Load Full AD KML</button>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="full-ad-positions" />
+                                    <span class="toggle-switch"></span>Show Positions
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="full-ad-ranges" />
+                                    <span class="toggle-switch"></span>Show Ranges
+                                </label>
+                            </div>
+                            <label class="control-label">Pantsir Range</label>
+                            <select id="full-ad-pantsir-round" class="control-select">
+                                <option value="57E6 missile" selected>Missile (~20 km)</option>
+                                <option value="30mm guns">Gun (~4 km)</option>
+                            </select>
+                            <label class="control-label">S-300/400 Range</label>
+                            <select id="full-ad-s300-mode" class="control-select">
+                                <option value="short" selected>Anti-drone (short-range missile)</option>
+                                <option value="long">Full envelope (long-range missile)</option>
+                            </select>
+                            <div id="full-ad-categories" class="full-ad-categories"></div>
+                            <div id="full-ad-hint" class="draw-hint"></div>
+                        </div>
                     </div>
                 </div>
 
