@@ -346,17 +346,14 @@ class UiBindings {
         const MAJOR_HIGHWAYS = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 
         dashboard.bindUI('motorlines-by-shadow-btn', 'click', async () => {
+            try {
             if (!dashboard.isChecked('shadow-ua') || !dashboard.shadowUaPolygon) {
                 console.warn('Enable UA Shadow first');
                 return;
             }
-            if (!motorlinesCache) {
-                const response = await fetch(`${APP_STATIC_URL}/motorlines.json`);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                motorlinesCache = await response.json();
-            }
+            const roadFeatures = await dashboard.lineFeatures.loadAllRoads();
             const totals = {};
-            for (const feature of (motorlinesCache.features || [])) {
+            for (const feature of roadFeatures) {
                 const highway = feature?.properties?.highway;
                 if (!MAJOR_HIGHWAYS.has(highway)) continue;
                 try {
@@ -375,6 +372,7 @@ class UiBindings {
             Object.entries(totals).sort((a, b) => b[1] - a[1]).forEach(([type, km]) => {
                 console.log(`  ${type}: ${km.toFixed(1)} km`);
             });
+            } catch (e) { console.error('motorlines-by-shadow error:', e); }
         });
 
         // --- Hex Tiles ---
@@ -433,18 +431,14 @@ class UiBindings {
 
         dashboard.bindUI('motorlines-by-diff-btn', 'click', async () => {
             try {
-            if (!motorlinesCache) {
-                const response = await fetch(`${APP_STATIC_URL}/motorlines.json`);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                motorlinesCache = await response.json();
-            }
             const visibleTypes = new Set([
                 ...(dashboard.isChecked('motorlines-type-highway')  ? ['motorway', 'trunk']      : []),
                 ...(dashboard.isChecked('motorlines-type-primary')   ? ['primary', 'secondary']   : []),
                 ...(dashboard.isChecked('motorlines-type-tertiary')  ? ['tertiary']               : []),
             ]);
             if (!visibleTypes.size) { console.warn('No motorline types selected'); return; }
-            const features = (motorlinesCache.features || []).filter(f => visibleTypes.has(f?.properties?.highway));
+            const roadFeatures = await dashboard.lineFeatures.loadAllRoads();
+            const features = roadFeatures.filter(f => visibleTypes.has(f?.properties?.highway));
 
             const unionAll = (polys) => {
                 if (polys.length === 0) return null;
@@ -1118,386 +1112,42 @@ class UiBindings {
             eventsReloadBtn.addEventListener('click', () => dashboard.refreshEvents());
         }
 
-        let waterwaysCache = null;
-
-        const renderWaterways = async () => {
-            dashboard.featureLayer.clearLayers();
-            if (!dashboard.isChecked('feature-waterways')) return;
-            try {
-                if (!waterwaysCache) {
-                    const response = await fetch(`${APP_STATIC_URL}/waterlines_overlay.json`);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    waterwaysCache = await response.json();
-                }
-                const features = waterwaysCache.features || [];
-                const WATER_GROUPS = [
-                    { id: 'waterways-type-river', types: new Set(['river']), style: { color: '#2b7cff', weight: 2 } },
-                    { id: 'waterways-type-stream', types: new Set(['stream']), style: { color: '#2b7cff', weight: 1, dashArray: '4,6' } },
-                ];
-                for (const group of WATER_GROUPS) {
-                    if (!dashboard.isChecked(group.id)) continue;
-                    L.geoJSON({
-                        type: 'FeatureCollection',
-                        features: features.filter(f => group.types.has(f?.properties?.waterway))
-                    }, { style: () => group.style }).addTo(dashboard.featureLayer);
-                }
-            } catch (error) {
-                console.error('Error loading waterways:', error);
-                alert('Failed to load waterways data.');
-            }
-        };
-
+        // Roads, waterways and railways are owned by LineFeatures
+        // (js/line-features.js); only the event wiring belongs here.
         dashboard.bindUI('feature-waterways', 'change', async () => {
             const typesEl = document.getElementById('waterways-types');
             if (typesEl) typesEl.style.display = dashboard.isChecked('feature-waterways') ? '' : 'none';
-            await renderWaterways();
+            await dashboard.lineFeatures.renderWaterways();
         });
 
         ['waterways-type-river', 'waterways-type-stream'].forEach(id => {
-            dashboard.bindUI(id, 'change', renderWaterways);
+            dashboard.bindUI(id, 'change', () => dashboard.lineFeatures.renderWaterways());
         });
-
-        let motorlinesCache = null;
-        let railwaysCache = null;
-        let roadGraphCache = null;
-        const ROAD_HIGHLIGHT_COLOR = '#ff6f00';
-
-        // Binary min-heap keyed by `dist`, used by Dijkstra's search below.
-        class MinHeap {
-            constructor() { this.items = []; }
-            get size() { return this.items.length; }
-            push(item) {
-                this.items.push(item);
-                let i = this.items.length - 1;
-                while (i > 0) {
-                    const parent = (i - 1) >> 1;
-                    if (this.items[parent].dist <= this.items[i].dist) break;
-                    [this.items[parent], this.items[i]] = [this.items[i], this.items[parent]];
-                    i = parent;
-                }
-            }
-            pop() {
-                const top = this.items[0];
-                const last = this.items.pop();
-                if (this.items.length) {
-                    this.items[0] = last;
-                    let i = 0;
-                    while (true) {
-                        const l = i * 2 + 1, r = i * 2 + 2;
-                        let smallest = i;
-                        if (l < this.items.length && this.items[l].dist < this.items[smallest].dist) smallest = l;
-                        if (r < this.items.length && this.items[r].dist < this.items[smallest].dist) smallest = r;
-                        if (smallest === i) break;
-                        [this.items[smallest], this.items[i]] = [this.items[i], this.items[smallest]];
-                        i = smallest;
-                    }
-                }
-                return top;
-            }
-        }
-
-        const roadNodeKey = ([lng, lat]) => `${lng.toFixed(6)},${lat.toFixed(6)}`;
-
-        const roadFeatureLines = (feature) => {
-            const geom = feature.geometry;
-            if (!geom) return [];
-            if (geom.type === 'LineString') return [geom.coordinates];
-            if (geom.type === 'MultiLineString') return geom.coordinates;
-            return [];
-        };
-
-        const roadFeatureEndpoints = (feature) => {
-            const keys = new Set();
-            for (const coords of roadFeatureLines(feature)) {
-                if (coords.length < 2) continue;
-                keys.add(roadNodeKey(coords[0]));
-                keys.add(roadNodeKey(coords[coords.length - 1]));
-            }
-            return keys;
-        };
-
-        const roadOtherTag = (otherTags, key) => {
-            if (!otherTags) return null;
-            const m = new RegExp(`"${key}"=>"([^"]*)"`).exec(otherTags);
-            return m ? m[1] : null;
-        };
-        // Route number (e.g. "М-14") — used to bridge digitization gaps below, since OSM
-        // consistently tags every way belonging to the same numbered route with this.
-        const roadRouteRef = (feature) => {
-            const otherTags = feature.properties?.other_tags;
-            return roadOtherTag(otherTags, 'ref') || roadOtherTag(otherTags, 'nat_ref');
-        };
-
-        // Real numbered highways (M-14 etc.) routinely split into separate carriageway
-        // ways at bridges/interchanges whose endpoints don't share an exact coordinate —
-        // gaps of 10-200m are common (e.g. twin bridges). Exact-match edges alone leave
-        // these disconnected, so same-route endpoints within a small radius get an extra
-        // "connector" edge (feature: null, since it isn't a real segment to highlight).
-        const REF_SNAP_METERS = 250;
-        const REF_GRID_DEG = 0.01; // ~1km cells; a 3x3 neighborhood comfortably covers the snap radius
-
-        // Graph of all loaded road segments (regardless of which type checkboxes are visible),
-        // built once so range-selection can route across road types.
-        const getRoadGraph = () => {
-            if (roadGraphCache) return roadGraphCache;
-            const graph = new Map(); // nodeKey -> [{ to, feature, weight }]
-            const addEdge = (a, b, feature, weight) => {
-                if (!graph.has(a)) graph.set(a, []);
-                graph.get(a).push({ to: b, feature, weight });
-            };
-            const byRef = new Map();
-            for (const feature of (motorlinesCache?.features || [])) {
-                const ref = roadRouteRef(feature);
-                for (const coords of roadFeatureLines(feature)) {
-                    if (coords.length < 2) continue;
-                    const a = roadNodeKey(coords[0]);
-                    const b = roadNodeKey(coords[coords.length - 1]);
-                    const weight = turf.length(turf.lineString(coords), { units: 'kilometers' });
-                    addEdge(a, b, feature, weight);
-                    addEdge(b, a, feature, weight);
-                    if (ref) {
-                        if (!byRef.has(ref)) byRef.set(ref, []);
-                        byRef.get(ref).push({ coord: coords[0], key: a });
-                        byRef.get(ref).push({ coord: coords[coords.length - 1], key: b });
-                    }
-                }
-            }
-            for (const endpoints of byRef.values()) {
-                if (endpoints.length < 2) continue;
-                const cellOf = (c) => `${Math.floor(c[0] / REF_GRID_DEG)},${Math.floor(c[1] / REF_GRID_DEG)}`;
-                const grid = new Map();
-                for (const ep of endpoints) {
-                    const cell = cellOf(ep.coord);
-                    if (!grid.has(cell)) grid.set(cell, []);
-                    grid.get(cell).push(ep);
-                }
-                for (const ep of endpoints) {
-                    const [cx, cy] = cellOf(ep.coord).split(',').map(Number);
-                    for (let dx = -1; dx <= 1; dx++) {
-                        for (let dy = -1; dy <= 1; dy++) {
-                            for (const other of (grid.get(`${cx + dx},${cy + dy}`) || [])) {
-                                if (other.key === ep.key) continue;
-                                const distM = turf.distance(turf.point(ep.coord), turf.point(other.coord), { units: 'kilometers' }) * 1000;
-                                if (distM <= REF_SNAP_METERS) {
-                                    addEdge(ep.key, other.key, null, distM / 1000);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            roadGraphCache = graph;
-            return graph;
-        };
-
-        // Shortest path (by length) of road features connecting startFeature to endFeature.
-        // Returns the intermediate features (excluding start/end), or null if disconnected
-        // or if no path is found within maxSearchKm (Ukraine's road network is one big
-        // connected graph, so an unbounded search can "succeed" by routing clear across
-        // the country when the two clicks aren't actually near the same local road).
-        //
-        // Search state is (node, arrivedViaSnapConnector) rather than just node, and a
-        // snap connector edge (see getRoadGraph) can't be followed immediately by another
-        // one. Without this, the search can silently string several ~250m gap-connectors
-        // together into a much larger jump, skipping real intermediate segments that
-        // should have been selected instead of the fake bridge between them.
-        const findRoadPath = (startFeature, endFeature) => {
-            if (startFeature === endFeature) return [];
-            const graph = getRoadGraph();
-            const startNodes = roadFeatureEndpoints(startFeature);
-            const endNodes = roadFeatureEndpoints(endFeature);
-            if (!startNodes.size || !endNodes.size) return null;
-
-            const startPoint = roadFeatureLines(startFeature)[0]?.[0];
-            const endPoint = roadFeatureLines(endFeature)[0]?.[0];
-            const straightKm = (startPoint && endPoint)
-                ? turf.distance(turf.point(startPoint), turf.point(endPoint), { units: 'kilometers' })
-                : 0;
-            const maxSearchKm = Math.min(Math.max(straightKm * 4, 5), 300);
-
-            const dist = new Map(); // stateKey (`${node}|${0|1}`) -> dist
-            const prevEdge = new Map(); // stateKey -> { fromState, feature }
-            const heap = new MinHeap();
-            for (const n of startNodes) {
-                const state = `${n}|0`;
-                dist.set(state, 0);
-                heap.push({ state, node: n, snap: 0, dist: 0 });
-            }
-
-            let reachedState = null;
-            while (heap.size) {
-                const { state, node, snap, dist: d } = heap.pop();
-                if (d > maxSearchKm) break; // heap pops in increasing order: nothing shorter remains
-                if (d > (dist.get(state) ?? Infinity)) continue;
-                if (endNodes.has(node)) { reachedState = state; break; }
-                for (const edge of (graph.get(node) || [])) {
-                    const isSnap = edge.feature === null;
-                    if (isSnap && snap) continue; // no two snap connectors back to back
-                    const nextSnap = isSnap ? 1 : 0;
-                    const nextState = `${edge.to}|${nextSnap}`;
-                    const nd = d + edge.weight;
-                    if (nd < (dist.get(nextState) ?? Infinity)) {
-                        dist.set(nextState, nd);
-                        prevEdge.set(nextState, { fromState: state, feature: edge.feature });
-                        heap.push({ state: nextState, node: edge.to, snap: nextSnap, dist: nd });
-                    }
-                }
-            }
-            if (!reachedState) return null;
-
-            const startStates = new Set([...startNodes].map(n => `${n}|0`));
-            const path = [];
-            let cur = reachedState;
-            while (!startStates.has(cur)) {
-                const step = prevEdge.get(cur);
-                if (!step) return null;
-                if (step.feature) path.push(step.feature); // null = synthetic gap connector, nothing to highlight
-                cur = step.fromState;
-            }
-            return path;
-        };
-
-        const renderMotorlines = async () => {
-            dashboard.featureMotorLayer.clearLayers();
-            if (!dashboard.isChecked('feature-motorlines')) return;
-            try {
-                if (!motorlinesCache) {
-                    const response = await fetch(`${APP_STATIC_URL}/motorlines.json`);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    motorlinesCache = await response.json();
-                }
-                const features = motorlinesCache.features || [];
-                const inSet = (set) => (f) => set.has(f?.properties?.highway);
-                const ROAD_GROUPS = [
-                    { id: 'motorlines-type-highway', match: inSet(new Set(['motorway', 'trunk'])),     color: '#d32f2f', weight: 3 },
-                    { id: 'motorlines-type-primary',  match: inSet(new Set(['primary', 'secondary'])), color: '#f57c00', weight: 2 },
-                    { id: 'motorlines-type-tertiary', match: inSet(new Set(['tertiary'])),             color: '#fbc02d', weight: 1 },
-                    { id: 'motorlines-type-bridge',   match: f => /"bridge"=>/.test(f?.properties?.other_tags || ''), color: '#7b1fa2', weight: 3 },
-                ];
-                const DEFAULT_GROUP = { color: '#999999', weight: 2 };
-                const groupFor = (feature) => ROAD_GROUPS.find(g => g.match(feature)) || DEFAULT_GROUP;
-
-                const styleFor = (feature, group) => dashboard.selectedRoadFeatures.has(feature)
-                    ? { color: ROAD_HIGHLIGHT_COLOR, weight: group.weight + 3 }
-                    : { color: group.color, weight: group.weight };
-
-                const attachRoadClick = (feature, layer) => {
-                    layer.on('click', (e) => {
-                        const wantsRange = e.originalEvent?.shiftKey
-                            && dashboard.lastClickedRoadFeature
-                            && dashboard.lastClickedRoadFeature !== feature;
-                        if (wantsRange) {
-                            const path = findRoadPath(dashboard.lastClickedRoadFeature, feature);
-                            if (!path) {
-                                console.warn('No connected road path found between the selected segments; selecting endpoints only.');
-                            }
-                            dashboard.selectedRoadFeatures.add(dashboard.lastClickedRoadFeature);
-                            dashboard.selectedRoadFeatures.add(feature);
-                            (path || []).forEach(f => dashboard.selectedRoadFeatures.add(f));
-                        } else if (dashboard.selectedRoadFeatures.has(feature)) {
-                            dashboard.selectedRoadFeatures.delete(feature);
-                        } else {
-                            dashboard.selectedRoadFeatures.add(feature);
-                        }
-                        dashboard.lastClickedRoadFeature = feature;
-                        renderMotorlines();
-                    });
-                };
-
-                const renderedFeatures = new Set();
-                for (const group of ROAD_GROUPS) {
-                    if (!dashboard.isChecked(group.id)) continue;
-                    const groupFeatures = features.filter(group.match);
-                    groupFeatures.forEach(f => renderedFeatures.add(f));
-                    L.geoJSON({
-                        type: 'FeatureCollection',
-                        features: groupFeatures
-                    }, {
-                        style: (feature) => styleFor(feature, group),
-                        onEachFeature: attachRoadClick
-                    }).addTo(dashboard.featureMotorLayer);
-                }
-
-                // A routed selection can include segments whose OSM classification (and
-                // therefore type checkbox) differs from the rest of the route — e.g. a
-                // trunk road that's tagged "primary"/"secondary" through a town. Draw those
-                // anyway so the highlighted path stays visually continuous.
-                const hiddenSelected = [...dashboard.selectedRoadFeatures].filter(f => !renderedFeatures.has(f));
-                if (hiddenSelected.length) {
-                    L.geoJSON({
-                        type: 'FeatureCollection',
-                        features: hiddenSelected
-                    }, {
-                        style: (feature) => styleFor(feature, groupFor(feature)),
-                        onEachFeature: attachRoadClick
-                    }).addTo(dashboard.featureMotorLayer);
-                }
-            } catch (error) {
-                console.error('Error loading motorlines:', error);
-            }
-        };
-
-        const renderRailways = async () => {
-            if (!dashboard.featureRailwayLayer) {
-                dashboard.featureRailwayLayer = L.layerGroup().addTo(dashboard.map);
-            }
-            dashboard.featureRailwayLayer.clearLayers();
-            if (!dashboard.isChecked('feature-railways')) return;
-            try {
-                if (!railwaysCache) {
-                    const response = await fetch(`${APP_STATIC_URL}/railways.geojson`);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    railwaysCache = await response.json();
-                }
-                const features = railwaysCache.features || [];
-                // No usage/bridge tags in the data; approximate bridges from layer != 0 (includes tunnels).
-                const isBridge = f => {
-                    const l = parseInt(f?.properties?.layer, 10);
-                    return Number.isFinite(l) && l !== 0;
-                };
-                const RAIL_GROUPS = [
-                    { id: 'railways-type-rail',    match: f => f?.properties?.railway === 'rail',                  color: '#111111', weight: 1.5, dashArray: '6 4' },
-                    { id: 'railways-type-station', match: f => f?.properties?.railway === 'station',               color: '#00897b', weight: 4 },
-                    { id: 'railways-type-bridge',  match: isBridge,                                                color: '#7b1fa2', weight: 3.5 },
-                ];
-                for (const group of RAIL_GROUPS) {
-                    if (!dashboard.isChecked(group.id)) continue;
-                    L.geoJSON({
-                        type: 'FeatureCollection',
-                        features: features.filter(group.match)
-                    }, { style: () => ({ color: group.color, weight: group.weight, dashArray: group.dashArray }) }).addTo(dashboard.featureRailwayLayer);
-                }
-            } catch (error) {
-                console.error('Error loading railways:', error);
-            }
-        };
 
         dashboard.bindUI('feature-motorlines', 'change', async () => {
             const typesEl = document.getElementById('motorlines-types');
             if (typesEl) typesEl.style.display = dashboard.isChecked('feature-motorlines') ? '' : 'none';
-            await renderMotorlines();
+            await dashboard.lineFeatures.renderRoads();
             updateFeaturesAttribution();
         });
 
         ['motorlines-type-highway', 'motorlines-type-primary', 'motorlines-type-tertiary', 'motorlines-type-bridge'].forEach(id => {
-            dashboard.bindUI(id, 'change', renderMotorlines);
+            dashboard.bindUI(id, 'change', () => dashboard.lineFeatures.renderRoads());
         });
 
         dashboard.bindUI('motorlines-clear-selection-btn', 'click', () => {
-            dashboard.selectedRoadFeatures.clear();
-            dashboard.lastClickedRoadFeature = null;
-            renderMotorlines();
+            dashboard.lineFeatures.clearRoadSelection();
         });
 
         dashboard.bindUI('feature-railways', 'change', async () => {
             const typesEl = document.getElementById('railways-types');
             if (typesEl) typesEl.style.display = dashboard.isChecked('feature-railways') ? '' : 'none';
-            await renderRailways();
+            await dashboard.lineFeatures.renderRailways();
             updateFeaturesAttribution();
         });
 
         ['railways-type-rail', 'railways-type-station', 'railways-type-bridge'].forEach(id => {
-            dashboard.bindUI(id, 'change', renderRailways);
+            dashboard.bindUI(id, 'change', () => dashboard.lineFeatures.renderRailways());
         });
 
         const kmlCache = {}; // { 'ua:20240419': '<kml>...</kml>', ... }
@@ -4639,10 +4289,22 @@ class UiBindings {
                     return { meta: weapon.meta, rounds: [round] };
                 }
                 if (folder === 'Radio Technical positions') {
-                    if (lower.includes('nebo')) return radar('Nebo radar (approx.)', 400000);
-                    if (lower.includes('kasta')) return radar('Kasta-2E2 radar (approx.)', 180000);
-                    if (lower.includes('68u') || lower.includes('podlet')) return radar('Podlet radar (approx.)', 200000);
-                    return radar('RT radar (approx.)', 250000);
+                    const mode = dashboard.getEl('full-ad-rt-mode')?.value || 'drone';
+                    // "aircraft" = rated/advertised detection range against large, high-altitude
+                    // targets; "drone" = a much shorter realistic range against small, low-flying
+                    // low-RCS targets, limited by radar horizon and return signal strength.
+                    const RT_PROFILES = {
+                        nebo:    { label: 'Nebo radar',     aircraft: 400000, drone: 150000 },
+                        kasta:   { label: 'Kasta-2E2 radar', aircraft: 180000, drone: 60000 },
+                        podlet:  { label: 'Podlet radar',   aircraft: 200000, drone: 120000 },
+                        generic: { label: 'RT radar',       aircraft: 250000, drone: 80000 }
+                    };
+                    let key = 'generic';
+                    if (lower.includes('nebo')) key = 'nebo';
+                    else if (lower.includes('kasta')) key = 'kasta';
+                    else if (lower.includes('68u') || lower.includes('podlet')) key = 'podlet';
+                    const p = RT_PROFILES[key];
+                    return radar(`${p.label} (${mode === 'drone' ? 'vs drone' : 'vs aircraft'}, approx.)`, p[mode]);
                 }
                 return null;
             };
@@ -4651,6 +4313,15 @@ class UiBindings {
             // (all-on) once a KML is loaded; absence of a key is treated as enabled.
             let fullAdCategoryEnabled = {};
             const isFullAdCategoryOn = (folder) => fullAdCategoryEnabled[folder] !== false;
+
+            // Matches "ex RT", "(ex) S-400", "(ex?) RT", "ex-P", etc. — placemarks marked
+            // as a former/no-longer-active position.
+            const isExPosition = (name) => /^\(?ex\b/i.test((name || '').trim());
+            const passesFullAdFilters = (p) => {
+                if (!isFullAdCategoryOn(p.f)) return false;
+                if (dashboard.isChecked('full-ad-hide-ex') && isExPosition(p.n)) return false;
+                return true;
+            };
 
             const buildFullAdCategoryFilter = () => {
                 const container = dashboard.getEl('full-ad-categories');
@@ -4688,7 +4359,7 @@ class UiBindings {
             const renderFullAdPositions = () => {
                 fullAdMarkerLayer.clearLayers();
                 if (!dashboard.isChecked('full-ad-positions')) return;
-                fullAdData.filter(p => isFullAdCategoryOn(p.f)).forEach(p => {
+                fullAdData.filter(passesFullAdFilters).forEach(p => {
                     const color = FULL_AD_COLORS[p.f] || '#bdbdbd';
                     L.circleMarker([p.lat, p.lon], {
                         radius: 4,
@@ -4705,14 +4376,15 @@ class UiBindings {
             const renderFullAdRanges = () => {
                 fullAdRangeLayer.clearLayers();
                 if (!dashboard.isChecked('full-ad-ranges')) return;
-                fullAdData.filter(p => isFullAdCategoryOn(p.f)).forEach(p => {
+                fullAdData.filter(passesFullAdFilters).forEach(p => {
                     const weapon = resolveFullAdWeapon(p.f, p.n);
                     if (!weapon) return;
                     const radiusM = Math.max(...weapon.rounds.map(r => r.range.max));
+                    const color = FULL_AD_COLORS[p.f] || '#bdbdbd';
                     L.circle([p.lat, p.lon], {
                         radius: radiusM,
-                        color: '#66bb6a',
-                        fillColor: '#66bb6a',
+                        color,
+                        fillColor: color,
                         fillOpacity: 0.03,
                         weight: 1,
                         dashArray: '4 3',
@@ -4786,6 +4458,11 @@ class UiBindings {
             dashboard.bindUI('full-ad-ranges', 'change', renderFullAdRanges);
             dashboard.bindUI('full-ad-pantsir-round', 'change', renderFullAdRanges);
             dashboard.bindUI('full-ad-s300-mode', 'change', renderFullAdRanges);
+            dashboard.bindUI('full-ad-rt-mode', 'change', renderFullAdRanges);
+            dashboard.bindUI('full-ad-hide-ex', 'change', () => {
+                renderFullAdPositions();
+                renderFullAdRanges();
+            });
         }
     }
 }

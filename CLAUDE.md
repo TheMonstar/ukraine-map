@@ -92,6 +92,7 @@ Push to `main` → GitHub Actions ([.github/workflows/deploy.yml](.github/workfl
 | [js/ui-bindings.js](js/ui-bindings.js) | `UiBindings` | All DOM event handlers and UI state (100+ bindings) |
 | [js/map-layers.js](js/map-layers.js) | `MapLayers` | Basemaps, tile overlays, frontline/event/settlement layer management |
 | [js/settlements.js](js/settlements.js) | `Settlements` | Settlement markers, search, population-based filtering |
+| [js/line-features.js](js/line-features.js) | `LineFeatures` | Roads/waterways/railways — lazy per-class loading, canvas rendering, viewport filtering, road path finding |
 | [js/map-uml-engine.js](js/map-uml-engine.js) | `MapUMLEngine` | Text-syntax parser/renderer for tactical diagrams |
 | [js/draw.js](js/draw.js) | `DrawingTool` | Freehand and geometric drawing (state machine: idle→p1drag→p2wait→p2drag) |
 | [js/utils.js](js/utils.js) | `DeepUtils` | DeepStateMap API calls, geodesic area calculation, LRU cache (30 entries, ~18 MB) |
@@ -109,6 +110,7 @@ Script load order in `index.html` matters — CDN libraries first, then `utils.j
 | Fortification features | `<API_BASE_URL>/ditches.geojson` |
 | Military events | `<API_BASE_URL>/events` |
 | Settlements | `https://storage.googleapis.com/telegram-reader-static/static/settlements.json` |
+| Roads / waterways / railways | `<APP_STATIC_URL>/{roads,water,rail}-*.json` — slim per-class files built by [tools/slim_geodata.py](tools/slim_geodata.py), served gzipped |
 
 `API_BASE_URL` is defined at the top of [js/app.js](js/app.js).
 

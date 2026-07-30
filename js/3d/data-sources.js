@@ -1,5 +1,5 @@
 // Vector data fetchers for the 3D terrain viewer: forest/water/buildings (Overpass),
-// buildings (Mapbox vector tiles, preferred), roads (motorlines.json) and
+// buildings (Mapbox vector tiles, preferred), roads (slim roads-*.json) and
 // fortification ditches (app API).
 
 import { latLngToTile } from './geo.js';
@@ -249,11 +249,18 @@ function bboxIntersects(coords, bbox) {
     return flat.some(([lng, lat]) => lng >= west && lng <= east && lat >= south && lat <= north);
 }
 
-// Fetch the static motorlines dataset (cached across calls) and return features intersecting bbox.
+// Fetch the slim per-class road datasets (cached across calls) and return
+// features intersecting bbox. Same files the 2D map uses — see
+// tools/slim_geodata.py; only properties.highway is read here.
 export async function fetchRoads(bbox) {
     if (!motorlinesCache) {
-        const res = await fetch(`${APP_STATIC_URL}/motorlines.json`);
-        motorlinesCache = await res.json();
+        const files = ['roads-highway', 'roads-primary', 'roads-tertiary'];
+        const collections = await Promise.all(files.map(async (name) => {
+            const res = await fetch(`${APP_STATIC_URL}/${name}.json`);
+            if (!res.ok) throw new Error(`HTTP ${res.status} for ${name}`);
+            return res.json();
+        }));
+        motorlinesCache = { features: collections.flatMap(c => c.features || []) };
     }
     const features = (motorlinesCache.features || []).filter(f => f.geometry && bboxIntersects(f.geometry.coordinates, bbox));
     return { type: 'FeatureCollection', features };

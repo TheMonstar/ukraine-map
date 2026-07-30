@@ -47,9 +47,9 @@ this._updateFreeTransformBound = () => {
 **File:** `js/ui-bindings.js:325`
 **Priority:** Medium
 
-Unlike `motorlines-by-diff-btn` which uses `motorlinesCache`, the shadow button issues a full fetch on every click. The file can be several MB.
+~~Unlike `motorlines-by-diff-btn` which uses `motorlinesCache`, the shadow button issues a full fetch on every click. The file can be several MB.~~
 
-**Fix:** Read from the same `motorlinesCache` variable (or move the cache to a shared scope accessible by both handlers).
+**DONE.** Both buttons now go through `LineFeatures.loadAllRoads()` (`js/line-features.js`), which caches per road-class file. The 118 MB `motorlines.json` was also replaced by slim per-class files — see `tools/slim_geodata.py`.
 
 ---
 

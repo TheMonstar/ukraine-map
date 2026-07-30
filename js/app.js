@@ -115,7 +115,7 @@ class AttackMapDashboard {
         this.drawControl = null;
         this.drawnItems = null;
         this.selectedPolygons = [];
-        this.selectedRoadFeatures = new Set();
+        this.selectedRoadFeatures = new Set(); // road properties.id values
         this.lastClickedRoadFeature = null;
         this.polygonVersion = 0;
         this.polygonSelectionEnabled = false;
@@ -218,6 +218,7 @@ class AttackMapDashboard {
         this.layers = new MapLayers(this);
         this.dataStore = new DataStore(this);
         this.settlements = new Settlements(this);
+        this.lineFeatures = new LineFeatures(this);
         this.uiBindings = new UiBindings(this);
     }
 
@@ -226,6 +227,7 @@ class AttackMapDashboard {
      */
     init() {
         this.layers.initMap();
+        this.lineFeatures.init();
         this.mapUmlEngine = new MapUMLEngine(this);
         this.terrainAnalysis = new TerrainAnalysis(this);
         this.uiBindings.init();

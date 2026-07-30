@@ -366,7 +366,7 @@
                         </div>
                         <div id="waterways-types" style="display:none; padding-left:12px;">
                             <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="waterways-type-river" checked /><span class="toggle-switch"></span><span style="color:#2b7cff;">Rivers</span></label>
-                            <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="waterways-type-stream" checked /><span class="toggle-switch"></span><span style="color:#2b7cff;">Streams</span></label>
+                            <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="waterways-type-stream" /><span class="toggle-switch"></span><span style="color:#2b7cff;">Streams</span></label>
                         </div>
                         <div id="features-attribution" class="attribution" style="display:none;">
                             Data: <a href="https://x.com/Playfra0" target="_blank">@Playfra</a>
@@ -695,6 +695,10 @@
                                     <input type="checkbox" id="full-ad-ranges" />
                                     <span class="toggle-switch"></span>Show Ranges
                                 </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="full-ad-hide-ex" />
+                                    <span class="toggle-switch"></span>Hide "ex" (former) positions
+                                </label>
                             </div>
                             <label class="control-label">Pantsir Range</label>
                             <select id="full-ad-pantsir-round" class="control-select">
@@ -705,6 +709,11 @@
                             <select id="full-ad-s300-mode" class="control-select">
                                 <option value="short" selected>Anti-drone (short-range missile)</option>
                                 <option value="long">Full envelope (long-range missile)</option>
+                            </select>
+                            <label class="control-label">RT Radar Detection</label>
+                            <select id="full-ad-rt-mode" class="control-select">
+                                <option value="drone" selected>Vs. drone (low RCS/altitude)</option>
+                                <option value="aircraft">Vs. aircraft (rated max)</option>
                             </select>
                             <div id="full-ad-categories" class="full-ad-categories"></div>
                             <div id="full-ad-hint" class="draw-hint"></div>
@@ -929,7 +938,7 @@
         <div class="map-container">
             <div id="date"></div>
             <div id="settlement-boundaries-loader">
-                <div class="loader-title">Loading Settlement Boundaries</div>
+                <div class="loader-title" id="boundaries-loader-title">Loading Settlement Boundaries</div>
                 <div class="loader-progress">
                     <div class="loader-progress-bar" id="boundaries-progress-bar">0%</div>
                 </div>
@@ -1066,21 +1075,22 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
-    <script src="js/utils.js?561"></script>
-    <script src="js/hex-tiles.js?561"></script>
-    <script src="js/geometry-utils.js?561"></script>
-    <script src="js/data-store.js?561"></script>
-    <script src="js/map-layers.js?561"></script>
-    <script src="js/settlements.js?561"></script>
-    <script src="js/draw.js?561"></script>
-    <script src="js/image-mesh.js?561"></script>
-    <script src="js/image-align.js?561"></script>
-    <script src="js/image-extract.js?561"></script>
-    <script src="js/terrain-analysis.js?561"></script>
-    <script src="js/stream.js?561"></script>
-    <script src="js/ui-bindings.js?561"></script>
-    <script src="js/map-uml-engine.js?561"></script>
-    <script src="js/app.js?561"></script>
+    <script src="js/utils.js?562"></script>
+    <script src="js/hex-tiles.js?562"></script>
+    <script src="js/geometry-utils.js?562"></script>
+    <script src="js/data-store.js?562"></script>
+    <script src="js/map-layers.js?562"></script>
+    <script src="js/settlements.js?562"></script>
+    <script src="js/line-features.js?562"></script>
+    <script src="js/draw.js?562"></script>
+    <script src="js/image-mesh.js?562"></script>
+    <script src="js/image-align.js?562"></script>
+    <script src="js/image-extract.js?562"></script>
+    <script src="js/terrain-analysis.js?562"></script>
+    <script src="js/stream.js?562"></script>
+    <script src="js/ui-bindings.js?562"></script>
+    <script src="js/map-uml-engine.js?562"></script>
+    <script src="js/app.js?562"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();
