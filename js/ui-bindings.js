@@ -1120,6 +1120,18 @@ class UiBindings {
             }
         });
 
+        dashboard.bindUI('feature-ria-events', 'change', async () => {
+            if (dashboard.isChecked('feature-ria-events')) {
+                await dashboard.refreshRiaEvents();
+            } else {
+                if (dashboard.riaEventsLayer) dashboard.riaEventsLayer.clearLayers();
+                const filterList = document.getElementById('ria-events-filter-list');
+                if (filterList) filterList.style.display = 'none';
+                const attr = document.getElementById('ria-events-attribution');
+                if (attr) attr.style.display = 'none';
+            }
+        });
+
         // Roads, waterways and railways are owned by LineFeatures
         // (js/line-features.js); only the event wiring belongs here.
         dashboard.bindUI('feature-waterways', 'change', async () => {

@@ -95,7 +95,20 @@ class MapLayers {
         dashboard.featureMotorLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureRailwayLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.eventsLayer = L.layerGroup().addTo(dashboard.map);
-        dashboard.modrLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.modrLayer = L.markerClusterGroup({
+            maxClusterRadius: 40,
+            spiderfyDistanceMultiplier: 1.5,
+            spiderfyOnMaxZoom: true,
+            zoomToBoundsOnClick: true,
+            disableClusteringAtZoom: 11
+        }).addTo(dashboard.map);
+        dashboard.riaEventsLayer = L.markerClusterGroup({
+            maxClusterRadius: 40,
+            spiderfyDistanceMultiplier: 1.5,
+            spiderfyOnMaxZoom: true,
+            zoomToBoundsOnClick: true,
+            disableClusteringAtZoom: 11
+        }).addTo(dashboard.map);
         dashboard.losLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.forestLayer = null;
         dashboard.settlementsLayer.addTo(dashboard.map);

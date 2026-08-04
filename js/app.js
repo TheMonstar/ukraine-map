@@ -82,6 +82,13 @@ class AttackMapDashboard {
         this.modrRefreshDebounce = null;
         this.modrLoading = false;
 
+        this.riaEventsLayer = null;
+        this.riaEventsData = [];
+        this.riaEventsFilterEnabled = {};
+        this.riaEventsNameFilter = '';
+        this.riaEventsRefreshDebounce = null;
+        this.riaEventsLoading = false;
+
         this.ditchesRefreshDebounce = null;
         this.unitsNameFilter = '';
 
@@ -378,6 +385,9 @@ class AttackMapDashboard {
             'events-filter-list',
             'events-attribution',
             'events-reload-btn',
+            'feature-ria-events',
+            'ria-events-filter-list',
+            'ria-events-attribution',
             'forest-overlay',
             'los-p2p-mode',
             'los-viewshed-mode',
@@ -3253,6 +3263,7 @@ class AttackMapDashboard {
                 'blue': '#3388ff',
                 'red': '#d33c3c',
                 'orange': '#ff8800',
+                'violet': '#8e44ad',
                 'grey': '#888888'
             };
             const bgColor = colorMap[color] || '#888888';
@@ -3612,18 +3623,157 @@ class AttackMapDashboard {
     renderModrMarkers() {
         if (!this.modrLayer) return;
         this.modrLayer.clearLayers();
-        const redIcon = this.createColoredMarkerIcon('red');
+
+        const groups = {};
         this.modrData.forEach(item => {
             if (!item.lat || !item.lng) return;
-            const marker = L.marker([item.lat, item.lng], { icon: redIcon });
-            marker.bindPopup(`
-                <strong>${item.fullName || item.name}</strong><br>
-                <em>${item.area}</em><br>
-                ${item.text || ''}<br>
-                <a href="${item.link}" target="_blank">Source</a>
-            `);
+            const key = `${item.lat},${item.lng}`;
+            (groups[key] = groups[key] || []).push(item);
+        });
+
+        Object.values(groups).forEach(items => {
+            const first = items[0];
+            const icon = this.createColoredMarkerIcon('red', items.length);
+            const marker = L.marker([first.lat, first.lng], { icon });
+            const entries = items.map(item => {
+                const linkHtml = item.link ? `<br><a href="${item.link}" target="_blank">Source</a>` : '';
+                return `<strong>${item.fullName || item.name}</strong> <small>(${item.date})</small><br>${item.text || ''}${linkHtml}`;
+            }).join('<hr style="margin:6px 0;">');
+            marker.bindPopup(`<em>${first.area}</em><br>${entries}`);
             marker.addTo(this.modrLayer);
         });
+    }
+
+    async refreshRiaEvents() {
+        if (!this.isChecked('feature-ria-events') || !this.riaEventsLayer) return;
+
+        const start = this.startDate || this.minDate;
+        const end = this.endDate || this.maxDate;
+        if (!start || !end) return;
+
+        if (this.riaEventsLoading) return;
+        this.riaEventsLoading = true;
+
+        const apiKey = localStorage.getItem('apiKey');
+        const keyParam = apiKey ? `&key=${encodeURIComponent(apiKey)}` : '';
+        const url = `${API_BASE_URL}/ria-events?startDate=${this.formatDateYMD(start)}&endDate=${this.formatDateYMD(end)}${keyParam}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            this.riaEventsData = await response.json();
+            this.renderRiaEventsFilterList();
+            const attr = this.getEl('ria-events-attribution');
+            if (attr) attr.style.display = '';
+        } catch (err) {
+            console.error('Failed to load RIA events:', err);
+        } finally {
+            this.riaEventsLoading = false;
+        }
+    }
+
+    riaEventCategoryColor(cat) {
+        const colors = {
+            'Удары Украины по наземным целям': { name: 'blue', hex: '#3388ff' },
+            'Сбитые ракеты и беспилотники': { name: 'orange', hex: '#ff8800' },
+            'Удары России по наземным целям': { name: 'red', hex: '#d33c3c' },
+            'Населенные пункты за минувшие сутки': { name: 'violet', hex: '#8e44ad' }
+        };
+        return colors[cat] || { name: 'grey', hex: '#888888' };
+    }
+
+    renderRiaEventsFilterList() {
+        const container = this.getEl('ria-events-filter-list');
+        if (!container) return;
+
+        const counts = {};
+        this.riaEventsData.forEach(e => { counts[e.icon] = (counts[e.icon] || 0) + 1; });
+
+        container.innerHTML = '';
+        container.style.display = Object.keys(counts).length ? '' : 'none';
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.placeholder = 'Filter by name (comma-separated)';
+        nameInput.value = this.riaEventsNameFilter;
+        nameInput.style.cssText = 'width:100%; box-sizing:border-box; margin-bottom:6px; padding:3px 6px; font-size:12px;';
+        nameInput.addEventListener('input', () => {
+            this.riaEventsNameFilter = nameInput.value;
+            this.renderRiaEventsMarkers();
+        });
+        container.appendChild(nameInput);
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid; grid-template-columns:repeat(3,1fr); gap:4px;';
+        container.appendChild(grid);
+
+        const start = this.startDate || this.minDate;
+        const end = this.endDate || this.maxDate;
+        const days = (start && end)
+            ? Math.max(1, Math.round((new Date(end) - new Date(start)) / 86400000) + 1)
+            : 1;
+        const threshold = days * 0.5;
+
+        Object.entries(counts).forEach(([cat, count]) => {
+            if (count < threshold) this.riaEventsFilterEnabled[cat] = false;
+        });
+
+        Object.entries(counts)
+            .filter(([, count]) => count >= threshold)
+            .sort(([, a], [, b]) => b - a)
+            .forEach(([cat, count]) => {
+                if (!(cat in this.riaEventsFilterEnabled)) this.riaEventsFilterEnabled[cat] = false;
+                const colorHex = this.riaEventCategoryColor(cat).hex;
+                const cell = document.createElement('div');
+                cell.style.cssText = `display:flex; flex-direction:column; align-items:center; cursor:pointer; padding:3px; border-radius:4px; border:2px solid ${this.riaEventsFilterEnabled[cat] ? colorHex : 'transparent'}; user-select:none;`;
+                const img = document.createElement('img');
+                img.src = 'images/events/blue_explosion.png';
+                img.title = `${cat} (${count})`;
+                img.style.cssText = 'width:32px; height:32px; object-fit:contain;';
+                const label = document.createElement('span');
+                label.textContent = cat;
+                label.style.cssText = 'font-size:9px; text-align:center; margin-top:2px; line-height:1.1;';
+                const badge = document.createElement('span');
+                badge.textContent = count;
+                badge.style.cssText = 'font-size:10px;';
+                cell.appendChild(img);
+                cell.appendChild(label);
+                cell.appendChild(badge);
+                cell.addEventListener('click', () => {
+                    this.riaEventsFilterEnabled[cat] = !this.riaEventsFilterEnabled[cat];
+                    cell.style.borderColor = this.riaEventsFilterEnabled[cat] ? colorHex : 'transparent';
+                    this.renderRiaEventsMarkers();
+                });
+                grid.appendChild(cell);
+            });
+    }
+
+    renderRiaEventsMarkers() {
+        if (!this.riaEventsLayer) return;
+        this.riaEventsLayer.clearLayers();
+        const nameTerms = this.riaEventsNameFilter
+            .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+        const groups = {};
+        this.riaEventsData.forEach(e => {
+            if (!e.lat || !e.lng) return;
+            if (!this.riaEventsFilterEnabled[e.icon]) return;
+            if (nameTerms.length && !nameTerms.some(t => (e.name || '').toLowerCase().includes(t))) return;
+            const key = `${e.lat},${e.lng},${e.icon}`;
+            (groups[key] = groups[key] || []).push(e);
+        });
+
+        Object.values(groups).forEach(items => {
+            const first = items[0];
+            const icon = this.createColoredMarkerIcon(this.riaEventCategoryColor(first.icon).name, items.length);
+            const marker = L.marker([first.lat, first.lng], { icon });
+            const entries = items.map(e => {
+                const linkHtml = e.link ? `<br><a href="${e.link}" target="_blank">Source</a>` : '';
+                return `<strong>${e.fullName || e.name}</strong> <small>(${e.date})</small><br>${e.text || ''}${linkHtml}`;
+            }).join('<hr style="margin:6px 0;">');
+            marker.bindPopup(`<em>${first.area}</em> — ${first.icon}<br>${entries}`);
+            marker.addTo(this.riaEventsLayer);
+        });
+        console.log(`RIA events markers: ${this.riaEventsLayer.getLayers().length}`);
     }
 
     /**
@@ -3710,6 +3860,10 @@ class AttackMapDashboard {
             if (this.modrRefreshDebounce) clearTimeout(this.modrRefreshDebounce);
             this.modrRefreshDebounce = setTimeout(() => {
                 if (this.isChecked('feature-modr')) this.refreshModr();
+            }, 800);
+            if (this.riaEventsRefreshDebounce) clearTimeout(this.riaEventsRefreshDebounce);
+            this.riaEventsRefreshDebounce = setTimeout(() => {
+                if (this.isChecked('feature-ria-events')) this.refreshRiaEvents();
             }, 800);
             // DeepState territory/diff only re-renders on checkbox toggles otherwise —
             // without this, dragging the date slider leaves the diff frozen on stale

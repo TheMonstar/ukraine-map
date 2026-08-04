@@ -941,6 +941,12 @@ body {
     background-color: rgba(241, 128, 23, 0.6);
 }
 
+/* ---- Leaflet Popup Scrolling ---- */
+.leaflet-popup-content {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
 /* ---- Ruler Tooltip ---- */
 .ruler-tooltip {
     background: rgba(255, 0, 0, 0.85);
