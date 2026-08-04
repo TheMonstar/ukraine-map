@@ -95,6 +95,7 @@ class MapLayers {
         dashboard.featureMotorLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureRailwayLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.eventsLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.modrLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.losLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.forestLayer = null;
         dashboard.settlementsLayer.addTo(dashboard.map);

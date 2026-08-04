@@ -1112,6 +1112,14 @@ class UiBindings {
             eventsReloadBtn.addEventListener('click', () => dashboard.refreshEvents());
         }
 
+        dashboard.bindUI('feature-modr', 'change', async () => {
+            if (dashboard.isChecked('feature-modr')) {
+                await dashboard.refreshModr();
+            } else {
+                if (dashboard.modrLayer) dashboard.modrLayer.clearLayers();
+            }
+        });
+
         // Roads, waterways and railways are owned by LineFeatures
         // (js/line-features.js); only the event wiring belongs here.
         dashboard.bindUI('feature-waterways', 'change', async () => {

@@ -77,6 +77,11 @@ class AttackMapDashboard {
         this.eventsLoading = false;
         this.eventsStale = false;
 
+        this.modrLayer = null;
+        this.modrData = [];
+        this.modrRefreshDebounce = null;
+        this.modrLoading = false;
+
         this.ditchesRefreshDebounce = null;
         this.unitsNameFilter = '';
 
@@ -3579,6 +3584,48 @@ class AttackMapDashboard {
         console.log(`Events markers: ${this.eventsLayer.getLayers().length}`);
     }
 
+    async refreshModr() {
+        if (!this.isChecked('feature-modr') || !this.modrLayer) return;
+
+        const start = this.startDate || this.minDate;
+        const end = this.endDate || this.maxDate;
+        if (!start || !end) return;
+
+        if (this.modrLoading) return;
+        this.modrLoading = true;
+
+        const apiKey = localStorage.getItem('apiKey');
+        const keyParam = apiKey ? `&key=${encodeURIComponent(apiKey)}` : '';
+        const url = `${API_BASE_URL}/ria-attacks?startDate=${this.formatDateYMD(start)}&endDate=${this.formatDateYMD(end)}${keyParam}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            this.modrData = await response.json();
+            this.renderModrMarkers();
+        } catch (err) {
+            console.error('Failed to load MoDR attacks:', err);
+        } finally {
+            this.modrLoading = false;
+        }
+    }
+
+    renderModrMarkers() {
+        if (!this.modrLayer) return;
+        this.modrLayer.clearLayers();
+        const redIcon = this.createColoredMarkerIcon('red');
+        this.modrData.forEach(item => {
+            if (!item.lat || !item.lng) return;
+            const marker = L.marker([item.lat, item.lng], { icon: redIcon });
+            marker.bindPopup(`
+                <strong>${item.fullName || item.name}</strong><br>
+                <em>${item.area}</em><br>
+                ${item.text || ''}<br>
+                <a href="${item.link}" target="_blank">Source</a>
+            `);
+            marker.addTo(this.modrLayer);
+        });
+    }
+
     /**
      * Format date for display
      */
@@ -3659,6 +3706,10 @@ class AttackMapDashboard {
             if (this.riaRefreshDebounce) clearTimeout(this.riaRefreshDebounce);
             this.riaRefreshDebounce = setTimeout(() => {
                 if (this.isChecked('ria-overlay')) this.layers.toggleRiaOverlay(true);
+            }, 800);
+            if (this.modrRefreshDebounce) clearTimeout(this.modrRefreshDebounce);
+            this.modrRefreshDebounce = setTimeout(() => {
+                if (this.isChecked('feature-modr')) this.refreshModr();
             }, 800);
             // DeepState territory/diff only re-renders on checkbox toggles otherwise —
             // without this, dragging the date slider leaves the diff frozen on stale
