@@ -88,6 +88,7 @@ class MapLayers {
         dashboard.clusterLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.deepLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.positionChangeLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureDitchesLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureDitchesStartLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureWireLayer = L.layerGroup().addTo(dashboard.map);

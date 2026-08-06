@@ -1187,6 +1187,14 @@ class UiBindings {
                 }
 
                 let shouldLoad = forceLoad || dashboard.isChecked(checkboxId);
+
+                // Position Change draws its own old/new markers for whichever side(s)
+                // are selected — replace the regular daily icons for that side instead
+                // of stacking both on the map.
+                if (!forceLoad && dashboard.isChecked('position-change') && dashboard.isChecked(checkboxId)) {
+                    shouldLoad = false;
+                }
+
                 if (side === 'ua' && dashboard.isChecked('filter-usf-units')) {
                     shouldLoad = true;
                 }
@@ -1966,13 +1974,21 @@ class UiBindings {
                     const startDate = formatDate(dashboard.startDate);
                     const endDate = formatDate(dashboard.endDate);
 
-                    // Determine which side(s) to fetch based on checkboxes
+                    // Determine which side(s) to show based on the unit-icon toggles.
+                    // Neither checked means nothing is selected, so show nothing.
                     const showUA = dashboard.isChecked('feature-positions-ua');
                     const showRU = dashboard.isChecked('feature-positions-ru');
 
-                    let side = 'ua'; // Default to UA
-                    if (showUA && showRU) {
-                        side = 'both';
+                    if (!showUA && !showRU) {
+                        dashboard.positionChangeLayer.clearLayers();
+                        const statsEl = dashboard.getEl('position-change-stats');
+                        if (statsEl) statsEl.innerHTML = '';
+                        return;
+                    }
+
+                    let side = 'both';
+                    if (showUA && !showRU) {
+                        side = 'ua';
                     } else if (showRU && !showUA) {
                         side = 'ru';
                     }
@@ -1995,7 +2011,7 @@ class UiBindings {
                     }
 
                     // Clear existing layers first to avoid duplicates when re-rendering
-                    dashboard.featureLayer.clearLayers();
+                    dashboard.positionChangeLayer.clearLayers();
 
                     // Handle both sides if returned - merge the data with side labels
                     let data;
@@ -2389,7 +2405,7 @@ class UiBindings {
                                     color: oldMarkerColor,
                                     fillColor: oldMarkerColor,
                                     fillOpacity: 0.8
-                                }).addTo(dashboard.featureLayer);
+                                }).addTo(dashboard.positionChangeLayer);
 
                                 oldMarker.bindPopup(`
                                      <strong>${item.name}</strong> (Old Pos)<br>
@@ -2456,7 +2472,7 @@ class UiBindings {
                                     });
                                 }
 
-                                newMarker = markerLayer.addTo(dashboard.featureLayer);
+                                newMarker = markerLayer.addTo(dashboard.positionChangeLayer);
 
                                 // Add right-click handler for Corps units
                                 addCorpsRightClickHandler(newMarker, item.name, item.unitLevel);
@@ -2489,7 +2505,7 @@ class UiBindings {
                                     color: lineColor,
                                     weight: 1,
                                     dashArray: '5, 10'
-                                }).addTo(dashboard.featureLayer);
+                                }).addTo(dashboard.positionChangeLayer);
                                 line.options.originalColor = lineColor;
                             }
                         });
@@ -2550,7 +2566,7 @@ class UiBindings {
                                 });
                             }
 
-                            const marker = markerLayer.addTo(dashboard.featureLayer);
+                            const marker = markerLayer.addTo(dashboard.positionChangeLayer);
 
                             // Add right-click handler for Corps units
                             addCorpsRightClickHandler(marker, item.name, item.unitLevel);
@@ -2604,7 +2620,7 @@ class UiBindings {
                                 });
                             }
 
-                            const marker = markerLayer.addTo(dashboard.featureLayer);
+                            const marker = markerLayer.addTo(dashboard.positionChangeLayer);
 
                             // Add right-click handler for Corps units
                             addCorpsRightClickHandler(marker, item.name, item.unitLevel);
@@ -2683,7 +2699,7 @@ class UiBindings {
                                     });
                                 }
 
-                                const marker = markerLayer.addTo(dashboard.featureLayer);
+                                const marker = markerLayer.addTo(dashboard.positionChangeLayer);
 
                                 // Add right-click handler for Corps units
                                 addCorpsRightClickHandler(marker, item.name, item.unitLevel);
@@ -2757,7 +2773,7 @@ class UiBindings {
                                             opacity: 1,
                                             dashArray: '5, 5'
                                         }
-                                    ).addTo(dashboard.featureLayer);
+                                    ).addTo(dashboard.positionChangeLayer);
 
                                     line.bindPopup(`
                                         <strong>Subordinate Link</strong><br>
@@ -2809,14 +2825,14 @@ class UiBindings {
             } else {
                 const controls = dashboard.getEl('position-change-controls');
                 if (controls) controls.style.display = 'none';
-                dashboard.featureLayer.clearLayers();
+                dashboard.positionChangeLayer.clearLayers();
             }
         };
 
         // Expose renderPositionChanges to dashboard for slider updates
         dashboard.renderPositionChanges = renderPositionChanges;
 
-        dashboard.bindUI('position-change', 'change', () => { renderPositionChanges(); if (dashboard.updateUnitsAttribution) dashboard.updateUnitsAttribution(); });
+        dashboard.bindUI('position-change', 'change', () => { updateDailyPositions(); renderPositionChanges(); if (dashboard.updateUnitsAttribution) dashboard.updateUnitsAttribution(); });
         dashboard.bindUI('feature-positions-ua', 'change', renderPositionChanges);
         dashboard.bindUI('feature-positions-ru', 'change', renderPositionChanges);
         dashboard.bindUI('show-unit-icons', 'change', renderPositionChanges);
