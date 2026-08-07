@@ -89,6 +89,17 @@ class AttackMapDashboard {
         this.riaEventsRefreshDebounce = null;
         this.riaEventsLoading = false;
 
+        this.owlEventsLayer = null;
+        this.owlEventsData = [];
+        this.owlEventsFilterEnabled = {};
+        this.owlEventsActorFilter = { RU: true, UA: true };
+        this.owlEventsOutcomeFilter = {};
+        this.owlEventsTargetFilter = {};
+        this.owlEventsWeaponFilter = {};
+        this.owlEventsNameFilter = '';
+        this.owlEventsRefreshDebounce = null;
+        this.owlEventsLoading = false;
+
         this.ditchesRefreshDebounce = null;
         this.unitsNameFilter = '';
 
@@ -388,6 +399,9 @@ class AttackMapDashboard {
             'feature-ria-events',
             'ria-events-filter-list',
             'ria-events-attribution',
+            'feature-owl-events',
+            'owl-events-filter-list',
+            'owl-events-attribution',
             'forest-overlay',
             'los-p2p-mode',
             'los-viewshed-mode',
@@ -3776,6 +3790,260 @@ class AttackMapDashboard {
         console.log(`RIA events markers: ${this.riaEventsLayer.getLayers().length}`);
     }
 
+    async refreshOwlEvents() {
+        if (!this.isChecked('feature-owl-events') || !this.owlEventsLayer) return;
+
+        const start = this.startDate || this.minDate;
+        const end = this.endDate || this.maxDate;
+        if (!start || !end) return;
+
+        if (this.owlEventsLoading) return;
+        this.owlEventsLoading = true;
+
+        const apiKey = localStorage.getItem('apiKey');
+        const keyParam = apiKey ? `&key=${encodeURIComponent(apiKey)}` : '';
+        const url = `${API_BASE_URL}/owl-events?startDate=${this.formatDateYMD(start)}&endDate=${this.formatDateYMD(end)}${keyParam}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const geojson = await response.json();
+            this.owlEventsData = (geojson.features || []).map(f => {
+                const [lng, lat] = f.geometry.coordinates;
+                return { ...f.properties, lat, lng };
+            });
+            this.renderOwlEventsFilterList();
+            const attr = this.getEl('owl-events-attribution');
+            if (attr) attr.style.display = '';
+        } catch (err) {
+            console.error('Failed to load OWL events:', err);
+        } finally {
+            this.owlEventsLoading = false;
+        }
+    }
+
+    owlEventCategoryIcon(category) {
+        const icons = {
+            intercept: 'blue_intercept.png',
+            assault: 'blue_fighting.png',
+            destruction: 'blue_explosion.png',
+            strike: 'blue_explosion.png',
+            sighting: 'eyeball.png',
+            control: 'blue_flag.png',
+            other: 'blue_other.png'
+        };
+        return `images/events/${icons[category] || 'blue_other.png'}`;
+    }
+
+    owlEventIconUrl(e) {
+        const side = e.actor === 'RU' ? 'red' : e.actor === 'UA' ? 'blue' : null;
+
+        if (e.event === 'control') {
+            if (side === 'red') return 'images/events/red_flag_gold.png';
+            if (side === 'blue') return 'images/events/blue_flag.png';
+            return 'images/events/eyeball.png';
+        }
+
+        const weaponMap = {
+            drone_strike: 'drone', drone_bomber: 'drone', uav_recon: 'drone',
+            fpv: 'drone', fpv_fiber: 'drone', naval_drone: 'drone',
+            missile: 'rocket', kab: 'explosion', mine: 'explosion',
+            artillery: 'shelling', mlrs: 'shelling', arty_sys: 'shelling',
+            small_arms: 'fighting'
+        };
+        const eventMap = {
+            intercept: 'intercept', assault: 'fighting',
+            destruction: 'explosion', strike: 'explosion',
+            sighting: 'other', other: 'other'
+        };
+        const suffix = weaponMap[e.weapon] || eventMap[e.event] || 'other';
+
+        if (!side) return 'images/events/eyeball.png';
+        return `images/events/${side}_${suffix}.png`;
+    }
+
+    renderOwlEventsCheckboxFilter(container, label, field, filterState, opts = {}) {
+        const counts = {};
+        this.owlEventsData.forEach(e => { counts[e[field]] = (counts[e[field]] || 0) + 1; });
+
+        const details = document.createElement('details');
+        details.style.cssText = 'margin-bottom:3px;';
+        const summary = document.createElement('summary');
+        summary.style.cssText = 'cursor:pointer; font-size:11px; color:#aaa; display:flex; align-items:center; gap:5px;';
+        const summaryText = document.createElement('span');
+        summaryText.textContent = `${label} (${Object.keys(counts).length})`;
+        summary.appendChild(summaryText);
+
+        const checkboxes = [];
+        let masterCb = null;
+
+        if (opts.selectAll) {
+            masterCb = document.createElement('input');
+            masterCb.type = 'checkbox';
+            masterCb.title = `Select/deselect all ${label.toLowerCase()}`;
+            masterCb.style.cssText = 'margin-left:auto;';
+            masterCb.addEventListener('click', (ev) => ev.stopPropagation());
+            masterCb.addEventListener('change', () => {
+                checkboxes.forEach(cb => {
+                    cb.checked = masterCb.checked;
+                    filterState[cb.dataset.value] = masterCb.checked;
+                });
+                this.renderOwlEventsMarkers();
+            });
+            summary.appendChild(masterCb);
+        }
+        details.appendChild(summary);
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display:flex; flex-wrap:wrap; gap:3px 6px; margin-top:3px; max-height:100px; overflow-y:auto;';
+
+        Object.entries(counts)
+            .sort(([, a], [, b]) => b - a)
+            .forEach(([value, count]) => {
+                const itemLabel = document.createElement('label');
+                itemLabel.style.cssText = 'display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = filterState[value] !== false;
+                cb.dataset.value = value;
+                cb.addEventListener('change', () => {
+                    filterState[value] = cb.checked;
+                    if (masterCb) masterCb.checked = checkboxes.every(c => c.checked);
+                    this.renderOwlEventsMarkers();
+                });
+                checkboxes.push(cb);
+                itemLabel.appendChild(cb);
+                itemLabel.appendChild(document.createTextNode(`${value} (${count})`));
+                list.appendChild(itemLabel);
+            });
+        if (masterCb) masterCb.checked = checkboxes.every(c => c.checked);
+        details.appendChild(list);
+        container.appendChild(details);
+    }
+
+    renderOwlEventsFilterList() {
+        const container = this.getEl('owl-events-filter-list');
+        if (!container) return;
+
+        const counts = {};
+        this.owlEventsData.forEach(e => { counts[e.event] = (counts[e.event] || 0) + 1; });
+
+        container.innerHTML = '';
+        container.style.display = Object.keys(counts).length ? '' : 'none';
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.placeholder = 'Filter by description (comma-separated)';
+        nameInput.value = this.owlEventsNameFilter;
+        nameInput.style.cssText = 'width:100%; box-sizing:border-box; margin-bottom:6px; padding:3px 6px; font-size:12px;';
+        nameInput.addEventListener('input', () => {
+            this.owlEventsNameFilter = nameInput.value;
+            this.renderOwlEventsMarkers();
+        });
+        container.appendChild(nameInput);
+
+        const sideRow = document.createElement('div');
+        sideRow.style.cssText = 'display:flex; gap:10px; margin-bottom:6px;';
+        const flags = { RU: '🇷🇺', UA: '🇺🇦' };
+        ['RU', 'UA'].forEach(actor => {
+            const label = document.createElement('label');
+            label.title = actor === 'RU' ? "RU's targets (events on UA side)" : "UA's targets (events on RU side)";
+            label.style.cssText = 'display:flex; align-items:center; gap:4px; font-size:16px; cursor:pointer;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = this.owlEventsActorFilter[actor];
+            cb.addEventListener('change', () => {
+                this.owlEventsActorFilter[actor] = cb.checked;
+                this.renderOwlEventsMarkers();
+            });
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(flags[actor]));
+            sideRow.appendChild(label);
+        });
+        container.appendChild(sideRow);
+
+        this.renderOwlEventsCheckboxFilter(container, 'Weapon', 'weapon', this.owlEventsWeaponFilter, { selectAll: true });
+        this.renderOwlEventsCheckboxFilter(container, 'Target', 'target', this.owlEventsTargetFilter, { selectAll: true });
+        this.renderOwlEventsCheckboxFilter(container, 'Outcome', 'outcome', this.owlEventsOutcomeFilter);
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid; grid-template-columns:repeat(3,1fr); gap:4px;';
+        container.appendChild(grid);
+
+        const start = this.startDate || this.minDate;
+        const end = this.endDate || this.maxDate;
+        const days = (start && end)
+            ? Math.max(1, Math.round((new Date(end) - new Date(start)) / 86400000) + 1)
+            : 1;
+        const threshold = days * 0.5;
+
+        Object.entries(counts).forEach(([cat, count]) => {
+            if (count < threshold) this.owlEventsFilterEnabled[cat] = false;
+        });
+
+        Object.entries(counts)
+            .filter(([, count]) => count >= threshold)
+            .sort(([, a], [, b]) => b - a)
+            .forEach(([cat, count]) => {
+                if (!(cat in this.owlEventsFilterEnabled)) this.owlEventsFilterEnabled[cat] = false;
+                const cell = document.createElement('div');
+                cell.style.cssText = `display:flex; flex-direction:column; align-items:center; cursor:pointer; padding:3px; border-radius:4px; border:2px solid ${this.owlEventsFilterEnabled[cat] ? '#4fc3f7' : 'transparent'}; user-select:none;`;
+                const img = document.createElement('img');
+                img.src = this.owlEventCategoryIcon(cat);
+                img.title = `${cat} (${count})`;
+                img.style.cssText = 'width:32px; height:32px; object-fit:contain;';
+                const label = document.createElement('span');
+                label.textContent = cat;
+                label.style.cssText = 'font-size:9px; text-align:center; margin-top:2px; line-height:1.1;';
+                const badge = document.createElement('span');
+                badge.textContent = count;
+                badge.style.cssText = 'font-size:10px;';
+                cell.appendChild(img);
+                cell.appendChild(label);
+                cell.appendChild(badge);
+                cell.addEventListener('click', () => {
+                    this.owlEventsFilterEnabled[cat] = !this.owlEventsFilterEnabled[cat];
+                    cell.style.borderColor = this.owlEventsFilterEnabled[cat] ? '#4fc3f7' : 'transparent';
+                    this.renderOwlEventsMarkers();
+                });
+                grid.appendChild(cell);
+            });
+    }
+
+    renderOwlEventsMarkers() {
+        if (!this.owlEventsLayer) return;
+        this.owlEventsLayer.clearLayers();
+        const nameTerms = this.owlEventsNameFilter
+            .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+        this.owlEventsData.forEach(e => {
+            if (!e.lat || !e.lng) return;
+            if (!this.owlEventsFilterEnabled[e.event]) return;
+            // RU checkbox shows Russia's targets (events on the UA side); UA checkbox shows Ukraine's targets (events on the RU side)
+            if (e.side === 'UA' && !this.owlEventsActorFilter.RU) return;
+            if (e.side === 'RU' && !this.owlEventsActorFilter.UA) return;
+            if (this.owlEventsOutcomeFilter[e.outcome] === false) return;
+            if (this.owlEventsTargetFilter[e.target] === false) return;
+            if (this.owlEventsWeaponFilter[e.weapon] === false) return;
+            if (nameTerms.length && !nameTerms.some(t => (e.desc || '').toLowerCase().includes(t))) return;
+
+            const icon = L.icon({
+                iconUrl: this.owlEventIconUrl(e),
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            });
+            const marker = L.marker([e.lat, e.lng], { icon });
+            const links = (e.src || []).map((s, i) => `<a href="${s}" target="_blank">Source${e.src.length > 1 ? ` ${i + 1}` : ''}</a>`).join(' ');
+            marker.bindPopup(`
+                <strong>${e.event}</strong> <small>(${e.actor} → ${e.side}, ${e.date})</small><br>
+                ${e.desc || ''}<br>
+                <small>Weapon: ${e.weapon} · Target: ${e.target} · Outcome: ${e.outcome}</small><br>
+                ${links}
+            `);
+            marker.addTo(this.owlEventsLayer);
+        });
+        console.log(`OWL events markers: ${this.owlEventsLayer.getLayers().length}`);
+    }
+
     /**
      * Format date for display
      */
@@ -3864,6 +4132,10 @@ class AttackMapDashboard {
             if (this.riaEventsRefreshDebounce) clearTimeout(this.riaEventsRefreshDebounce);
             this.riaEventsRefreshDebounce = setTimeout(() => {
                 if (this.isChecked('feature-ria-events')) this.refreshRiaEvents();
+            }, 800);
+            if (this.owlEventsRefreshDebounce) clearTimeout(this.owlEventsRefreshDebounce);
+            this.owlEventsRefreshDebounce = setTimeout(() => {
+                if (this.isChecked('feature-owl-events')) this.refreshOwlEvents();
             }, 800);
             // DeepState territory/diff only re-renders on checkbox toggles otherwise —
             // without this, dragging the date slider leaves the diff frozen on stale
