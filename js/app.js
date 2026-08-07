@@ -252,6 +252,7 @@ class AttackMapDashboard {
         this.layers.initMap();
         this.lineFeatures.init();
         this.mapUmlEngine = new MapUMLEngine(this);
+        this.poster = new Poster(this);
         this.terrainAnalysis = new TerrainAnalysis(this);
         this.uiBindings.init();
         this.terrainAnalysis._initLosCanvas();
@@ -1515,6 +1516,7 @@ class AttackMapDashboard {
             toggles,
             drawings: this.drawTool ? this.drawTool.shapes : [],
             mapUml: this.getEl('map-uml-input')?.value ?? '',
+            poster: this.poster ? this.poster.serialize() : null,
             imageOverlays: this.imageOverlayLayers
                 .filter(rec => rec.url && !rec.url.startsWith('blob:'))
                 .map(rec => ({
@@ -1598,6 +1600,9 @@ class AttackMapDashboard {
                 await this.mapUmlEngine.renderScript(state.mapUml);
             }
         }
+
+        // after drawings, so an auto-derived legend sees the restored shapes
+        if ('poster' in state && this.poster) this.poster.restore(state.poster);
 
         if (Array.isArray(state.imageOverlays)) {
             for (const saved of state.imageOverlays) {

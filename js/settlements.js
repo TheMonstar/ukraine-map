@@ -475,12 +475,7 @@ class Settlements {
     togglePopupTitle(checkbox, osmId, lat, lng, name) {
         if (checkbox.checked) {
             const label = L.marker([lat, lng], {
-                icon: L.divIcon({
-                    className: '',
-                    html: `<div style="position:absolute;color:#fff;font-size:11px;white-space:nowrap;transform:translate(-50%,0);">${name}</div>`,
-                    iconSize: [0, 0],
-                    iconAnchor: [0, 0]
-                }),
+                icon: this._makeLabelIcon(name),
                 interactive: false
             });
             label.addTo(this.dashboard.settlementNamesLayer);
@@ -597,6 +592,23 @@ class Settlements {
         }
     }
 
+    /**
+     * Settlement name label. Dark text with a white halo so it reads on both light
+     * basemaps and satellite imagery — plain white text was near-invisible on Carto.
+     * Size tier follows population, matching the bands in getSettlementStyle().
+     */
+    _makeLabelIcon(name, pop = 0) {
+        const tier = pop >= 50000 ? 'tier-city'
+                   : pop >= 10000 ? 'tier-town'
+                   : 'tier-village';
+        return L.divIcon({
+            className: '',
+            html: `<div class="settlement-label ${tier}">${name}</div>`,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+        });
+    }
+
     renderSettlementNames() {
         this.dashboard.settlementNamesLayer.clearLayers();
         this.popupTitleLayers.clear();
@@ -615,12 +627,7 @@ class Settlements {
             const osmId = props.osm_id;
 
             const label = L.marker([lat, lng], {
-                icon: L.divIcon({
-                    className: '',
-                    html: `<div style="position:absolute;color:#fff;font-size:11px;white-space:nowrap;transform:translate(-50%,0);">${name}</div>`,
-                    iconSize: [0, 0],
-                    iconAnchor: [0, 0]
-                }),
+                icon: this._makeLabelIcon(name, pop),
                 interactive: false
             });
             label.addTo(this.dashboard.settlementNamesLayer);

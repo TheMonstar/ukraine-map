@@ -1,13 +1,19 @@
 /**
  * DrawingTool — canvas overlay drawing for Leaflet maps
  *
- * Modes: freedraw, line, arrow, ellipse, rect, arc, eraser
+ * Modes: freedraw, line, arrow, ellipse, rect, arc, polygon, text, eraser
  *
  * Ellipse / Rect / Arc use a two-drag interaction:
  *   Drag 1 — define the main axis (p1 → p2)
  *   Drag 2 — define perpendicular width / bulge (p3); drag farther to stretch wider
  *
- * The dash flag applies a dashed stroke to any shape.
+ * Polygon is click-per-vertex: double-click or Enter closes it, Escape aborts.
+ *
+ * Flags: dash (any shape), fill + pattern (polygon), head + taper (freedraw / arc),
+ * halo + bold (text). `icon` shapes are placed programmatically from images/events/.
+ *
+ * The canvas backing store is scaled by devicePixelRatio; all drawing code works
+ * in CSS pixels.
  */
 class DrawingTool {
     constructor(map) {
@@ -18,8 +24,14 @@ class DrawingTool {
         this.color  = '#ff0000';
         this.thickness = 3;
         this.dash   = false;
+        this.fill   = false;
+        this.head   = false;   // arrowhead on freedraw / arc
+        this.taper  = false;   // wedge-shaped axis arrows
 
-        // state machine: 'idle' | 'p1drag' | 'p2wait' | 'p2drag'
+        this._patternCache = new Map();   // `${kind}:${color}` → CanvasPattern
+        this._imageCache   = new Map();   // icon name → HTMLImageElement
+
+        // state machine: 'idle' | 'p1drag' | 'p2wait' | 'p2drag' | 'poly'
         this._state   = 'idle';
         this._current = null;
 
@@ -44,10 +56,28 @@ class DrawingTool {
         this._resize();
     }
 
+    /**
+     * Sizes the backing store to the device pixel ratio so strokes, halos and
+     * hatch patterns stay crisp on retina displays and in 2x poster exports.
+     * All drawing code keeps working in CSS pixels — the transform handles the rest.
+     */
     _resize() {
         const container = this.map.getContainer();
-        this.canvas.width  = container.clientWidth;
-        this.canvas.height = container.clientHeight;
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        const dpr = window.devicePixelRatio || 1;
+
+        this.cssWidth  = w;
+        this.cssHeight = h;
+        this.dpr       = dpr;
+
+        this.canvas.width  = Math.round(w * dpr);
+        this.canvas.height = Math.round(h * dpr);
+        this.canvas.style.width  = w + 'px';
+        this.canvas.style.height = h + 'px';
+        // setting .width/.height resets the context, so re-apply the scale every time
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this._patternCache?.clear();
     }
 
     _bindMapEvents() {
@@ -73,13 +103,17 @@ class DrawingTool {
         this._bMove  = this._onMove.bind(this);
         this._bUp    = this._onUp.bind(this);
         this._bLeave = this._onLeave.bind(this);
+        this._bDbl   = this._onDblClick.bind(this);
+        this._bKey   = this._onKeyDown.bind(this);
         c.addEventListener('mousedown',  this._bDown);
         c.addEventListener('mousemove',  this._bMove);
         c.addEventListener('mouseup',    this._bUp);
         c.addEventListener('mouseleave', this._bLeave);
+        c.addEventListener('dblclick',   this._bDbl);
         c.addEventListener('touchstart', this._bDown, { passive: false });
         c.addEventListener('touchmove',  this._bMove, { passive: false });
         c.addEventListener('touchend',   this._bUp);
+        document.addEventListener('keydown', this._bKey);
         this._render();
     }
 
@@ -98,9 +132,11 @@ class DrawingTool {
         c.removeEventListener('mousemove',  this._bMove);
         c.removeEventListener('mouseup',    this._bUp);
         c.removeEventListener('mouseleave', this._bLeave);
+        c.removeEventListener('dblclick',   this._bDbl);
         c.removeEventListener('touchstart', this._bDown);
         c.removeEventListener('touchmove',  this._bMove);
         c.removeEventListener('touchend',   this._bUp);
+        document.removeEventListener('keydown', this._bKey);
         this._render();
     }
 
@@ -116,9 +152,15 @@ class DrawingTool {
     setColor(color)     { this.color = color; }
     setThickness(t)     { this.thickness = Number(t); }
     setDash(on)         { this.dash = Boolean(on); }
+    setFill(on)         { this.fill = Boolean(on); }
+    setHead(on)         { this.head = Boolean(on); }
+    setTaper(on)        { this.taper = Boolean(on); }
 
     undo() {
-        if (this._state === 'p2wait' || this._state === 'p1drag' || this._state === 'p2drag') {
+        if (this._state === 'poly') {
+            this._current.points.pop();
+            if (!this._current.points.length) { this._current = null; this._state = 'idle'; }
+        } else if (this._state === 'p2wait' || this._state === 'p1drag' || this._state === 'p2drag') {
             this._state   = 'idle';
             this._current = null;
         } else {
@@ -157,7 +199,7 @@ class DrawingTool {
 
         if (this.mode === 'freedraw') {
             this._state   = 'p1drag';
-            this._current = { type: 'freedraw', points: [this._toLl(pt)], color: this.color, thickness: this.thickness, dash: this.dash };
+            this._current = { type: 'freedraw', points: [this._toLl(pt)], color: this.color, thickness: this.thickness, dash: this.dash, head: this.head, taper: this.taper };
             return;
         }
 
@@ -176,11 +218,26 @@ class DrawingTool {
             return;
         }
 
+        // Polygon: one click per vertex; dblclick / Enter closes, Escape aborts
+        if (this.mode === 'polygon') {
+            const ll = this._toLl(pt);
+            if (this._state === 'idle') {
+                this._state   = 'poly';
+                this._current = { type: 'polygon', points: [ll], _hover: ll,
+                                  color: this.color, thickness: this.thickness, dash: this.dash,
+                                  fill: this.fill, fillOpacity: 0.25 };
+            } else {
+                this._current.points.push(ll);
+            }
+            this._render();
+            return;
+        }
+
         // Arc: single drag, A→B→C path; B = furthest point from A-C
         if (this.mode === 'arc') {
             this._state   = 'p1drag';
             const ll      = this._toLl(pt);
-            this._current = { type: 'arc', p1: ll, p2: ll, p3: null, _pts: [pt], color: this.color, thickness: this.thickness, dash: this.dash };
+            this._current = { type: 'arc', p1: ll, p2: ll, p3: null, _pts: [pt], color: this.color, thickness: this.thickness, dash: this.dash, head: this.head, taper: this.taper };
             return;
         }
 
@@ -217,6 +274,11 @@ class DrawingTool {
             this._render(); return;
         }
 
+        if (this.mode === 'polygon' && this._state === 'poly') {
+            this._current._hover = this._toLl(pt);
+            this._render(); return;
+        }
+
         if (this.mode === 'arc' && this._state === 'p1drag') {
             this._current._pts.push(pt);
             // p2 = current endpoint; p3 = furthest point from p1-p2 line (live preview)
@@ -238,6 +300,7 @@ class DrawingTool {
 
     _onUp(e) {
         if (this.mode === 'eraser') { this._state = 'idle'; return; }
+        if (this.mode === 'polygon') return; // vertices are committed on mousedown
         if (!this._current) { this._state = 'idle'; return; }
 
         if (this.mode === 'freedraw') {
@@ -269,8 +332,8 @@ class DrawingTool {
             const p1px = this._toPx(this._current.p1);
             const p2px = this._toPx(this._current.p2);
             if (Math.hypot(p2px.x - p1px.x, p2px.y - p1px.y) > 3) {
-                const { p1, p2, p3, color, thickness, dash } = this._current;
-                this.shapes.push({ type: 'arc', p1, p2, p3, color, thickness, dash });
+                const { p1, p2, p3, color, thickness, dash, head, taper } = this._current;
+                this.shapes.push({ type: 'arc', p1, p2, p3, color, thickness, dash, head, taper });
             }
             this._current = null; this._state = 'idle'; this._render(); return;
         }
@@ -296,6 +359,39 @@ class DrawingTool {
         if (this._state === 'p1drag' && !this._isTwoPhase()) {
             this._onUp(e);
         }
+    }
+
+    _onDblClick(e) {
+        if (this.mode === 'polygon' && this._state === 'poly') {
+            e.preventDefault();
+            this._closePolygon();
+        }
+    }
+
+    _onKeyDown(e) {
+        if (this._state !== 'poly') return;
+        if (e.key === 'Enter')  { e.preventDefault(); this._closePolygon(); }
+        if (e.key === 'Escape') { this._current = null; this._state = 'idle'; this._render(); }
+    }
+
+    /** Commits the in-progress polygon (>= 3 vertices), dropping the dblclick duplicate. */
+    _closePolygon() {
+        const pts = this._current.points;
+        // a double-click fires two mousedowns, each of which added a vertex on
+        // top of the previous one — drop every coincident trailing vertex
+        while (pts.length > 1) {
+            const a = this._toPx(pts[pts.length - 1]);
+            const b = this._toPx(pts[pts.length - 2]);
+            if (Math.hypot(a.x - b.x, a.y - b.y) >= 4) break;
+            pts.pop();
+        }
+        if (pts.length >= 3) {
+            const { color, thickness, dash, fill, fillOpacity } = this._current;
+            this.shapes.push({ type: 'polygon', points: pts, color, thickness, dash, fill, fillOpacity });
+        }
+        this._current = null;
+        this._state   = 'idle';
+        this._render();
     }
 
     // ── arc bulge helper ────────────────────────────────────
@@ -335,7 +431,7 @@ class DrawingTool {
     }
 
     _hitTest(shape, pt, threshold) {
-        if (shape.type === 'freedraw') {
+        if (shape.type === 'freedraw' || shape.type === 'polygon') {
             return shape.points.some(ll => {
                 const p = this._toPx(ll);
                 return Math.hypot(p.x - pt.x, p.y - pt.y) < threshold;
@@ -347,6 +443,10 @@ class DrawingTool {
         if (shape.type === 'text') {
             const p = this._toPx(shape.p1);
             return Math.hypot(p.x - pt.x, p.y - pt.y) < threshold * 2;
+        }
+        if (shape.type === 'icon') {
+            const p = this._toPx(shape.at);
+            return Math.hypot(p.x - pt.x, p.y - pt.y) < Math.max(threshold, (shape.size || 28) / 2);
         }
         if (shape.type === 'ellipse' || shape.type === 'rect' || shape.type === 'arc') {
             const p1 = this._toPx(shape.p1);
@@ -409,8 +509,9 @@ class DrawingTool {
     // ── render ──────────────────────────────────────────────
 
     _render() {
-        const { canvas, ctx } = this;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const { ctx } = this;
+        // CSS pixels — the context is scaled by dpr in _resize()
+        ctx.clearRect(0, 0, this.cssWidth, this.cssHeight);
         for (const shape of this.shapes) this._drawShape(ctx, shape, false);
         if (this._current) this._drawShape(ctx, this._current, true);
     }
@@ -418,6 +519,8 @@ class DrawingTool {
     _drawShape(ctx, shape, preview) {
         ctx.save();
         ctx.strokeStyle  = shape.color;
+        // filled arrowheads and tapered wedges fill without setting their own style
+        ctx.fillStyle    = shape.color;
         ctx.lineWidth    = shape.thickness;
         ctx.lineCap      = 'round';
         ctx.lineJoin     = 'round';
@@ -425,26 +528,249 @@ class DrawingTool {
         ctx.setLineDash(shape.dash ? [Math.max(8, shape.thickness * 3), Math.max(5, shape.thickness * 2)] : []);
 
         if      (shape.type === 'freedraw') this._drawFreeDraw(ctx, shape);
+        else if (shape.type === 'polygon')  this._drawPolygon(ctx, shape, preview);
         else if (shape.type === 'line')     this._drawLine(ctx, shape);
         else if (shape.type === 'arrow')    this._drawArrow(ctx, shape);
         else if (shape.type === 'ellipse')  this._drawEllipse(ctx, shape, preview);
         else if (shape.type === 'rect')     this._drawRect(ctx, shape, preview);
         else if (shape.type === 'arc')      this._drawArc(ctx, shape, preview);
         else if (shape.type === 'text')     this._drawText(ctx, shape, preview);
+        else if (shape.type === 'icon')     this._drawIcon(ctx, shape);
 
         ctx.restore();
     }
 
     _drawFreeDraw(ctx, shape) {
         if (shape.points.length < 2) return;
+        const px = shape.points.map(ll => this._toPx(ll));
+
+        if (shape.taper) {
+            this._strokeTapered(ctx, px, shape);
+        } else {
+            ctx.beginPath();
+            ctx.moveTo(px[0].x, px[0].y);
+            for (let i = 1; i < px.length; i++) ctx.lineTo(px[i].x, px[i].y);
+            ctx.stroke();
+        }
+
+        if (shape.head) {
+            const tip = px[px.length - 1];
+            const prev = this._headAnchor(px);
+            this._arrowHead(ctx, tip, Math.atan2(tip.y - prev.y, tip.x - prev.x),
+                            shape.thickness * (shape.taper ? 1.6 : 1), !!shape.taper);
+        }
+    }
+
+    /**
+     * Last point far enough back along the path to give a stable heading — using
+     * the immediately preceding point makes the arrowhead jitter on dense freehand paths.
+     */
+    _headAnchor(px) {
+        const tip = px[px.length - 1];
+        for (let i = px.length - 2; i >= 0; i--) {
+            if (Math.hypot(tip.x - px[i].x, tip.y - px[i].y) > 12) return px[i];
+        }
+        return px[0];
+    }
+
+    /**
+     * Wedge-shaped stroke: width ramps from thin at the origin to `thickness`
+     * at the tip. Built as a filled polygon by offsetting along the path normal.
+     */
+    _strokeTapered(ctx, px, shape) {
+        if (px.length < 2) return;
+        const maxW = shape.thickness * 1.6;
+        const minW = Math.max(0.6, shape.thickness * 0.18);
+
+        // cumulative length, so the ramp follows arc length rather than point index
+        const cum = [0];
+        for (let i = 1; i < px.length; i++) {
+            cum.push(cum[i - 1] + Math.hypot(px[i].x - px[i - 1].x, px[i].y - px[i - 1].y));
+        }
+        const total = cum[cum.length - 1] || 1;
+
+        const left = [], right = [];
+        for (let i = 0; i < px.length; i++) {
+            const a = px[Math.max(0, i - 1)];
+            const b = px[Math.min(px.length - 1, i + 1)];
+            const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+            const nx = -(b.y - a.y) / len;
+            const ny =  (b.x - a.x) / len;
+            const w = (minW + (maxW - minW) * (cum[i] / total)) / 2;
+            left.push({ x: px[i].x + nx * w, y: px[i].y + ny * w });
+            right.push({ x: px[i].x - nx * w, y: px[i].y - ny * w });
+        }
+
+        ctx.save();
+        ctx.setLineDash([]);
         ctx.beginPath();
-        const f = this._toPx(shape.points[0]);
-        ctx.moveTo(f.x, f.y);
-        for (let i = 1; i < shape.points.length; i++) {
-            const p = this._toPx(shape.points[i]);
-            ctx.lineTo(p.x, p.y);
+        ctx.moveTo(left[0].x, left[0].y);
+        for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
+        for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+        ctx.closePath();
+        ctx.fillStyle = shape.color;
+        ctx.fill();
+        ctx.restore();
+    }
+
+    _drawPolygon(ctx, shape, preview) {
+        const pts = shape.points || [];
+        if (!pts.length) return;
+        // while drawing, the cursor position is the rubber-band closing vertex
+        const all = preview && shape._hover ? pts.concat([shape._hover]) : pts;
+        if (all.length < 2) return;
+
+        const px = all.map(ll => this._toPx(ll));
+        ctx.beginPath();
+        if (shape.smooth !== false && px.length > 2) {
+            this._closedSpline(ctx, px);
+        } else {
+            ctx.moveTo(px[0].x, px[0].y);
+            for (let i = 1; i < px.length; i++) ctx.lineTo(px[i].x, px[i].y);
+        }
+        ctx.closePath();
+
+        if (shape.fill) {
+            const pattern = shape.pattern && shape.pattern !== 'solid'
+                ? this._patternFor(shape.pattern, shape.color, shape.patternAngle)
+                : null;
+            ctx.save();
+            // a patterned tile is mostly transparent already, so it needs far more
+            // alpha than a flat fill — but not full, or it buries the terrain
+            ctx.globalAlpha = (preview ? 0.65 : 1) *
+                (pattern ? (shape.patternOpacity ?? 0.55) : (shape.fillOpacity ?? 0.25));
+            ctx.fillStyle   = pattern || shape.color;
+            ctx.fill();
+            ctx.restore();
         }
         ctx.stroke();
+    }
+
+    /**
+     * Rounded closed outline through pixel points, using quadratic segments between
+     * edge midpoints. Convex hulls and buffers come out of the geometry code as
+     * straight-edged polygons; without this an area zone reads as a crude slab
+     * rather than a hand-drawn operational boundary.
+     */
+    _closedSpline(ctx, px) {
+        const n = px.length;
+        const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+        let m = mid(px[n - 1], px[0]);
+        ctx.moveTo(m.x, m.y);
+        for (let i = 0; i < n; i++) {
+            const cur = px[i];
+            const next = px[(i + 1) % n];
+            m = mid(cur, next);
+            ctx.quadraticCurveTo(cur.x, cur.y, m.x, m.y);
+        }
+    }
+
+    /**
+     * Repeating fill tile for hatch / crosshatch / dots, memoised per kind+colour.
+     * The tile is built at dpr resolution so the pattern stays sharp when the
+     * context is scaled; cleared by _resize() whenever dpr changes.
+     */
+    _patternFor(kind, color, angleDeg = 45) {
+        const key = `${kind}:${color}:${angleDeg}`;
+        if (this._patternCache.has(key)) return this._patternCache.get(key);
+
+        const dpr = this.dpr || 1;
+        const size = 9;
+        const tile = document.createElement('canvas');
+        tile.width = tile.height = Math.round(size * dpr);
+        const t = tile.getContext('2d');
+        t.scale(dpr, dpr);
+        t.strokeStyle = color;
+        t.fillStyle   = color;
+        t.lineWidth   = 1;
+        t.lineCap     = 'square';
+
+        if (kind === 'dots') {
+            t.beginPath();
+            t.arc(size / 2, size / 2, 1.4, 0, Math.PI * 2);
+            t.fill();
+        } else {
+            // Lines are drawn across an oversized rotated field so the pattern tiles
+            // seamlessly at any angle — a single stroke would clip at the tile edge.
+            const angles = kind === 'crosshatch' ? [angleDeg, angleDeg + 90] : [angleDeg];
+            for (const a of angles) {
+                t.save();
+                t.translate(size / 2, size / 2);
+                t.rotate((a * Math.PI) / 180);
+                for (let off = -size * 2; off <= size * 2; off += size) {
+                    t.beginPath();
+                    t.moveTo(off, -size * 2);
+                    t.lineTo(off, size * 2);
+                    t.stroke();
+                }
+                t.restore();
+            }
+        }
+
+        const pattern = this.ctx.createPattern(tile, 'repeat');
+        this._patternCache.set(key, pattern);
+        return pattern;
+    }
+
+    /** Tactical icon from images/events/, centred on `at`, with an optional caption. */
+    _drawIcon(ctx, shape) {
+        const img = this._icon(shape.icon);
+        if (!img || !img.complete || !img.naturalWidth) return;
+
+        const p = this._toPx(shape.at);
+        const size = shape.size || 28;
+        ctx.save();
+        ctx.setLineDash([]);
+        ctx.drawImage(img, p.x - size / 2, p.y - size / 2, size, size);
+
+        if (shape.label) {
+            const fontSize = shape.labelSize || 13;
+            ctx.font         = `700 ${fontSize}px Helvetica, Arial, sans-serif`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'top';
+            this._haloText(ctx, shape.label, p.x, p.y + size / 2 + 3, {
+                color: shape.labelColor || '#111',
+                halo: shape.halo ?? '#fff',
+                haloWidth: fontSize / 4,
+            });
+        }
+        ctx.restore();
+    }
+
+    /** Lazily loads and caches an icon, re-rendering once it decodes. */
+    _icon(name) {
+        if (!name || !/^[\w-]+$/.test(name)) return null;
+        if (this._imageCache.has(name)) return this._imageCache.get(name);
+
+        const img = new Image();
+        img.onload = () => this._render();
+        img.onerror = () => console.warn(`[draw] missing icon: images/events/${name}.png`);
+        img.src = `images/events/${name}.png`;
+        this._imageCache.set(name, img);
+        return img;
+    }
+
+    /** White halo for dark text, dark halo for light text — so a white label stays visible. */
+    _autoHalo(color) {
+        const m = /^#?([0-9a-f]{6})$/i.exec(String(color || '').trim());
+        if (!m) return '#fff';
+        const n = parseInt(m[1], 16);
+        const lum = 0.2126 * (n >> 16 & 255) + 0.7152 * (n >> 8 & 255) + 0.0722 * (n & 255);
+        return lum > 170 ? '#1a1a1a' : '#fff';
+    }
+
+    /** Stroked-then-filled text, so labels stay readable over any basemap. */
+    _haloText(ctx, text, x, y, { color, halo, haloWidth }) {
+        ctx.setLineDash([]);   // a dashed strokeText would look broken
+        if (halo) {
+            ctx.lineJoin   = 'round';
+            ctx.miterLimit = 2;
+            ctx.lineWidth  = haloWidth;
+            ctx.strokeStyle = halo;
+            ctx.strokeText(text, x, y);
+        }
+        ctx.fillStyle = color;
+        ctx.fillText(text, x, y);
     }
 
     _drawLine(ctx, shape) {
@@ -462,15 +788,34 @@ class DrawingTool {
         ctx.moveTo(s.x, s.y); ctx.lineTo(e.x, e.y);
         ctx.stroke();
 
-        const angle = Math.atan2(e.y - s.y, e.x - s.x);
-        const size  = Math.max(12, shape.thickness * 4);
+        this._arrowHead(ctx, e, Math.atan2(e.y - s.y, e.x - s.x), shape.thickness);
+    }
+
+    /**
+     * Arrowhead at pixel point `tip`, pointing along `angle` (radians).
+     * `filled` draws a solid triangle — used for tapered axis arrows, where two
+     * thin strokes would look detached from the wedge they cap.
+     */
+    _arrowHead(ctx, tip, angle, thickness, filled = false) {
+        const size = Math.max(12, thickness * 4);
+        const lx = tip.x - size * Math.cos(angle - Math.PI / 6);
+        const ly = tip.y - size * Math.sin(angle - Math.PI / 6);
+        const rx = tip.x - size * Math.cos(angle + Math.PI / 6);
+        const ry = tip.y - size * Math.sin(angle + Math.PI / 6);
+
         ctx.setLineDash([]); // always solid arrowhead
         ctx.beginPath();
-        ctx.moveTo(e.x, e.y);
-        ctx.lineTo(e.x - size * Math.cos(angle - Math.PI / 6), e.y - size * Math.sin(angle - Math.PI / 6));
-        ctx.moveTo(e.x, e.y);
-        ctx.lineTo(e.x - size * Math.cos(angle + Math.PI / 6), e.y - size * Math.sin(angle + Math.PI / 6));
-        ctx.stroke();
+        if (filled) {
+            ctx.moveTo(tip.x, tip.y);
+            ctx.lineTo(lx, ly);
+            ctx.lineTo(rx, ry);
+            ctx.closePath();
+            ctx.fill();
+        } else {
+            ctx.moveTo(tip.x, tip.y); ctx.lineTo(lx, ly);
+            ctx.moveTo(tip.x, tip.y); ctx.lineTo(rx, ry);
+            ctx.stroke();
+        }
     }
 
     _twoPhaseMetrics(shape) {
@@ -544,12 +889,36 @@ class DrawingTool {
         if (!params) {
             // degenerate: draw straight line
             ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+            if (shape.head) this._arrowHead(ctx, p2, Math.atan2(p2.y - p1.y, p2.x - p1.x), shape.thickness);
             return;
         }
         const { cx, cy, r, a1, a2, anticlockwise } = params;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, a1, a2, anticlockwise);
-        ctx.stroke();
+
+        if (shape.taper) {
+            // sample the arc into points and reuse the wedge renderer
+            let sweep = a2 - a1;
+            if (anticlockwise) { while (sweep > 0) sweep -= 2 * Math.PI; }
+            else               { while (sweep < 0) sweep += 2 * Math.PI; }
+            const steps = Math.max(12, Math.min(180, Math.round(Math.abs(sweep) * r / 4)));
+            const pts = [];
+            for (let i = 0; i <= steps; i++) {
+                const a = a1 + (sweep * i) / steps;
+                pts.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
+            }
+            this._strokeTapered(ctx, pts, shape);
+        } else {
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, a1, a2, anticlockwise);
+            ctx.stroke();
+        }
+
+        if (shape.head) {
+            // tangent at p2, oriented along the direction of travel around the arc
+            const tx = anticlockwise ?  Math.sin(a2) : -Math.sin(a2);
+            const ty = anticlockwise ? -Math.cos(a2) :  Math.cos(a2);
+            this._arrowHead(ctx, p2, Math.atan2(ty, tx),
+                            shape.thickness * (shape.taper ? 1.6 : 1), !!shape.taper);
+        }
 
         if (preview && !shape.p3) this._drawAxisGuide(ctx, p1, p2);
     }
@@ -631,11 +1000,15 @@ class DrawingTool {
         ctx.save();
         ctx.translate(p1.x, p1.y);
         ctx.rotate(angle);
-        ctx.font         = `${shape.fontSize}px Helvetica, Arial, sans-serif`;
-        ctx.fillStyle    = shape.color;
+        const weight = shape.bold === false ? '' : '700 ';
+        ctx.font         = `${weight}${shape.fontSize}px Helvetica, Arial, sans-serif`;
         ctx.textBaseline = 'alphabetic';
-        ctx.setLineDash([]);
-        ctx.fillText(shape.text, 0, 0);
+        ctx.textAlign    = 'left';
+        this._haloText(ctx, shape.text, 0, 0, {
+            color: shape.color,
+            halo: shape.halo === null ? null : (shape.halo ?? this._autoHalo(shape.color)),
+            haloWidth: shape.haloWidth ?? shape.fontSize / 5,
+        });
         ctx.restore();
     }
 }

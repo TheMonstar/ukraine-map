@@ -3870,12 +3870,13 @@ class UiBindings {
         dashboard.drawTool = drawTool;
 
         const drawHints = {
-            freedraw: 'Click and drag to draw freely.',
+            freedraw: 'Drag to draw freely. Toggle the arrowhead or wedge for an axis of advance.',
             line: 'Click and drag to draw a line.',
             arrow: 'Click and drag to draw an arrow.',
             ellipse: 'Drag 1: set axis. Drag 2: stretch width.',
             rect: 'Drag 1: set axis. Drag 2: stretch width.',
-            arc: 'Draw a curved path — the deepest point sets the arc.',
+            arc: 'Draw a curved path — the deepest point sets the arc. Add an arrowhead for a curved axis.',
+            polygon: 'Click each corner. Double-click or Enter closes, Esc cancels.',
             text: 'Drag to set position and angle, then type. Enter to confirm.',
             eraser: 'Click or drag over shapes to erase them.',
         };
@@ -3927,8 +3928,23 @@ class UiBindings {
                 drawTool.setMode(mode);
                 applyThicknessMode(mode);
                 setDrawHint(mode);
+                applyModeToggles(mode);
             });
         });
+
+        // Style toggles that only apply to certain modes
+        const MODE_TOGGLES = {
+            'draw-fill-btn':  ['polygon'],
+            'draw-head-btn':  ['freedraw', 'arc'],
+            'draw-taper-btn': ['freedraw', 'arc'],
+        };
+        const applyModeToggles = (mode) => {
+            for (const [id, modes] of Object.entries(MODE_TOGGLES)) {
+                const btn = dashboard.getEl(id);
+                if (btn) btn.style.display = modes.includes(mode) ? '' : 'none';
+            }
+        };
+        applyModeToggles(drawTool.mode);
 
         // Color presets
         const colorInput = dashboard.getEl('draw-color');
@@ -3960,6 +3976,21 @@ class UiBindings {
                 const on = !dashBtn.classList.contains('active');
                 dashBtn.classList.toggle('active', on);
                 drawTool.setDash(on);
+            });
+        }
+
+        // Fill / arrowhead / taper toggles — same active-class pattern as the dash button
+        for (const [id, setter] of [
+            ['draw-fill-btn',  (on) => drawTool.setFill(on)],
+            ['draw-head-btn',  (on) => drawTool.setHead(on)],
+            ['draw-taper-btn', (on) => drawTool.setTaper(on)],
+        ]) {
+            const btn = dashboard.getEl(id);
+            if (!btn) continue;
+            btn.addEventListener('click', () => {
+                const on = !btn.classList.contains('active');
+                btn.classList.toggle('active', on);
+                setter(on);
             });
         }
 

@@ -99,8 +99,15 @@ Push to `main` → GitHub Actions ([.github/workflows/deploy.yml](.github/workfl
 | [js/hex-tiles.js](js/hex-tiles.js) | `HexTiles` | Hexagonal grid generation and occupation analysis |
 | [js/geometry-utils.js](js/geometry-utils.js) | `GeometryUtils` | GeoJSON ↔ Leaflet coordinate conversions |
 | [js/data-store.js](js/data-store.js) | `DataStore` | Data source stubs (private data removed in public version) |
+| [js/poster.js](js/poster.js) | `Poster` | Title block + auto-derived legend for publication-quality exports |
 
 Script load order in `index.html` matters — CDN libraries first, then `utils.js` → ... → `app.js`. `window.dashboard` is set at end of `index.html`.
+
+### MCP Server (AI drawing)
+
+[mcp/](mcp/) is a self-contained Node package — **not part of the static site**, never loaded by `index.html`. It drives a real Chromium via Playwright so an AI can read the current map, draw tactical graphics, screenshot the result and correct itself. See [mcp/README.md](mcp/README.md).
+
+All app coupling lives in [mcp/browser/agent-api.js](mcp/browser/agent-api.js), injected with `page.addInitScript()` — the app is never modified for it. Shapes it draws are tagged `owner: 'ai'` (reusing the field `stream.js` uses for co-hosts) so they can be erased without touching the user's hand drawings.
 
 ### Key External Endpoints
 

@@ -36,6 +36,7 @@ class MapStreamer {
             toggles: s.toggles,
             drawings: s.drawings,
             mapUml: s.mapUml,
+            poster: s.poster,
             zones: this.dashboard.extractedZoneLayer
                 ? this.dashboard.extractedZoneLayer.toGeoJSON()
                 : null
@@ -294,6 +295,10 @@ class MapStreamer {
                 dashboard.drawTool.shapes = sections.drawings;
             }
             dashboard.drawTool._render();
+        }
+
+        if ('poster' in sections && dashboard.poster) {
+            dashboard.poster.restore(sections.poster);
         }
 
         if (sections.mapUml) {

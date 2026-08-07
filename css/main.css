@@ -715,6 +715,75 @@ body {
     pointer-events: none;
 }
 
+/* ---- Poster Chrome (title block + legend) ---- */
+/* Appended inside the Leaflet container so screenshots of #map include them. */
+.poster-title,
+.poster-legend {
+    position: absolute;
+    z-index: 1000;
+    pointer-events: none;
+    font-family: var(--font);
+    max-width: 40%;
+}
+
+.poster-title {
+    top: 0;
+    left: 0;
+    background: rgba(20, 24, 31, 0.92);
+    color: #fff;
+    padding: 14px 22px 16px 18px;
+    border-bottom-right-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .35);
+}
+
+.poster-dateline   { font-size: 12px; color: #cbd5e1; margin-bottom: 3px; }
+.poster-heading    { font-size: 26px; font-weight: 700; line-height: 1.15; letter-spacing: -.2px; }
+.poster-subheading { font-size: 14px; color: #e2e8f0; margin-top: 4px; }
+.poster-caveat     { font-size: 13px; font-weight: 700; color: #ff5a5a; margin-top: 8px; }
+
+.poster-legend {
+    bottom: 24px;
+    left: 12px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 10px 14px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .2);
+    font-size: 13px;
+    color: #14181f;
+}
+
+.poster-legend-title { font-weight: 700; font-size: 13px; margin-bottom: 7px; }
+.poster-legend-row   { display: flex; align-items: center; gap: 9px; padding: 3px 0; }
+
+.poster-swatch { flex: 0 0 24px; width: 24px; height: 14px; display: inline-block; }
+.poster-swatch-area  { border: 2px solid; border-radius: 2px; background-clip: padding-box; }
+.poster-swatch-line  { height: 0; border-top: 3px solid; align-self: center; }
+.poster-swatch-arrow { height: 10px; line-height: 0; }
+img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: contain; }
+
+/* ---- Settlement Name Labels ---- */
+.settlement-label {
+    position: absolute;
+    transform: translate(-50%, 0);
+    white-space: nowrap;
+    font-weight: 700;
+    color: #14181f;
+    letter-spacing: 0.2px;
+    pointer-events: none;
+    /* white halo — carries the text over both light basemaps and satellite */
+    text-shadow:
+        -1.5px -1.5px 0 #fff,  1.5px -1.5px 0 #fff,
+        -1.5px  1.5px 0 #fff,  1.5px  1.5px 0 #fff,
+        -2px 0 0 #fff, 2px 0 0 #fff, 0 -2px 0 #fff, 0 2px 0 #fff;
+    /* Leaflet writes an inline height onto divIcon elements */
+    height: auto !important;
+}
+
+.settlement-label.tier-city    { font-size: 17px; letter-spacing: 0.6px; }
+.settlement-label.tier-town    { font-size: 13px; }
+.settlement-label.tier-village { font-size: 11px; font-weight: 600; }
+
 /* ---- Settlement Boundaries Loader ---- */
 #settlement-boundaries-loader {
     position: absolute;

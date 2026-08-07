@@ -120,6 +120,13 @@ class MapLayers {
             }
         });
 
+        // labels size by population tier, so re-render when the zoom changes
+        dashboard.map.on('zoomend', () => {
+            if (dashboard.isChecked('show-settlement-names')) {
+                dashboard.settlements.renderSettlementNames();
+            }
+        });
+
         dashboard.initPolygonSelection();
     }
 
