@@ -3,5 +3,6 @@ node_modules/
 AGENTS.md
 CLAUDE.md
 *.md
+!mcp/**/*.md
 tasks/
-tools/
+/tools/

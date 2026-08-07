@@ -1,0 +1,14 @@
+{
+  "name": "ukraine-map-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for AI-driven tactical drawing on the Ukraine frontline map",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "bin": { "ukraine-map-mcp": "server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "playwright": "^1.48.0"
+  }
+}
