@@ -1,13 +1,14 @@
 /**
  * DrawingTool — canvas overlay drawing for Leaflet maps
  *
- * Modes: freedraw, line, arrow, ellipse, rect, arc, polygon, text, eraser
+ * Modes: freedraw, freearea (lasso), line, arrow, ellipse, rect, arc, polygon, text, eraser
  *
  * Ellipse / Rect / Arc use a two-drag interaction:
  *   Drag 1 — define the main axis (p1 → p2)
  *   Drag 2 — define perpendicular width / bulge (p3); drag farther to stretch wider
  *
  * Polygon is click-per-vertex: double-click or Enter closes it, Escape aborts.
+ * Freearea is a freehand lasso: drag a loop and the interior is filled/hatched.
  *
  * Flags: dash (any shape), fill + pattern (polygon), head + taper (freedraw / arc),
  * halo + bold (text). `icon` shapes are placed programmatically from images/events/.
@@ -27,6 +28,8 @@ class DrawingTool {
         this.fill   = false;
         this.head   = false;   // arrowhead on freedraw / arc
         this.taper  = false;   // wedge-shaped axis arrows
+        this.pattern      = null;  // null | 'hatch' | 'crosshatch' | 'dots'
+        this.patternAngle = 45;
 
         this._patternCache = new Map();   // `${kind}:${color}` → CanvasPattern
         this._imageCache   = new Map();   // icon name → HTMLImageElement
@@ -155,6 +158,18 @@ class DrawingTool {
     setFill(on)         { this.fill = Boolean(on); }
     setHead(on)         { this.head = Boolean(on); }
     setTaper(on)        { this.taper = Boolean(on); }
+    setPattern(kind)    { this.pattern = kind || null; }
+    setPatternAngle(a)  { this.patternAngle = Number(a) || 0; }
+
+    /** Evenly thins a dense freehand path, always keeping both endpoints. */
+    static _thin(points, max) {
+        if (points.length <= max) return points;
+        const step = points.length / max;
+        const out = [];
+        for (let i = 0; i < max; i++) out.push(points[Math.floor(i * step)]);
+        out.push(points[points.length - 1]);
+        return out;
+    }
 
     undo() {
         if (this._state === 'poly') {
@@ -200,6 +215,16 @@ class DrawingTool {
         if (this.mode === 'freedraw') {
             this._state   = 'p1drag';
             this._current = { type: 'freedraw', points: [this._toLl(pt)], color: this.color, thickness: this.thickness, dash: this.dash, head: this.head, taper: this.taper };
+            return;
+        }
+
+        // Lasso: freehand drag whose interior gets filled/hatched on release
+        if (this.mode === 'freearea') {
+            this._state   = 'p1drag';
+            this._current = { type: 'polygon', points: [this._toLl(pt)], smooth: false,
+                              color: this.color, thickness: this.thickness, dash: this.dash,
+                              fill: this.fill, fillOpacity: 0.25,
+                              pattern: this.pattern, patternAngle: this.patternAngle };
             return;
         }
 
@@ -259,7 +284,7 @@ class DrawingTool {
         if (this.mode === 'eraser') { if (this._state === 'p1drag') this._eraseAt(pt); return; }
         if (!this._current) return;
 
-        if (this.mode === 'freedraw' && this._state === 'p1drag') {
+        if ((this.mode === 'freedraw' || this.mode === 'freearea') && this._state === 'p1drag') {
             this._current.points.push(this._toLl(pt));
             this._render(); return;
         }
@@ -305,6 +330,16 @@ class DrawingTool {
 
         if (this.mode === 'freedraw') {
             if (this._current.points.length > 1) this.shapes.push(this._current);
+            this._current = null; this._state = 'idle'; this._render(); return;
+        }
+
+        if (this.mode === 'freearea') {
+            // the path is closed implicitly by _drawPolygon; thin it so the fill
+            // pattern and any later smoothing stay cheap on a long freehand drag
+            if (this._current.points.length > 6) {
+                this._current.points = DrawingTool._thin(this._current.points, 400);
+                this.shapes.push(this._current);
+            }
             this._current = null; this._state = 'idle'; this._render(); return;
         }
 

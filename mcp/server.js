@@ -90,7 +90,7 @@ const TOOLS = [
             center: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '[lat, lng]' },
             zoom: { type: 'number', description: '6 = whole country, 11 = operational, 13 = tactical.' },
             basemap: { type: 'string', description: "Basemap key. 'mapbox-kirk' is OpenTopo — contour lines and green landcover, the classic OSINT look. Others: carto (light), esri-elevation (satellite, default), osm, esri, mapbox, nasa-gibs." },
-            topo_mode: { type: 'string', enum: ['off', 'color', 'bw', 'black-transparent'], description: "Hypsometric elevation tint over the basemap. 'color' plus the OpenTopo basemap gives terrain relief." },
+            topo_mode: { type: 'string', enum: ['off', 'color', 'bw', 'black-transparent'], description: "Relief shading over the basemap. Use 'black-transparent' \u2014 it shades by elevation while letting the basemap's own colours and labels through, so terrain reads without washing the map out. 'color' repaints the whole surface in a hypsometric ramp and fights with drawn graphics; prefer it only for pure elevation studies." },
         }),
         handler: (a) => view.setView(a),
     },
@@ -105,6 +105,18 @@ const TOOLS = [
         description: 'Turn map layers on or off by id. Use map_list_layers to discover valid ids.',
         inputSchema: obj({ layers: { type: 'object', description: '{ "show-settlements": true, "diff-area": false }', additionalProperties: { type: 'boolean' } } }, ['layers']),
         handler: (a) => view.setLayers(a),
+    },
+
+    {
+        name: 'map_settlement_detail',
+        description: 'Show the name label and/or administrative boundary outline for specific settlements. Unlike the show-settlement-names layer (which labels everything above a population threshold), this targets individual places \u2014 use it to name just the settlements an analysis actually references.',
+        inputSchema: obj({
+            places: { type: 'array', items: { type: 'string' }, description: 'Settlement names, English or Ukrainian.' },
+            title: { type: 'boolean', description: 'Show the name label. Default true; false removes it.' },
+            boundary: { type: 'boolean', description: 'Draw the administrative outline. Default false. Fetched on demand and cached; not every settlement has one.' },
+            color: { type: 'string', description: 'Boundary colour, default #ff6600.' },
+        }, ['places']),
+        handler: (a) => view.settlementDetail(a),
     },
 
     // ── draw: semantic ───────────────────────────────────────────────────────

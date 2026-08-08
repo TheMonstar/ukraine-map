@@ -3876,6 +3876,7 @@ class UiBindings {
             ellipse: 'Drag 1: set axis. Drag 2: stretch width.',
             rect: 'Drag 1: set axis. Drag 2: stretch width.',
             arc: 'Draw a curved path — the deepest point sets the arc. Add an arrowhead for a curved axis.',
+            freearea: 'Drag a loop — the enclosed area is filled. Use the texture button to hatch it.',
             polygon: 'Click each corner. Double-click or Enter closes, Esc cancels.',
             text: 'Drag to set position and angle, then type. Enter to confirm.',
             eraser: 'Click or drag over shapes to erase them.',
@@ -3934,9 +3935,10 @@ class UiBindings {
 
         // Style toggles that only apply to certain modes
         const MODE_TOGGLES = {
-            'draw-fill-btn':  ['polygon'],
-            'draw-head-btn':  ['freedraw', 'arc'],
-            'draw-taper-btn': ['freedraw', 'arc'],
+            'draw-fill-btn':    ['polygon', 'freearea'],
+            'draw-pattern-btn': ['polygon', 'freearea'],
+            'draw-head-btn':    ['freedraw', 'arc'],
+            'draw-taper-btn':   ['freedraw', 'arc'],
         };
         const applyModeToggles = (mode) => {
             for (const [id, modes] of Object.entries(MODE_TOGGLES)) {
@@ -3976,6 +3978,29 @@ class UiBindings {
                 const on = !dashBtn.classList.contains('active');
                 dashBtn.classList.toggle('active', on);
                 drawTool.setDash(on);
+            });
+        }
+
+        // Fill texture cycles solid -> hatch -> crosshatch -> dots. Hatching lets the
+        // terrain read through an area, which a flat fill hides.
+        const PATTERNS = [null, 'hatch', 'crosshatch', 'dots'];
+        const patternBtn = dashboard.getEl('draw-pattern-btn');
+        if (patternBtn) {
+            let pi = 0;
+            patternBtn.addEventListener('click', () => {
+                pi = (pi + 1) % PATTERNS.length;
+                const kind = PATTERNS[pi];
+                drawTool.setPattern(kind);
+                // a texture is only visible on a filled shape
+                if (kind && !drawTool.fill) {
+                    drawTool.setFill(true);
+                    dashboard.getEl('draw-fill-btn')?.classList.add('active');
+                }
+                patternBtn.classList.toggle('active', !!kind);
+                patternBtn.title = `Fill texture: ${kind || 'solid'}`;
+                setDrawHint(drawTool.mode);
+                const el = dashboard.getEl('draw-hint');
+                if (el) el.textContent = `Fill texture: ${kind || 'solid'}. ` + el.textContent;
             });
         }
 

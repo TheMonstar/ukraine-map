@@ -30,6 +30,12 @@ export function setDates({ start, end }) {
     return session.call('setDates', start, end);
 }
 
+/** Per-settlement name labels and boundary outlines, addressed by name. */
+export function settlementDetail({ places, title = true, boundary = false, color }) {
+    if (!places?.length) throw new Error('map_settlement_detail needs `places`');
+    return session.call('settlementDetail', places, { title, boundary, color });
+}
+
 export function setLayers({ layers }) {
     if (!layers || typeof layers !== 'object' || !Object.keys(layers).length) {
         throw new Error('`layers` must be an object of { layerId: boolean }');

@@ -324,6 +324,70 @@
             return { total: db.drawTool.shapes.length };
         },
 
+        /**
+         * Per-settlement name labels and boundary polygons — the same things the
+         * settlement popup checkboxes drive, but addressable by name.
+         *
+         * Boundaries go straight through fetchSettlementBoundary/_renderPopupBoundary
+         * rather than togglePopupBoundary, which reads its colour out of the popup's
+         * DOM and would throw on a synthesised checkbox.
+         */
+        async settlementDetail(names, { title = true, boundary = false, color = '#ff6600' } = {}) {
+            const db = d();
+            const s = db.settlements;
+            const out = [];
+
+            for (const name of names) {
+                const q = String(name).toLowerCase().trim();
+                const f = (db.settlementsData?.features || []).find((x) => {
+                    const p = x.properties || {};
+                    return (p.name || '').toLowerCase() === q || (p['name:en'] || '').toLowerCase() === q;
+                }) || (db.settlementsData?.features || []).find((x) => {
+                    const p = x.properties || {};
+                    return (p.name || '').toLowerCase().includes(q) || (p['name:en'] || '').toLowerCase().includes(q);
+                });
+
+                if (!f) { out.push({ name, found: false }); continue; }
+                const p = f.properties;
+                const [lng, lat] = f.geometry.coordinates;
+                const label = p['name:en'] || p.name;
+                const rec = { name: label, found: true, coords: [lat, lng], osm_id: p.osm_id };
+
+                if (title) {
+                    s.togglePopupTitle({ checked: true }, p.osm_id, lat, lng, label);
+                    rec.title = true;
+                } else {
+                    s.togglePopupTitle({ checked: false }, p.osm_id, lat, lng, label);
+                    rec.title = false;
+                }
+
+                if (boundary) {
+                    try {
+                        const geom = await s.fetchSettlementBoundary(p.osm_id, p.osm_type || 'nodes');
+                        if (geom?.coordinates?.length) {
+                            s._renderPopupBoundary(p.osm_id, geom, color);
+                            rec.boundary = true;
+                        } else {
+                            rec.boundary = false;
+                            rec.note = 'no boundary geometry available for this settlement';
+                        }
+                    } catch (e) {
+                        rec.boundary = false;
+                        rec.note = `boundary fetch failed: ${e.message}`;
+                    }
+                } else {
+                    const existing = s.popupBoundaryLayers.get(p.osm_id);
+                    if (existing) {
+                        db.settlementPopupBoundariesLayer.removeLayer(existing);
+                        s.popupBoundaryLayers.delete(p.osm_id);
+                    }
+                    rec.boundary = false;
+                }
+                out.push(rec);
+            }
+            return out;
+        },
+
         // ── terrain ──────────────────────────────────────────────────────────
 
         /** Elevation in metres at each [lat,lng], via the Terrarium DEM tiles. */
