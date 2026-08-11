@@ -64,8 +64,94 @@ class UiBindings {
             }
         };
 
+        const TACTICAL_REGIONS = [
+            'Kharkiv', 'Kupiansk', 'Lyman', 'Siversk', 'Kramatorsk', 'Toretsk',
+            'Pokrovsk', 'Novopavlivka', 'Gulyaipole', 'Orikhiv', 'Prydniprovske', 'Kursk'
+        ];
+
+        const RU_DIRECTIONS = ['Север', 'Запад', 'Восток', 'Центр', 'Юг', 'Днепр'];
+
+        /** Clip gains/losses geometry against a named region set. */
+        const regionDiffRows = (gainsGeom, lossesGeom, regionNames) => {
+            const clippedKm2 = (regionPolygon, geom) => {
+                if (!geom) return 0;
+                try {
+                    const clipped = turf.intersect(regionPolygon, geom);
+                    return clipped ? turf.area(clipped) / 1e6 : 0;
+                } catch (e) {
+                    return 0;
+                }
+            };
+
+            const rows = [];
+            regionNames.forEach(name => {
+                const regionPolygon = dashboard.regionPolygonCache.get(name);
+                if (!regionPolygon) return;
+
+                const gains = clippedKm2(regionPolygon, gainsGeom);
+                const losses = clippedKm2(regionPolygon, lossesGeom);
+                if (gains < 0.01 && losses < 0.01) return;
+
+                rows.push({
+                    name, gains, losses,
+                    net: gains - losses,
+                    coordinates: dashboard.regionCoordinates[name]
+                });
+            });
+            return rows;
+        };
+
+        const logRegionDiffRows = (header, rows) => {
+            console.log(header);
+            if (!rows.length) {
+                console.log('  (no overlap with predefined regions)');
+                return;
+            }
+            rows.forEach(({ name, gains, losses, net }) => {
+                console.log(`  ${name}: ${net >= 0 ? '+' : ''}${net.toFixed(1)} km² (↑${gains.toFixed(1)} ↓${losses.toFixed(1)})`);
+            });
+        };
+
+        const drawRegionDiffLabels = (rows) => {
+            if (!dashboard.diffRegionLabels) dashboard.diffRegionLabels = L.layerGroup().addTo(dashboard.map);
+            // Concurrent renders can interleave past the clear at the top of
+            // renderDeepLayer, so clear again here where the writes happen.
+            dashboard.diffRegionLabels.clearLayers();
+            rows.forEach(({ net, coordinates }) => {
+                if (!coordinates) return;
+                const text = `${net >= 0 ? '+' : ''}${net.toFixed(1)}`;
+                const w = Math.max(40, text.length * 10 + 16);
+                const h = 26;
+                const icon = L.divIcon({
+                    className: `attack-label border-${net >= 0 ? 'red' : 'green'}`,
+                    html: `<div style="font-size:14px; line-height:1;">${text}</div>`,
+                    iconSize: [w, h],
+                    iconAnchor: [w / 2, h / 2]
+                });
+                L.marker(coordinates, { icon }).addTo(dashboard.diffRegionLabels);
+            });
+        };
+
+        const reportDiffByPredefinedRegions = (polygons) => {
+            let gains = null, losses = null;
+            polygons.forEach(p => {
+                if (!p.geojson) return;
+                if (p.type === 'difference') gains = safeUnion(gains, p.geojson);
+                else if (p.type === 'reverse-difference') losses = safeUnion(losses, p.geojson);
+            });
+
+            const rows = regionDiffRows(gains, losses, TACTICAL_REGIONS);
+            logRegionDiffRows(
+                `Diff by predefined region ${dashboard.formatDate(dashboard.startDate)} → ${dashboard.formatDate(dashboard.endDate)}:`,
+                rows
+            );
+            drawRegionDiffLabels(rows);
+        };
+
         const renderDeepLayer = async () => {
             dashboard.deepLayer.clearLayers();
+            if (!dashboard.diffRegionLabels) dashboard.diffRegionLabels = L.layerGroup().addTo(dashboard.map);
+            dashboard.diffRegionLabels.clearLayers();
             if (!dashboard.isChecked('diff-area')) {
                 dashboard.setText('settlements-in-diff', '0');
                 if (dashboard.casualtiesLayer) dashboard.casualtiesLayer.clearLayers();
@@ -278,6 +364,10 @@ class UiBindings {
                             dashboard.updateStatistics(dashboard.calculateAttackStatistics(dirs));
                         }
                     }
+                }
+
+                if (dashboard.isChecked('search-in-regions') && dashboard.currentDiffResult) {
+                    reportDiffByPredefinedRegions(dashboard.currentDiffResult.polygons);
                 }
 
             } else {
@@ -508,45 +598,74 @@ class UiBindings {
 
         dashboard.bindUI('diff-no-base', 'change', () => renderDeepLayer());
 
+        const OVERLAY_DIFF_SOURCES = [
+            { id: 'amk-overlay', key: 'AMK', label: 'AMK' },
+            { id: 'radov-overlay', key: 'RADOV', label: 'Radov' },
+            { id: 'isw-overlay', key: 'ISW', label: 'ISW' },
+            { id: 'suriyak-overlay', key: 'suriyak', label: 'Suriyak' },
+            { id: 'ria-overlay', key: null, label: 'RIA' }
+        ];
+
+        const updateOverlayDiffTotals = async () => {
+            if (!dashboard.isChecked('diff-highlight')) return;
+
+            const enabled = OVERLAY_DIFF_SOURCES.filter(source => dashboard.isChecked(source.id));
+            // Without this the stats below would zero out DeepState's own numbers
+            // when this runs from an overlay toggle with no overlay enabled.
+            if (!enabled.length) return;
+
+            let totalGains = 0;
+            let totalLosses = 0;
+            const byDirection = dashboard.isChecked('search-in-regions');
+            let labelRows = null;
+
+            for (const source of enabled) {
+                const result = source.key
+                    ? await dashboard.layers.getManifestDiffAreaKm2(source.key, dashboard.startDate, dashboard.endDate)
+                    : await dashboard.layers.getRiaDiffAreaKm2(dashboard.startDate, dashboard.endDate);
+                // Handle both old (number) and new (object) return formats
+                if (typeof result === 'object') {
+                    totalGains += result.gains || 0;
+                    totalLosses += result.losses || 0;
+                } else {
+                    totalGains += result || 0;
+                    continue;
+                }
+
+                if (!byDirection) continue;
+                const rows = regionDiffRows(result.gainsGeom, result.lossesGeom, RU_DIRECTIONS);
+                logRegionDiffRows(`${source.label} diff by direction:`, rows);
+                if (!labelRows) labelRows = rows;
+            }
+
+            // DeepState owns the labels whenever it is rendering (#diff-area on) —
+            // the direction centres sit on top of the tactical ones.
+            if (byDirection && labelRows && !dashboard.isChecked('diff-area')) {
+                drawRegionDiffLabels(labelRows);
+            }
+
+            const netChange = totalGains - totalLosses;
+            dashboard.setText('total-gains', `${Math.round(netChange)} (↑${Math.round(totalGains)} ↓${Math.round(totalLosses)})`);
+            console.log(`📊 Total: Gains ${totalGains.toFixed(2)} km², Losses ${totalLosses.toFixed(2)} km², Net ${netChange.toFixed(2)} km²`);
+            dashboard.setText('total-captured', '0');
+            dashboard.setText('total-grayed', '0');
+            dashboard.setText('settlements-in-diff', '0');
+        };
+        dashboard.updateOverlayDiffTotals = updateOverlayDiffTotals;
+
+        /** Overlay toggled: refresh its diff figures, or hand the stats panel back
+         *  to DeepState once the last overlay is gone. */
+        const refreshOverlayDiff = async () => {
+            await updateOverlayDiffTotals();
+            const anyEnabled = OVERLAY_DIFF_SOURCES.some(source => dashboard.isChecked(source.id));
+            if (!anyEnabled && dashboard.isChecked('diff-highlight') && dashboard.isChecked('diff-area')) {
+                await renderDeepLayer();
+            }
+        };
+
         dashboard.bindUI('diff-highlight', 'change', async () => {
             await renderDeepLayer();
-            if (dashboard.isChecked('diff-highlight')) {
-                const overlaySources = [
-                    { id: 'amk-overlay', key: 'AMK' },
-                    { id: 'radov-overlay', key: 'RADOV' },
-                    { id: 'isw-overlay', key: 'ISW' },
-                    { id: 'suriyak-overlay', key: 'suriyak' }
-                ];
-                let totalGains = 0;
-                let totalLosses = 0;
-                for (const source of overlaySources) {
-                    if (dashboard.isChecked(source.id)) {
-                        const result = await dashboard.layers.getManifestDiffAreaKm2(
-                            source.key,
-                            dashboard.startDate,
-                            dashboard.endDate
-                        );
-                        // Handle both old (number) and new (object) return formats
-                        if (typeof result === 'object') {
-                            totalGains += result.gains || 0;
-                            totalLosses += result.losses || 0;
-                        } else {
-                            totalGains += result || 0;
-                        }
-                    }
-                }
-                if (dashboard.isChecked('ria-overlay')) {
-                    const riaResult = await dashboard.layers.getRiaDiffAreaKm2(dashboard.startDate, dashboard.endDate);
-                    totalGains += riaResult.gains || 0;
-                    totalLosses += riaResult.losses || 0;
-                }
-                const netChange = totalGains - totalLosses;
-                dashboard.setText('total-gains', `${Math.round(netChange)} (↑${Math.round(totalGains)} ↓${Math.round(totalLosses)})`);
-                console.log(`📊 Total: Gains ${totalGains.toFixed(2)} km², Losses ${totalLosses.toFixed(2)} km², Net ${netChange.toFixed(2)} km²`);
-                dashboard.setText('total-captured', '0');
-                dashboard.setText('total-grayed', '0');
-                dashboard.setText('settlements-in-diff', '0');
-            }
+            await updateOverlayDiffTotals();
             if (dashboard.isChecked('radov-overlay')) {
                 await dashboard.layers.toggleRadovOverlay(true);
             }
@@ -708,10 +827,12 @@ class UiBindings {
 
         dashboard.bindUI('suriyak-overlay', 'change', async () => {
             await dashboard.layers.toggleSuriyakOverlay(dashboard.isChecked('suriyak-overlay'));
+            await refreshOverlayDiff();
         });
 
         dashboard.bindUI('ria-overlay', 'change', async () => {
             await dashboard.layers.toggleRiaOverlay(dashboard.isChecked('ria-overlay'));
+            await refreshOverlayDiff();
         });
 
         dashboard.bindUI('creamy-overlay', 'change', async () => {
@@ -3391,6 +3512,10 @@ class UiBindings {
 
             if (dashboard.isChecked('show-settlements')) {
                 dashboard.displaySettlements();
+            }
+
+            if (dashboard.isChecked('diff-highlight')) {
+                renderDeepLayer();
             }
         });
 

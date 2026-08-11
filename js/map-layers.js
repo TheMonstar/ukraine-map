@@ -667,7 +667,7 @@ class MapLayers {
      * net} shape as getManifestDiffAreaKm2 — used for the "Total" stats line.
      */
     async getRiaDiffAreaKm2(startDate, endDate) {
-        const result = { gains: 0, losses: 0, net: 0 };
+        const result = { gains: 0, losses: 0, net: 0, gainsGeom: null, lossesGeom: null };
         let startUnion = null, endUnion = null;
         try { startUnion = await this._loadRiaMerged(MapLayers._riaDateStr(startDate)); }
         catch (e) { console.warn('RIA diff: start load failed:', e); }
@@ -679,16 +679,18 @@ class MapLayers {
         if (startUnion && endUnion) {
             try {
                 const diff = turf.difference(endUnion, startUnion);
-                if (diff) result.gains = turf.area(diff) / 1e6;
-            } catch (e) { result.gains = turf.area(endUnion) / 1e6; }
+                if (diff) { result.gains = turf.area(diff) / 1e6; result.gainsGeom = diff; }
+            } catch (e) { result.gains = turf.area(endUnion) / 1e6; result.gainsGeom = endUnion; }
             try {
                 const reverseDiff = turf.difference(startUnion, endUnion);
-                if (reverseDiff) result.losses = turf.area(reverseDiff) / 1e6;
+                if (reverseDiff) { result.losses = turf.area(reverseDiff) / 1e6; result.lossesGeom = reverseDiff; }
             } catch (e) { /* ignore */ }
         } else if (endUnion) {
             result.gains = turf.area(endUnion) / 1e6;
+            result.gainsGeom = endUnion;
         } else if (startUnion) {
             result.losses = turf.area(startUnion) / 1e6;
+            result.lossesGeom = startUnion;
         }
 
         result.net = result.gains - result.losses;
@@ -1016,7 +1018,7 @@ class MapLayers {
         const { ruUnion: startUnion } = this.extractKmlFeatures(startData, sourceKey);
         const { ruUnion: endUnion } = this.extractKmlFeatures(endData, sourceKey);
 
-        const result = { gains: 0, losses: 0, net: 0 };
+        const result = { gains: 0, losses: 0, net: 0, gainsGeom: null, lossesGeom: null };
 
         if (!endUnion && !startUnion) {
             return result;
@@ -1040,15 +1042,18 @@ class MapLayers {
                 const difference = turf.difference(endFeature, startFeature);
                 if (difference) {
                     result.gains = turf.area(difference) / 1000000;
+                    result.gainsGeom = difference;
                 }
             } catch (error) {
                 console.warn(`${sourceKey} gains calculation failed:`, error);
                 if (endFeature) {
                     result.gains = turf.area(endFeature) / 1000000;
+                    result.gainsGeom = endFeature;
                 }
             }
         } else if (endFeature) {
             result.gains = turf.area(endFeature) / 1000000;
+            result.gainsGeom = endFeature;
         }
 
         // Calculate losses (start - end)
@@ -1057,12 +1062,14 @@ class MapLayers {
                 const reverseDifference = turf.difference(startFeature, endFeature);
                 if (reverseDifference) {
                     result.losses = turf.area(reverseDifference) / 1000000;
+                    result.lossesGeom = reverseDifference;
                 }
             } catch (error) {
                 console.warn(`${sourceKey} losses calculation failed:`, error);
             }
         } else if (startFeature) {
             result.losses = turf.area(startFeature) / 1000000;
+            result.lossesGeom = startFeature;
         }
 
         result.net = result.gains - result.losses;

@@ -4149,6 +4149,10 @@ class AttackMapDashboard {
             this.deepLayerRefreshDebounce = setTimeout(() => {
                 if (this.isChecked('diff-area') && this.renderDeepLayer) this.renderDeepLayer();
             }, 800);
+            if (this.overlayDiffRefreshDebounce) clearTimeout(this.overlayDiffRefreshDebounce);
+            this.overlayDiffRefreshDebounce = setTimeout(() => {
+                if (this.isChecked('diff-highlight') && this.updateOverlayDiffTotals) this.updateOverlayDiffTotals();
+            }, 800);
         });
     }
 
