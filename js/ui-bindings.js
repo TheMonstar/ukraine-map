@@ -64,10 +64,7 @@ class UiBindings {
             }
         };
 
-        const TACTICAL_REGIONS = [
-            'Kharkiv', 'Kupiansk', 'Lyman', 'Siversk', 'Kramatorsk', 'Toretsk',
-            'Pokrovsk', 'Novopavlivka', 'Gulyaipole', 'Orikhiv', 'Prydniprovske', 'Kursk'
-        ];
+        const TACTICAL_REGIONS = AttackMapDashboard.TACTICAL_REGIONS;
 
         const RU_DIRECTIONS = ['Север', 'Запад', 'Восток', 'Центр', 'Юг', 'Днепр'];
 
@@ -748,6 +745,23 @@ class UiBindings {
             dashboard.layers.setModOverlayEnabled(dashboard.isChecked('feature-mod'));
         });
 
+        dashboard.bindUI('marker-display', 'change', () => {
+            // Cluster options are fixed at construction, so swap the layers and
+            // let the renderers repopulate them
+            const clustered = dashboard.markerDisplayMode() === 'cluster';
+
+            dashboard.map.removeLayer(dashboard.markers);
+            dashboard.markers = MapLayers.makeMarkerLayer(clustered);
+            dashboard.map.addLayer(dashboard.markers);
+
+            dashboard.map.removeLayer(dashboard.modrLayer);
+            dashboard.modrLayer = MapLayers.makeMarkerLayer(clustered, { disableClusteringAtZoom: 11 });
+            dashboard.map.addLayer(dashboard.modrLayer);
+
+            dashboard.updateMap();
+            dashboard.renderModrMarkers();
+        });
+
         dashboard.bindUI('topo-mode', 'change', () => {
             const mode = dashboard.getEl('topo-mode')?.value;
             if (!mode || mode === 'off') {
@@ -1214,6 +1228,19 @@ class UiBindings {
             updateFeaturesAttribution();
         });
 
+        // The Perpetua events feed is key-only. Without a key, swap the whole
+        // control for a link to the public map that carries the same data.
+        const applyEventsApiKeyGate = () => {
+            if (localStorage.getItem('apiKey')) return;
+            ['events-controls', 'events-filter-list', 'events-attribution'].forEach(id => {
+                const el = dashboard.getEl(id);
+                if (el) el.style.display = 'none';
+            });
+            const locked = dashboard.getEl('events-locked');
+            if (locked) locked.style.display = '';
+        };
+        applyEventsApiKeyGate();
+
         dashboard.bindUI('feature-events', 'change', async () => {
             if (dashboard.isChecked('feature-events')) {
                 dashboard._eventsSetReloadBtn('idle');
@@ -1225,7 +1252,9 @@ class UiBindings {
                 const attr = document.getElementById('events-attribution');
                 if (attr) attr.style.display = 'none';
                 dashboard._eventsSetReloadBtn('hidden');
+                dashboard.renderEventHeatmap();
             }
+            dashboard.renderEventCoverageIndex();
         });
 
         const eventsReloadBtn = document.getElementById('events-reload-btn');
@@ -1262,7 +1291,24 @@ class UiBindings {
                 if (filterList) filterList.style.display = 'none';
                 const attr = document.getElementById('owl-events-attribution');
                 if (attr) attr.style.display = 'none';
+                dashboard.renderEventHeatmap();
             }
+            dashboard.renderEventCoverageIndex();
+        });
+
+        dashboard.bindUI('event-heatmap', 'change', () => {
+            // The renderers add or drop the pins depending on the toggle, and
+            // each one re-runs the heatmap on the way out
+            dashboard.renderEventsMarkers();
+            dashboard.renderOwlEventsMarkers();
+            dashboard.renderEventHeatmap();
+        });
+
+        dashboard.bindUI('event-coverage', 'change', () => {
+            dashboard.renderEventCoverageIndex();
+            // Re-runs addRegionLabels, which now yields the centroids to the
+            // coverage chips while this is on
+            dashboard.scheduleUpdateMap();
         });
 
         // Roads, waterways and railways are owned by LineFeatures

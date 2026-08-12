@@ -53,6 +53,23 @@ function suriyakLabel(label) {
 }
 
 class MapLayers {
+    /**
+     * Marker container for the GSUA and MoDR feeds. Cluster options are fixed at
+     * construction, so toggling clustering means building a new layer.
+     * featureGroup (not layerGroup) because updateMap calls getBounds() on it.
+     */
+    static makeMarkerLayer(clustered, extraOptions = {}) {
+        return clustered
+            ? L.markerClusterGroup({
+                maxClusterRadius: 40,
+                spiderfyDistanceMultiplier: 1.5,
+                spiderfyOnMaxZoom: true,
+                zoomToBoundsOnClick: true,
+                ...extraOptions
+            })
+            : L.featureGroup();
+    }
+
     constructor(dashboard) {
         this.dashboard = dashboard;
         this.sourcesManifest = null;
@@ -74,12 +91,16 @@ class MapLayers {
             attribution: dashboard.mapStyles['esri-elevation'].attribution
         }).addTo(dashboard.map);
 
-        dashboard.markers = L.markerClusterGroup({
-            maxClusterRadius: 40,
-            spiderfyDistanceMultiplier: 1.5,
-            spiderfyOnMaxZoom: true,
-            zoomToBoundsOnClick: true
-        });
+        // Own pane for the GSUA/MoDR heat surfaces. `isolation: isolate` keeps
+        // their screen blending between themselves, so blue over red reads
+        // purple while the pane as a whole still composites normally over the
+        // basemap. Between overlayPane (400) and markerPane (600).
+        const heatPane = dashboard.map.createPane('sourceHeat');
+        heatPane.style.zIndex = 450;
+        heatPane.style.isolation = 'isolate';
+        heatPane.style.pointerEvents = 'none';
+
+        dashboard.markers = MapLayers.makeMarkerLayer(dashboard.markerDisplayMode() === 'cluster');
         dashboard.map.addLayer(dashboard.markers);
 
         dashboard.ungroupedMarkers = L.layerGroup();
@@ -96,13 +117,9 @@ class MapLayers {
         dashboard.featureMotorLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.featureRailwayLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.eventsLayer = L.layerGroup().addTo(dashboard.map);
-        dashboard.modrLayer = L.markerClusterGroup({
-            maxClusterRadius: 40,
-            spiderfyDistanceMultiplier: 1.5,
-            spiderfyOnMaxZoom: true,
-            zoomToBoundsOnClick: true,
-            disableClusteringAtZoom: 11
-        }).addTo(dashboard.map);
+        dashboard.modrLayer = MapLayers.makeMarkerLayer(
+            dashboard.markerDisplayMode() === 'cluster', { disableClusteringAtZoom: 11 }
+        ).addTo(dashboard.map);
         dashboard.riaEventsLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.owlEventsLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.losLayer = L.layerGroup().addTo(dashboard.map);
@@ -125,6 +142,7 @@ class MapLayers {
             if (dashboard.isChecked('show-settlement-names')) {
                 dashboard.settlements.renderSettlementNames();
             }
+            dashboard.rescaleSourceHeatmaps();
         });
 
         dashboard.initPolygonSelection();

@@ -1253,6 +1253,23 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     line-height: 1.4;
 }
 
+/* Stand-in shown when a key-gated feed is unavailable */
+.locked-hint {
+    font-size: 11px;
+    color: var(--sidebar-muted);
+    margin: 8px 0 10px;
+    line-height: 1.4;
+}
+
+.locked-hint a {
+    color: rgb(59, 130, 246);
+    text-decoration: none;
+}
+
+.locked-hint a:hover {
+    text-decoration: underline;
+}
+
 /* ---- Draw text input overlay ---- */
 .draw-text-wrap {
     position: absolute;

@@ -388,12 +388,15 @@ class AttackMapDashboard {
             'clusterRadius',
             'hide-markers',
             'group-markers',
+            'marker-display',
             'show-regions',
             'show-line',
             'snap-regions',
             'date-start',
             'date-end',
             'feature-events',
+            'events-controls',
+            'events-locked',
             'events-filter-list',
             'events-attribution',
             'events-reload-btn',
@@ -403,6 +406,8 @@ class AttackMapDashboard {
             'feature-owl-events',
             'owl-events-filter-list',
             'owl-events-attribution',
+            'event-heatmap',
+            'event-coverage',
             'forest-overlay',
             'los-p2p-mode',
             'los-viewshed-mode',
@@ -435,6 +440,11 @@ class AttackMapDashboard {
 
     getEl(id) {
         return this.ui[id] || document.getElementById(id);
+    }
+
+    /** How GSUA and MoDR markers are drawn: 'cluster' | 'none' | 'heatmap'. */
+    markerDisplayMode() {
+        return this.getEl('marker-display')?.value || 'cluster';
     }
 
     bindUI(id, event, handler, options) {
@@ -1487,7 +1497,39 @@ class AttackMapDashboard {
         'waterways-type-river', 'waterways-type-stream',
         'forest-overlay',
         'show-settlements', 'show-regions', 'position-change',
-        'hex-tiles', 'show-date-overlay', 'custom-kml-overlay', 'firms-overlay'
+        'hex-tiles', 'show-date-overlay', 'custom-kml-overlay', 'firms-overlay',
+        'event-heatmap', 'event-coverage'
+    ];
+
+    /** Heat ramps for the source heatmaps — dark to bright so hot spots pop
+     *  against satellite imagery. Hue matches each feed's marker color. */
+    // Saturated throughout, never approaching white — screen blending already
+    // brightens, and a near-white peak would blend to white rather than purple
+    static HEAT_GRADIENT_BLUE = { 0.2: '#1e3a8a', 0.5: '#1d4ed8', 0.8: '#2563eb', 1.0: '#3b82f6' };
+    static HEAT_GRADIENT_RED = { 0.2: '#7f1d1d', 0.5: '#b91c1c', 0.8: '#dc2626', 1.0: '#ef4444' };
+
+    /** Bin count that counts as full intensity. Normalizing against the largest
+     *  bin instead would sink the long tail of single records to invisible. */
+    static HEAT_FULL_INTENSITY = 3;
+
+    /** Glow radius in pixels at HEAT_REF_ZOOM. leaflet.heat's radius is in
+     *  screen pixels, so a fixed value breaks continuous ridges into isolated
+     *  dots as you zoom in and the points spread apart. */
+    static HEAT_BASE_RADIUS = 25;
+    static HEAT_REF_ZOOM = 8;
+    /** Growth per zoom step. 1.0 would hold the ground footprint constant but
+     *  balloons to unusable blur by z12; 0.55 keeps ridges joined without it. */
+    static HEAT_ZOOM_EXPONENT = 0.55;
+    /** Capped well below the growth curve: past ~z11 an ever-larger radius just
+     *  washes the viewport, and genuinely isolated strikes should read as
+     *  isolated rather than being smeared into a false ridge. */
+    static HEAT_RADIUS_RANGE = [10, 60];
+
+    /** Frontline tactical regions — the subset of regionPolygons used for
+     *  per-region breakdowns (excludes the overlapping Cyrillic directions). */
+    static TACTICAL_REGIONS = [
+        'Kharkiv', 'Kupiansk', 'Lyman', 'Siversk', 'Kramatorsk', 'Toretsk',
+        'Pokrovsk', 'Novopavlivka', 'Gulyaipole', 'Orikhiv', 'Prydniprovske', 'Kursk'
     ];
 
     /**
@@ -1513,6 +1555,7 @@ class AttackMapDashboard {
             },
             basemap: this.getEl('map-style')?.value ?? null,
             topoMode: this.getEl('topo-mode')?.value ?? 'off',
+            markerMode: this.markerDisplayMode(),
             toggles,
             drawings: this.drawTool ? this.drawTool.shapes : [],
             mapUml: this.getEl('map-uml-input')?.value ?? '',
@@ -1558,6 +1601,14 @@ class AttackMapDashboard {
             if (topoSel && topoSel.value !== state.topoMode) {
                 topoSel.value = state.topoMode;
                 topoSel.dispatchEvent(new Event('change'));
+            }
+        }
+
+        if (state.markerMode) {
+            const markerSel = this.getEl('marker-display');
+            if (markerSel && markerSel.value !== state.markerMode) {
+                markerSel.value = state.markerMode;
+                markerSel.dispatchEvent(new Event('change'));
             }
         }
 
@@ -3455,6 +3506,8 @@ class AttackMapDashboard {
 
     async refreshEvents() {
         if (!this.isChecked('feature-events') || !this.eventsLayer) return;
+        // The upstream feed is key-only; without one the control is hidden
+        if (!localStorage.getItem('apiKey')) return;
 
         const start = this.startDate || this.minDate;
         const end = this.endDate || this.maxDate;
@@ -3592,16 +3645,30 @@ class AttackMapDashboard {
         });
     }
 
-    renderEventsMarkers() {
-        if (!this.eventsLayer) return;
-        this.eventsLayer.clearLayers();
+    /** Events surviving the category + name filters — shared by the marker
+     *  renderer and the heatmap so both always show the same set. */
+    filteredEventsData() {
         const nameTerms = this.eventsNameFilter
             .split(',')
             .map(s => s.trim().toLowerCase())
             .filter(Boolean);
-        this.eventsData.forEach(e => {
-            if (!this.eventsFilterEnabled[e.category]) return;
-            if (nameTerms.length && !nameTerms.some(t => e.name.toLowerCase().includes(t))) return;
+        return this.eventsData.filter(e => {
+            if (!this.eventsFilterEnabled[e.category]) return false;
+            if (nameTerms.length && !nameTerms.some(t => e.name.toLowerCase().includes(t))) return false;
+            return true;
+        });
+    }
+
+    renderEventsMarkers() {
+        if (!this.eventsLayer) return;
+        this.eventsLayer.clearLayers();
+        // The heatmap replaces the pins rather than sitting on top of them
+        if (this.isChecked('event-heatmap')) {
+            this.renderEventHeatmap();
+            this.renderEventCoverageIndex();
+            return;
+        }
+        this.filteredEventsData().forEach(e => {
             const eventIcon = L.icon({
                 iconUrl: `images/events/${e.category}.png`,
                 iconSize: [16, 16],
@@ -3612,6 +3679,8 @@ class AttackMapDashboard {
             marker.addTo(this.eventsLayer);
         });
         console.log(`Events markers: ${this.eventsLayer.getLayers().length}`);
+        this.renderEventHeatmap();
+        this.renderEventCoverageIndex();
     }
 
     async refreshModr() {
@@ -3642,6 +3711,9 @@ class AttackMapDashboard {
     renderModrMarkers() {
         if (!this.modrLayer) return;
         this.modrLayer.clearLayers();
+
+        this.renderModrHeatmap();
+        if (this.markerDisplayMode() === 'heatmap') return;
 
         const groups = {};
         this.modrData.forEach(item => {
@@ -4014,23 +4086,37 @@ class AttackMapDashboard {
             });
     }
 
-    renderOwlEventsMarkers() {
-        if (!this.owlEventsLayer) return;
-        this.owlEventsLayer.clearLayers();
+    /** OWL events surviving every filter — shared by the marker renderer and
+     *  the heatmap so both always show the same set. */
+    filteredOwlEventsData() {
         const nameTerms = this.owlEventsNameFilter
             .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
-        this.owlEventsData.forEach(e => {
-            if (!e.lat || !e.lng) return;
-            if (!this.owlEventsFilterEnabled[e.event]) return;
+        return this.owlEventsData.filter(e => {
+            if (!e.lat || !e.lng) return false;
+            if (!this.owlEventsFilterEnabled[e.event]) return false;
             // RU checkbox shows Russia's targets (events on the UA side); UA checkbox shows Ukraine's targets (events on the RU side)
-            if (e.side === 'UA' && !this.owlEventsActorFilter.RU) return;
-            if (e.side === 'RU' && !this.owlEventsActorFilter.UA) return;
-            if (this.owlEventsOutcomeFilter[e.outcome] === false) return;
-            if (this.owlEventsTargetFilter[e.target] === false) return;
-            if (this.owlEventsWeaponFilter[e.weapon] === false) return;
-            if (nameTerms.length && !nameTerms.some(t => (e.desc || '').toLowerCase().includes(t))) return;
+            if (e.side === 'UA' && !this.owlEventsActorFilter.RU) return false;
+            if (e.side === 'RU' && !this.owlEventsActorFilter.UA) return false;
+            if (this.owlEventsOutcomeFilter[e.outcome] === false) return false;
+            if (this.owlEventsTargetFilter[e.target] === false) return false;
+            if (this.owlEventsWeaponFilter[e.weapon] === false) return false;
+            if (nameTerms.length && !nameTerms.some(t => (e.desc || '').toLowerCase().includes(t))) return false;
+            return true;
+        });
+    }
 
+    renderOwlEventsMarkers() {
+        if (!this.owlEventsLayer) return;
+        this.owlEventsLayer.clearLayers();
+        // The heatmap replaces the pins rather than sitting on top of them
+        if (this.isChecked('event-heatmap')) {
+            this.renderEventHeatmap();
+            this.renderEventCoverageIndex();
+            return;
+        }
+
+        this.filteredOwlEventsData().forEach(e => {
             const icon = L.icon({
                 iconUrl: this.owlEventIconUrl(e),
                 iconSize: [16, 16],
@@ -4047,6 +4133,227 @@ class AttackMapDashboard {
             marker.addTo(this.owlEventsLayer);
         });
         console.log(`OWL events markers: ${this.owlEventsLayer.getLayers().length}`);
+        this.renderEventHeatmap();
+        this.renderEventCoverageIndex();
+    }
+
+    /**
+     * Flat [{lat, lng}] of every currently-visible event from the sources that
+     * feed the heatmap and the coverage index (Perpetua Events + OWL).
+     */
+    collectEventPoints() {
+        const points = [];
+        if (this.isChecked('feature-events')) {
+            this.filteredEventsData().forEach(e => {
+                if (e.lat && e.lon) points.push({ lat: e.lat, lng: e.lon });
+            });
+        }
+        if (this.isChecked('feature-owl-events')) {
+            this.filteredOwlEventsData().forEach(e => {
+                points.push({ lat: e.lat, lng: e.lng });
+            });
+        }
+        return points;
+    }
+
+    /**
+     * Density surface over the visible events. Co-located events are binned to
+     * 4 decimals so repeats at one place reinforce instead of counting once.
+     */
+    renderEventHeatmap() {
+        if (this.eventHeatmapLayer) {
+            this.map.removeLayer(this.eventHeatmapLayer);
+            this.eventHeatmapLayer = null;
+        }
+        if (!this.isChecked('event-heatmap')) return;
+
+        const groups = {};
+        this.collectEventPoints().forEach(({ lat, lng }) => {
+            const key = `${lat.toFixed(4)}_${lng.toFixed(4)}`;
+            if (!groups[key]) groups[key] = { lat, lng, count: 0 };
+            groups[key].count++;
+        });
+
+        const heatData = Object.values(groups).map(g => [g.lat, g.lng, g.count]);
+        if (!heatData.length) {
+            console.log('Event heatmap: no events to plot');
+            return;
+        }
+
+        const maxCount = Math.max(...heatData.map(d => d[2]));
+        this.eventHeatmapLayer = L.heatLayer(heatData, {
+            radius: 25,
+            blur: 20,
+            maxZoom: 10,
+            max: maxCount,
+            gradient: { 0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1.0: 'red' }
+        }).addTo(this.map);
+        console.log(`Event heatmap: ${heatData.length} bins, max ${maxCount} per bin`);
+    }
+
+    /**
+     * Shared bin-and-render for the source heatmaps used by the 'heatmap' marker
+     * display mode. Returns the layer, or null when there is nothing to plot.
+     * Points are binned to 4 decimals so repeats at one place reinforce.
+     */
+    buildSourceHeatLayer(points, gradient, label) {
+        const groups = {};
+        points.forEach(({ lat, lng }) => {
+            if (!(lat && lng)) return;
+            const key = `${lat.toFixed(4)}_${lng.toFixed(4)}`;
+            if (!groups[key]) groups[key] = { lat, lng, count: 0 };
+            groups[key].count++;
+        });
+
+        const heatData = Object.values(groups).map(g => [g.lat, g.lng, g.count]);
+        if (!heatData.length) return null;
+
+        const maxCount = Math.max(...heatData.map(d => d[2]));
+        console.log(`${label} heatmap: ${heatData.length} bins, max ${maxCount} per bin`);
+        const { radius, blur } = this.heatRadiusForZoom();
+        const layer = L.heatLayer(heatData, {
+            radius,
+            blur,
+            maxZoom: 10,
+            max: AttackMapDashboard.HEAT_FULL_INTENSITY,
+            gradient,
+            pane: 'sourceHeat'
+        }).addTo(this.map);
+        // Screen blending inside the isolated pane: red + blue reads purple
+        // instead of whichever canvas is on top winning
+        if (layer._canvas) layer._canvas.style.mixBlendMode = 'screen';
+        return layer;
+    }
+
+    /** Glow radius/blur for the current zoom, so the surfaces stay continuous
+     *  instead of separating into isolated flashes as you zoom in. */
+    heatRadiusForZoom() {
+        const zoom = this.map ? this.map.getZoom() : AttackMapDashboard.HEAT_REF_ZOOM;
+        const scale = Math.pow(2, (zoom - AttackMapDashboard.HEAT_REF_ZOOM) * AttackMapDashboard.HEAT_ZOOM_EXPONENT);
+        const [min, max] = AttackMapDashboard.HEAT_RADIUS_RANGE;
+        const radius = Math.round(Math.min(max, Math.max(min, AttackMapDashboard.HEAT_BASE_RADIUS * scale)));
+        return { radius, blur: Math.round(radius * 0.8) };
+    }
+
+    /** Resize the existing surfaces in place on zoom — cheaper than rebinning. */
+    rescaleSourceHeatmaps() {
+        const layers = [this.gsuaHeatLayer, this.modrHeatLayer].filter(Boolean);
+        if (!layers.length) return;
+        const { radius, blur } = this.heatRadiusForZoom();
+        layers.forEach(layer => layer.setOptions({ radius, blur }));
+    }
+
+    /** Blue density surface over the GSUA location markers. */
+    renderGsuaHeatmap() {
+        if (this.gsuaHeatLayer) {
+            this.map.removeLayer(this.gsuaHeatLayer);
+            this.gsuaHeatLayer = null;
+        }
+        if (this.markerDisplayMode() !== 'heatmap' || this.isChecked('hide-markers')) return;
+
+        const points = this.filterDataByDateRange().locationData
+            .map(item => ({ lat: parseFloat(item.Lat), lng: parseFloat(item.Lon) }));
+        this.gsuaHeatLayer = this.buildSourceHeatLayer(
+            points, AttackMapDashboard.HEAT_GRADIENT_BLUE, 'GSUA'
+        );
+    }
+
+    /** Red density surface over the MoDR attack markers. */
+    renderModrHeatmap() {
+        if (this.modrHeatLayer) {
+            this.map.removeLayer(this.modrHeatLayer);
+            this.modrHeatLayer = null;
+        }
+        if (this.markerDisplayMode() !== 'heatmap') return;
+
+        const points = (this.modrData || []).map(item => ({ lat: item.lat, lng: item.lng }));
+        this.modrHeatLayer = this.buildSourceHeatLayer(
+            points, AttackMapDashboard.HEAT_GRADIENT_RED, 'MoDR'
+        );
+    }
+
+    /**
+     * Reporting-coverage index: geolocated events per GSUA-reported attack, per
+     * frontline region. A low index means heavy reported fighting with little
+     * geolocated evidence — i.e. an under-reported area.
+     */
+    renderEventCoverageIndex() {
+        if (!this.eventCoverageLabels) {
+            this.eventCoverageLabels = L.layerGroup().addTo(this.map);
+        }
+        this.eventCoverageLabels.clearLayers();
+        if (!this.isChecked('event-coverage')) return;
+
+        const directionData = this.filterDataByDateRange().directionData;
+        if (!directionData.length) {
+            console.log('Coverage index: no GSUA direction data — enable "GSUA direction" for the selected range');
+            return;
+        }
+        const attacksByRegion = this.calculateAttackStatistics(directionData).regions;
+
+        const regions = AttackMapDashboard.TACTICAL_REGIONS;
+        const eventsByRegion = {};
+        regions.forEach(name => { eventsByRegion[name] = 0; });
+        let outOfRegion = 0;
+
+        this.collectEventPoints().forEach(({ lat, lng }) => {
+            const point = turf.point([lng, lat]);
+            const region = regions.find(name => {
+                const polygon = this.regionPolygonCache.get(name);
+                if (!polygon) return false;
+                try {
+                    return turf.booleanPointInPolygon(point, polygon);
+                } catch (e) {
+                    return false;
+                }
+            });
+            if (region) eventsByRegion[region]++;
+            else outOfRegion++;
+        });
+
+        // Scale is self-calibrating: each region is judged against the overall
+        // events-per-attack ratio for this date range, not a fixed threshold.
+        const rows = regions
+            .filter(name => (attacksByRegion[name] || 0) > 0)
+            .map(name => ({
+                name,
+                attacks: attacksByRegion[name],
+                events: eventsByRegion[name],
+                index: eventsByRegion[name] / attacksByRegion[name]
+            }));
+
+        const totalAttacks = rows.reduce((sum, r) => sum + r.attacks, 0);
+        const totalEvents = rows.reduce((sum, r) => sum + r.events, 0);
+        const overall = totalAttacks ? totalEvents / totalAttacks : 0;
+
+        console.log(`Reporting coverage ${this.formatDate(this.startDate)} → ${this.formatDate(this.endDate)} (overall ${overall.toFixed(2)} events/attack):`);
+        if (!rows.length) {
+            console.log('  (no region with reported attacks in range)');
+        }
+
+        rows.forEach(({ name, attacks, events, index }) => {
+            const relative = overall ? index / overall : 1;
+            const color = relative < 0.66 ? 'red' : relative > 1.5 ? 'green' : 'orange';
+            const verdict = color === 'red' ? 'under-reported' : color === 'green' ? 'well covered' : 'typical';
+            console.log(`  ${name}: ${index.toFixed(2)} (${events} events / ${attacks} attacks) — ${verdict}`);
+
+            const coordinates = this.regionCoordinates[name];
+            if (!coordinates) return;
+            const text = index.toFixed(2);
+            const w = Math.max(40, text.length * 10 + 16);
+            const h = 26;
+            const icon = L.divIcon({
+                className: `attack-label border-${color}`,
+                html: `<div style="font-size:14px; line-height:1;">${text}</div>`,
+                iconSize: [w, h],
+                iconAnchor: [w / 2, h / 2]
+            });
+            L.marker(coordinates, { icon })
+                .bindTooltip(`${name}: ${events} events / ${attacks} attacks — ${verdict}`)
+                .addTo(this.eventCoverageLabels);
+        });
+
+        console.log(`  outside frontline regions: ${outOfRegion} events (heatmap only)`);
     }
 
     /**
@@ -4148,6 +4455,12 @@ class AttackMapDashboard {
             if (this.deepLayerRefreshDebounce) clearTimeout(this.deepLayerRefreshDebounce);
             this.deepLayerRefreshDebounce = setTimeout(() => {
                 if (this.isChecked('diff-area') && this.renderDeepLayer) this.renderDeepLayer();
+            }, 800);
+            // Coverage index reads GSUA direction counts, which follow the slider
+            // even when the event feeds themselves are not re-fetched
+            if (this.coverageRefreshDebounce) clearTimeout(this.coverageRefreshDebounce);
+            this.coverageRefreshDebounce = setTimeout(() => {
+                if (this.isChecked('event-coverage')) this.renderEventCoverageIndex();
             }, 800);
             if (this.overlayDiffRefreshDebounce) clearTimeout(this.overlayDiffRefreshDebounce);
             this.overlayDiffRefreshDebounce = setTimeout(() => {
@@ -4410,7 +4723,15 @@ class AttackMapDashboard {
         this.updateStatistics(stats);
 
         // Add location markers with optional grouping by settlement and source
-        if (!this.isChecked('hide-markers')) {
+        const heatmapMode = this.markerDisplayMode() === 'heatmap';
+        if (heatmapMode) {
+            // Density surface instead of pins; region chips are added below and
+            // still need this.markers on the map
+            this.map.removeLayer(this.ungroupedMarkers);
+            if (!this.map.hasLayer(this.markers)) {
+                this.map.addLayer(this.markers);
+            }
+        } else if (!this.isChecked('hide-markers')) {
             const groupMarkers = this.getEl('group-markers')?.checked !== false;
 
             if (groupMarkers) {
@@ -4589,6 +4910,8 @@ class AttackMapDashboard {
             this.map.removeLayer(this.ungroupedMarkers);
         }
 
+        this.renderGsuaHeatmap();
+
         // Handle GSUA heatmap layer
         if (this.heatmapLayer) {
             this.map.removeLayer(this.heatmapLayer);
@@ -4732,6 +5055,10 @@ class AttackMapDashboard {
      * Add region attack labels to map
      */
     addRegionLabels(stats, filteredData) {
+        // Coverage index puts its own chip on every region centroid — the two
+        // label sets would sit on top of each other.
+        if (this.isChecked('event-coverage')) return;
+
         // When diff slices are active, compare the most recent slice against the
         // average of the previous slices, per region.
         const sliceCompare = this.getRegionSliceComparison();

@@ -127,6 +127,12 @@
                                         class="toggle-switch"></span>Direction</label>
                                 <label class="toggle-label"><input type="checkbox" id="feature-modr" /><span
                                         class="toggle-switch"></span>MoDR</label>
+                                <select id="marker-display" class="control-select" style="width:auto;"
+                                    title="How GSUA and MoDR markers are drawn">
+                                    <option value="cluster" selected>Cluster</option>
+                                    <option value="none">No cluster</option>
+                                    <option value="heatmap">Heatmap</option>
+                                </select>
                             </div>
                         </div>
                         <div class="control-group">
@@ -383,11 +389,16 @@
                         Events
                     </div>
                     <div class="accordion-body" style="display:none;">
-                        <div class="toggle-row" style="display:flex; align-items:center; gap:6px;">
+                        <div id="events-controls" class="toggle-row"
+                            style="display:flex; align-items:center; gap:6px;">
                             <label class="toggle-label"><input type="checkbox" id="feature-events" /><span
                                     class="toggle-switch"></span>Events <small>(31 recent days)</small></label>
                             <button id="events-reload-btn" title="Reload events"
                                 style="display:none; background:none; border:1px solid #555; border-radius:10px; color:#ccc; cursor:pointer; padding:2px 5px; font-size:14px; line-height:1;">&#x21BB;</button>
+                        </div>
+                        <div id="events-locked" class="locked-hint" style="display:none;">
+                            Events: <a href="https://map.ukrdailyupdate.com" target="_blank"
+                                rel="noopener">map.ukrdailyupdate.com</a>
                         </div>
                         <div id="events-filter-list" style="display:none; margin-top:6px;"></div>
                         <div id="events-attribution" class="attribution" style="display:none;">
@@ -403,11 +414,17 @@
                         </div>
                         <div class="toggle-row" style="display:flex; align-items:center; gap:6px;">
                             <label class="toggle-label"><input type="checkbox" id="feature-owl-events" /><span
-                                    class="toggle-switch"></span>OWL</label>
+                                    class="toggle-switch"></span>UAControlMap</label>
                         </div>
                         <div id="owl-events-filter-list" style="display:none; margin-top:6px;"></div>
                         <div id="owl-events-attribution" class="attribution" style="display:none;">
                             Data: <a href="https://x.com/UAControlMap" target="_blank">@UAControlMap</a>
+                        </div>
+                        <div class="toggle-row" style="display:flex; align-items:center; gap:6px;">
+                            <label class="toggle-label"><input type="checkbox" id="event-heatmap" /><span
+                                    class="toggle-switch"></span>Heatmap</label>
+                            <label class="toggle-label"><input type="checkbox" id="event-coverage" /><span
+                                    class="toggle-switch"></span>Coverage index</label>
                         </div>
                         <div class="control-group">
                             <label class="control-label">FIRMS Fires (NASA)</label>
@@ -1134,6 +1151,7 @@ Situation report:
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
