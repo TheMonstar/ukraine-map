@@ -183,6 +183,9 @@ export class BuildingsFeature {
         this.records = [];     // per-building style indices + vertex ranges for reDrape
         this.footprints = [];  // local {x,z} outer rings for player collision
         this.textures = [];
+        // faceIndex → record lookup, per texture style (built after merging)
+        this.wallPick = [];
+        this.roofPick = [];
     }
 
     // Prefers Mapbox vector tiles (same source the main map's buildings-3d layer
@@ -234,25 +237,70 @@ export class BuildingsFeature {
         });
         if (!this.records.length) return;
 
-        const buildBucket = (bucket, makeTexture, tileM, roughness, metalness) => {
+        const buildBucket = (bucket, makeTexture, tileM, roughness, metalness, kind, style) => {
             if (!bucket.geos.length) return null;
             const geometry = mergeGeometries(bucket.geos);
             bucket.geos.forEach(g => g.dispose());
             const texture = makeTexture();
             texture.repeat.set(1 / tileM, 1 / tileM);
             this.textures.push(texture);
+            // Walls are double-sided so a building whose roof the sandbox has blown off
+            // reads as a hollow shell rather than a few paper-thin slivers.
             const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-                map: texture, vertexColors: true, roughness, metalness
+                map: texture, vertexColors: true, roughness, metalness,
+                side: kind === 'wall' ? THREE.DoubleSide : THREE.FrontSide
             }));
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+            mesh.userData.buildingPart = kind;   // 'wall' | 'roof' — read by the sandbox picker
+            mesh.userData.style = style;
             this.group.add(mesh);
             this.meshes.push(mesh);
             return mesh;
         };
-        this.wallMeshes = wallBuckets.map((b, s) => buildBucket(b, WALL_MAKERS[s], WALL_TILE_M, 0.9, 0.0));
-        this.roofMeshes = roofBuckets.map((b, s) => buildBucket(b, ROOF_MAKERS[s], ROOF_TILE_M, 0.75, 0.15));
+        this.wallMeshes = wallBuckets.map((b, s) => buildBucket(b, WALL_MAKERS[s], WALL_TILE_M, 0.9, 0.0, 'wall', s));
+        this.roofMeshes = roofBuckets.map((b, s) => buildBucket(b, ROOF_MAKERS[s], ROOF_TILE_M, 0.75, 0.15, 'roof', s));
+        this._buildPickIndex();
         this.records.forEach(r => { delete r.walls; delete r.roof; });
+    }
+
+    // Per style, the sorted vertex-range starts and the record they belong to.
+    // Records were pushed in build order, so within a style the starts are already
+    // ascending — `buildingAt` binary-searches them.
+    _buildPickIndex() {
+        const collect = (startKey, styleKey) => {
+            const perStyle = [];
+            this.records.forEach((r, i) => {
+                const s = r[styleKey];
+                (perStyle[s] || (perStyle[s] = [])).push(i);
+            });
+            return perStyle.map(list => list && ({
+                starts: Int32Array.from(list, i => this.records[i][startKey]),
+                recs: Int32Array.from(list)
+            }));
+        };
+        this.wallPick = collect('wallStart', 'wallStyle');
+        this.roofPick = collect('roofStart', 'roofStyle');
+    }
+
+    // Resolve a raycast hit on one of the merged meshes back to a building record.
+    // The merged geometries are non-indexed, so vertex index = faceIndex * 3.
+    buildingAt(mesh, faceIndex) {
+        const kind = mesh.userData.buildingPart;
+        if (!kind) return null;
+        const index = (kind === 'wall' ? this.wallPick : this.roofPick)[mesh.userData.style];
+        if (!index) return null;
+        const vertex = faceIndex * 3;
+        const countKey = kind === 'wall' ? 'wallCount' : 'roofCount';
+        const startKey = kind === 'wall' ? 'wallStart' : 'roofStart';
+        let lo = 0, hi = index.starts.length - 1, hit = -1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (index.starts[mid] <= vertex) { hit = mid; lo = mid + 1; } else hi = mid - 1;
+        }
+        if (hit < 0) return null;
+        const rec = this.records[index.recs[hit]];
+        return vertex < rec[startKey] + rec[countKey] ? rec : null;
     }
 
     // Mapbox tiles carry placeholder heights and a generic type for most buildings;
@@ -322,13 +370,16 @@ export class BuildingsFeature {
             height > 8.5 || (isFinite(levels) && levels >= 3);
 
         let parts = null;
+        let wallTopY;   // world Y of the wall top (eaves) — where damage cuts and roof markers go
         const openQuad = footprint.slice(0, -1);
         if (!industrial && !multistory && coords.length === 1 && openQuad.length === 4 &&
             localRingArea(footprint) < GABLE_MAX_AREA && isRectangularQuad(openQuad)) {
             const wallH = Math.max(2.5, height - GABLE_RISE) + BASE_SINK;
             parts = buildGabledGeometry(openQuad, baseY, wallH, GABLE_RISE);
+            wallTopY = baseY + wallH;
         } else {
             parts = this._buildExtruded(coords, height + BASE_SINK, baseY, toLocal);
+            wallTopY = baseY + height + BASE_SINK;
         }
         if (!parts) return null;
 
@@ -368,7 +419,18 @@ export class BuildingsFeature {
         }
         addTint(parts.walls, ...wallTint);
         addTint(parts.roof, ...roofTint);
-        return { walls: parts.walls, roof: parts.roof, footprint, baseY, wallStyle, roofStyle };
+
+        // Stable-ish key for save/load: footprint centroid rounded to 0.5 m. There is no
+        // OSM id left after the merge, and it would not survive the Mapbox/Overpass split.
+        let cx = 0, cz = 0;
+        footprint.forEach(p => { cx += p.x; cz += p.z; });
+        cx /= footprint.length; cz /= footprint.length;
+        const id = `${Math.round(cx * 2)}_${Math.round(cz * 2)}`;
+
+        return {
+            walls: parts.walls, roof: parts.roof, footprint, baseY, wallStyle, roofStyle,
+            id, wallTopY, centroid: { x: cx, z: cz }, damage: 0
+        };
     }
 
     _buildExtruded(coords, depth, baseY, toLocal) {
@@ -420,6 +482,9 @@ export class BuildingsFeature {
                 roofPos.setY(i, roofPos.getY(i) + delta);
             }
             r.baseY += delta;
+            r.wallTopY += delta;
+            // `_orig` (damage undo snapshot) keeps its own baseY on purpose: restore shifts
+            // the snapshot by (current baseY − snapshot baseY) so undo survives re-draping.
         });
         this.meshes.forEach(m => {
             m.geometry.attributes.position.needsUpdate = true;
@@ -436,5 +501,7 @@ export class BuildingsFeature {
         this.records = [];
         this.footprints = [];
         this.textures = [];
+        this.wallPick = [];
+        this.roofPick = [];
     }
 }

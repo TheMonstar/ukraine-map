@@ -1429,6 +1429,23 @@ class MapLayers {
 
     // Sentinel-1 overlay removed in public version
 
+    /**
+     * Is this payload GeoJSON rather than KML? The URL extension alone is not
+     * enough — API endpoints serve GeoJSON from paths like
+     * `/frontline-geojson?date=…` with no extension at all. Prefer the declared
+     * content type, fall back to the extension, then sniff the body.
+     */
+    static looksLikeGeoJson(source, text, contentType = '') {
+        if (/json/i.test(contentType)) return true;
+        if (/xml|kml/i.test(contentType)) return false;
+
+        const path = String(source || '').split(/[?#]/)[0].toLowerCase();
+        if (path.endsWith('.geojson') || path.endsWith('.json')) return true;
+        if (path.endsWith('.kml')) return false;
+
+        return /^\s*[{[]/.test(text || '');
+    }
+
     async loadCustomKml(url) {
         const dashboard = this.dashboard;
         try {
@@ -1438,15 +1455,15 @@ class MapLayers {
             dashboard.customKmlUrl = url;
 
             const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
 
-            // Detect if it's GeoJSON or KML based on URL extension or content
-            const isGeoJson = url.toLowerCase().endsWith('.geojson') || url.toLowerCase().endsWith('.json');
+            const contentType = response.headers.get('content-type') || '';
             const text = await response.text();
 
-            this.processCustomKmlText(text, isGeoJson);
+            this.processCustomKmlText(text, MapLayers.looksLikeGeoJson(url, text, contentType));
         } catch (error) {
             console.error('Error loading custom KML:', error);
-            alert('Failed to load custom KML. Check console for details.');
+            alert(`Failed to load custom layer: ${error.message}`);
         }
     }
 
@@ -1458,14 +1475,12 @@ class MapLayers {
             // Local files have no URL; clear any previously stored one
             dashboard.customKmlUrl = '';
 
-            const name = file.name.toLowerCase();
-            const isGeoJson = name.endsWith('.geojson') || name.endsWith('.json');
             const text = await file.text();
 
-            this.processCustomKmlText(text, isGeoJson);
+            this.processCustomKmlText(text, MapLayers.looksLikeGeoJson(file.name, text, file.type));
         } catch (error) {
             console.error('Error loading custom KML file:', error);
-            alert('Failed to load custom KML file. Check console for details.');
+            alert(`Failed to load custom layer file: ${error.message}`);
         }
     }
 
@@ -1483,6 +1498,15 @@ class MapLayers {
                 const kmlDoc = parser.parseFromString(text, 'text/xml');
                 geojson = this.parseKmlToGeoJSON(kmlDoc);
                 console.log('Detected KML format');
+            }
+
+            // A misdetected format parses "successfully" into nothing, which
+            // used to surface as a silent no-op or a confusing forEach crash
+            if (!geojson || !Array.isArray(geojson.features)) {
+                throw new Error('no FeatureCollection found — is this KML or GeoJSON?');
+            }
+            if (!geojson.features.length) {
+                throw new Error('parsed correctly but contains 0 features');
             }
 
             // Store the GeoJSON data for layer comparison
@@ -1522,7 +1546,7 @@ class MapLayers {
 
         } catch (error) {
             console.error('Error parsing custom KML:', error);
-            alert('Failed to parse custom KML. Check console for details.');
+            alert(`Failed to parse custom layer: ${error.message}`);
         }
     }
 

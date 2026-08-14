@@ -12,9 +12,12 @@ import { VegetationFeature } from './features/vegetation.js';
 import { GrassFeature } from './features/grass.js';
 import { SettlementsFeature } from './features/settlements.js';
 import { DeepStateFeature } from './features/deepstate.js';
+import { FortificationsFeature } from './features/fortifications.js';
+import { WaterLabelsFeature } from './features/water-labels.js';
 import { Player } from './player.js';
 import { Drone } from './drone.js';
 import { HideSeekGame } from './game.js';
+import { Sandbox } from './sandbox/sandbox.js';
 
 function showError(msg) {
     const banner = document.getElementById('error-banner');
@@ -78,7 +81,9 @@ async function init() {
 
     // ── Renderer / scene / camera ──────────────────────────────────────────
     const canvas = document.getElementById('scene-canvas');
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    // preserveDrawingBuffer: the sandbox screenshot export reads the canvas back with
+    // toDataURL, which returns a blank image without it.
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -204,7 +209,10 @@ async function init() {
     const grass = new GrassFeature();
     const settlements = new SettlementsFeature();
     const deepstate = new DeepStateFeature();
-    const features = [roads, water, ditches, buildings, vegetation, grass, settlements, deepstate];
+    const waterLabels = new WaterLabelsFeature();
+    const wireLayer = new FortificationsFeature('wire');
+    const teethLayer = new FortificationsFeature('teeth');
+    const features = [roads, water, ditches, buildings, vegetation, grass, settlements, deepstate, waterLabels, wireLayer, teethLayer];
 
     const [mapFeatures] = await Promise.all([
         fetchMapFeatures(bbox).catch(e => { console.warn('Overpass map features failed:', e); return null; }),
@@ -218,6 +226,7 @@ async function init() {
 
     await Promise.all([
         water.load(bbox, mapFeatures),
+        waterLabels.load(bbox, mapFeatures),
         buildings.load(bbox, mapFeatures),
         vegetation.load(bbox, mapFeatures),
         grass.load(bbox, mapFeatures),
@@ -244,10 +253,40 @@ async function init() {
     document.getElementById('layer-vegetation').addEventListener('change', e => { vegetation.group.visible = e.target.checked; });
     document.getElementById('layer-grass').addEventListener('change', e => { grass.group.visible = e.target.checked; });
     document.getElementById('layer-settlements').addEventListener('change', e => { settlements.group.visible = e.target.checked; });
+    document.getElementById('layer-river-names').addEventListener('change', e => { waterLabels.group.visible = e.target.checked; });
     document.getElementById('layer-deepstate').addEventListener('change', e => { deepstate.group.visible = e.target.checked; });
+    // Wire and teeth are fetched lazily — the PlayFra source files are several MB,
+    // so nothing is downloaded unless the layer is actually switched on.
+    [[wireLayer, 'layer-wire'], [teethLayer, 'layer-teeth']].forEach(([layer, id]) => {
+        const checkbox = document.getElementById(id);
+        checkbox.addEventListener('change', async e => {
+            if (!e.target.checked) { layer.group.visible = false; return; }
+            const hint = document.getElementById('sandbox-hint');
+            checkbox.disabled = true;
+            hint.textContent = `Loading ${layer.type}…`;
+            const status = await layer.ensure(terrain, proj, bbox);
+            checkbox.disabled = false;
+            layer.group.visible = checkbox.checked;
+            // Report to the UI, not just the console: a belt is only ~1 px from the
+            // overview camera, so "nothing happened" is otherwise indistinguishable
+            // from "this sector has no obstacles mapped".
+            hint.textContent = status;
+        });
+    });
     document.getElementById('layer-glow').addEventListener('change', e => { scene.fog = e.target.checked ? fog : null; });
 
     setStep('scene', 'active');
+
+    // ── Tactical sandbox (draw / mark / destroy / fortify / export) ─────────
+    const sandbox = new Sandbox({
+        canvas, scene, camera, controls, renderer, terrain, proj, buildings, ditches, vegetation,
+        info: {
+            lat, lng, size,
+            title: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+            subtitle: `${size} km sector · ${date} · Ukraine Frontline Map`
+        }
+    });
+    scene.add(sandbox.group);
 
     // ── Exaggeration slider ────────────────────────────────────────────────
     const slider = document.getElementById('exaggeration-slider');
@@ -257,6 +296,7 @@ async function init() {
         valueLabel.textContent = k.toFixed(1);
         terrain.setExaggeration(k);
         features.forEach(f => f.reDrape(terrain));
+        sandbox.reDrape(terrain);
         apron.position.y = terrainMinH * k - 4;
     });
 
@@ -325,6 +365,11 @@ async function init() {
         moveSpeedScale = k;
     });
 
+    // The sandbox owns the pointer only in overview; walk/drone/freecam take it back.
+    function syncSandbox() {
+        sandbox.setEnabled(!(walkMode || droneMode || freecamMode));
+    }
+
     // walk / drone / free camera are mutually exclusive
     function uncheckOthers(self) {
         [walkCheckbox, droneCheckbox, freecamCheckbox].forEach(cb => {
@@ -350,6 +395,7 @@ async function init() {
             scene.remove(player.mesh);
             exitFollow();
         }
+        syncSandbox();
     });
 
     droneCheckbox.addEventListener('change', e => {
@@ -367,6 +413,7 @@ async function init() {
             scene.remove(drone.mesh);
             exitFollow();
         }
+        syncSandbox();
     });
 
     // Free camera: fly the view itself with WASD + R/F; the camera keeps its
@@ -401,6 +448,7 @@ async function init() {
             freecamKeys.clear();
             exitFollow();
         }
+        syncSandbox();
     });
 
     // ── Hide & seek game ────────────────────────────────────────────────────
@@ -435,6 +483,7 @@ async function init() {
 
     setStep('scene', 'done');
     hideLoadingOverlay();
+    sandbox.restoreAutosave();
 
     // ── Render loop ─────────────────────────────────────────────────────────
     const clock = new THREE.Clock();
@@ -457,6 +506,7 @@ async function init() {
         controls.update();
         water.update(clock.elapsedTime);
         game.update(dt, droneMode ? drone.mesh.position : null);
+        sandbox.update();
 
         // Enlarge trees as the camera pulls back so the canopy stays readable and the
         // terrain feels 3D from far; ~1× up close, up to ~2.2× when fully zoomed out.

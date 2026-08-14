@@ -105,6 +105,10 @@ export class VegetationFeature {
         this.group.name = 'vegetation';
         this.meshes = [];
         this.placements = [];
+        // Placement indices currently hidden by the sandbox eraser, with the instance
+        // matrix each one had before it was zeroed (rotation and scale are random at
+        // build time and stored nowhere else, so they must be saved to be restorable).
+        this.hidden = new Map();
         // Live uniform: trees grow about their base as the camera zooms out (set each frame).
         this.zoomScale = { value: 1 };
     }
@@ -201,6 +205,7 @@ export class VegetationFeature {
         const tint = new THREE.Color();
         const idx = [0, 0];
         placements.forEach(p => {
+            p.instanceIndex = idx[p.type];   // explicit, so nothing depends on array order
             dummy.position.set(p.x, terrain.sampleHeight(p.x, p.z), p.z);
             dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
             dummy.scale.setScalar((0.7 + Math.random() * 0.6) * densityScale);
@@ -223,13 +228,64 @@ export class VegetationFeature {
         });
     }
 
+    // Placement indices whose tree centre falls inside a circle (local metres).
+    treesWithin(cx, cz, radius) {
+        const r2 = radius * radius;
+        const hits = [];
+        this.placements.forEach((p, i) => {
+            const dx = p.x - cx, dz = p.z - cz;
+            if (dx * dx + dz * dz <= r2) hits.push(i);
+        });
+        return hits;
+    }
+
+    /**
+     * Hide or restore trees by placement index — the sandbox eraser's "clear the
+     * treeline" primitive. Hiding collapses the instance matrix to zero scale, which
+     * costs nothing to render; the original matrix is kept so undo is exact.
+     */
+    setHidden(placementIndices, hidden) {
+        if (!this.meshes.length) return;
+        const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+        const touched = new Set();
+        placementIndices.forEach(index => {
+            const p = this.placements[index];
+            if (!p) return;
+            const mesh = this.meshes[p.type];
+            if (!mesh) return;
+            if (hidden) {
+                if (this.hidden.has(index)) return;
+                const saved = new THREE.Matrix4();
+                mesh.getMatrixAt(p.instanceIndex, saved);
+                this.hidden.set(index, saved);
+                mesh.setMatrixAt(p.instanceIndex, zero);
+            } else {
+                const saved = this.hidden.get(index);
+                if (!saved) return;
+                mesh.setMatrixAt(p.instanceIndex, saved);
+                this.hidden.delete(index);
+            }
+            touched.add(mesh);
+        });
+        touched.forEach(m => { m.instanceMatrix.needsUpdate = true; });
+    }
+
     reDrape(terrain) {
         if (!this.placements.length) return;
         const dummy = new THREE.Object3D();
-        const idx = [0, 0];
-        this.placements.forEach(p => {
+        this.placements.forEach((p, placementIndex) => {
+            // Hidden trees carry a zero-scale matrix; decomposing that yields a
+            // degenerate quaternion, so re-ground the saved matrix instead.
+            const saved = this.hidden.get(placementIndex);
+            if (saved) {
+                saved.decompose(dummy.position, dummy.quaternion, dummy.scale);
+                dummy.position.y = terrain.sampleHeight(p.x, p.z);
+                dummy.updateMatrix();
+                saved.copy(dummy.matrix);
+                return;
+            }
             const mesh = this.meshes[p.type];
-            const i = idx[p.type]++;
+            const i = p.instanceIndex;
             mesh.getMatrixAt(i, dummy.matrix);
             dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
             dummy.position.y = terrain.sampleHeight(p.x, p.z);

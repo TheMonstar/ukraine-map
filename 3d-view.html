@@ -87,10 +87,13 @@
             <label class="layer-toggle"><input type="checkbox" id="layer-roads" checked> Roads</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-water" checked> Water</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-ditches" checked> Ditches</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-wire"> Barbed wire</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-teeth"> Dragon's teeth</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-buildings" checked> Buildings</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-vegetation" checked> Vegetation</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-grass" checked> Grass</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-settlements"> Settlement titles</label>
+            <label class="layer-toggle"><input type="checkbox" id="layer-river-names"> River names</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-deepstate"> DeepState control</label>
             <label class="layer-toggle"><input type="checkbox" id="layer-glow" checked> Atmosphere glow</label>
         </div>
@@ -103,11 +106,137 @@
         <div class="legend-item"><span class="swatch" style="background:#4a4540;"></span>Roads</div>
         <div class="legend-item"><span class="swatch" style="background:#3b6ea5;"></span>Water</div>
         <div class="legend-item"><span class="swatch" style="background:#3d2f1f;"></span>Ditches</div>
+        <div class="legend-item"><span class="swatch" style="background:#8a8378;"></span>Barbed wire</div>
+        <div class="legend-item"><span class="swatch" style="background:#b8b4ad;"></span>Dragon's teeth</div>
         <div class="legend-item"><span class="swatch" style="background:#b0a090;"></span>Buildings</div>
         <div class="legend-item"><span class="swatch" style="background:#3a5a32;"></span>Vegetation</div>
         <div class="legend-item"><span class="swatch" style="background:#6f9a3e;"></span>Grass</div>
         <div class="legend-item"><span class="swatch" style="background:#dc2626;"></span>Occupied (DeepState)</div>
         <div class="legend-item"><span class="swatch" style="background:#9ca3af;"></span>Grey zone</div>
+    </div>
+
+    <div id="sandbox-toolbar">
+        <div id="sandbox-options">
+            <div class="opt hidden" data-for="arrow phaseLine marker foxhole unit paint">
+                <span class="opt-label">Side</span>
+                <div class="seg" id="opt-side">
+                    <button data-value="red" class="active">RU</button>
+                    <button data-value="blue">UA</button>
+                    <button data-value="neutral">Neutral</button>
+                </div>
+            </div>
+            <div class="opt hidden" data-for="arrow phaseLine">
+                <span class="opt-label">Width</span>
+                <input type="range" id="opt-width" min="6" max="90" step="2" value="24">
+            </div>
+            <div class="opt hidden" data-for="marker">
+                <span class="opt-label">Head</span>
+                <select id="opt-symbol">
+                    <option value="">Pin</option>
+                </select>
+            </div>
+            <div class="opt hidden" data-for="marker unit">
+                <span class="opt-label">Label</span>
+                <input type="text" id="opt-label" placeholder="optional">
+            </div>
+            <div class="opt hidden" data-for="marker foxhole wire teeth ditch unit">
+                <span class="opt-label">Size</span>
+                <input type="range" id="opt-scale" min="0.25" max="4" step="0.05" value="1">
+            </div>
+            <div class="opt hidden" data-for="wire teeth ditch">
+                <span class="opt-label">Belt</span>
+                <label class="opt-check"><input type="checkbox" id="opt-belt-wire"> Wire</label>
+                <label class="opt-check"><input type="checkbox" id="opt-belt-teeth"> Teeth</label>
+                <span class="opt-label">Ditches</span>
+                <div class="seg" id="opt-ditch-count">
+                    <button data-value="0" class="active">0</button>
+                    <button data-value="1">1</button>
+                    <button data-value="2">2</button>
+                    <button data-value="3">3</button>
+                </div>
+            </div>
+            <div class="opt hidden" data-for="wire teeth ditch" id="opt-wire-row">
+                <span class="opt-label">Extra wire</span>
+                <label class="opt-check"><input type="checkbox" id="opt-wire-front"> Front</label>
+                <label class="opt-check"><input type="checkbox" id="opt-wire-behind"> Behind</label>
+            </div>
+            <div class="opt hidden" data-for="wire teeth ditch" id="opt-friendly-row">
+                <span class="opt-label">Friendly side</span>
+                <div class="seg" id="opt-friendly-side">
+                    <button data-value="left">Left</button>
+                    <button data-value="right" class="active">Right</button>
+                </div>
+            </div>
+            <div class="opt hidden" data-for="wire teeth ditch">
+                <span class="opt-label">Width</span>
+                <input type="range" id="opt-belt-width" min="10" max="100" step="2" value="30">
+            </div>
+            <div class="opt opt-block hidden" data-for="unit">
+                <span class="opt-label">Symbol</span>
+                <div id="opt-unit-palette" role="listbox" aria-label="Unit symbols"></div>
+            </div>
+            <div class="opt hidden" data-for="erase paint">
+                <span class="opt-label">Brush</span>
+                <input type="range" id="opt-brush" min="20" max="600" step="10" value="120">
+            </div>
+            <div class="opt hidden" data-for="paint">
+                <span class="opt-label">Strength</span>
+                <input type="range" id="opt-paint-alpha" min="0.1" max="1" step="0.05" value="0.45">
+            </div>
+            <div class="opt hidden" data-for="crater">
+                <span class="opt-label">Radius</span>
+                <select id="opt-crater">
+                    <option value="5">5 m</option>
+                    <option value="10" selected>10 m</option>
+                    <option value="20">20 m</option>
+                    <option value="40">40 m</option>
+                </select>
+            </div>
+            <div class="opt hidden" data-for="arrow phaseLine wire teeth ditch">
+                <label class="opt-check"><input type="checkbox" id="opt-freehand"> Freehand drag</label>
+            </div>
+            <div class="opt hidden" data-for="wire teeth ditch">
+                <button id="opt-ditch-line">Line all ditches</button>
+            </div>
+            <div class="opt hidden" data-for="screenshot">
+                <span class="opt-label">Res</span>
+                <select id="opt-shot-scale">
+                    <option value="1">1&times;</option>
+                    <option value="2" selected>2&times;</option>
+                    <option value="4">4&times;</option>
+                </select>
+                <label class="opt-check"><input type="checkbox" id="opt-poster" checked> Title block</label>
+                <input type="text" id="opt-title" placeholder="Illustration title">
+                <button id="opt-capture">Capture PNG</button>
+            </div>
+        </div>
+
+        <div class="tools">
+            <button data-tool="select" title="Select / delete (1)">&#10132;</button>
+            <button data-tool="arrow" title="Advance arrow (2)">&#10148;</button>
+            <button data-tool="phaseLine" title="Phase line (3)">&#8213;</button>
+            <button data-tool="marker" title="Map marker (4)">&#9873;</button>
+            <button data-tool="unit" title="Unit symbol (5)">&#9635;</button>
+            <button data-tool="foxhole" title="Foxhole / dug-in position (6)">&#9678;</button>
+            <button data-tool="destroy" title="Destroy building (7)">&#9762;</button>
+            <button data-tool="wire" title="Barbed wire (8)">&#8767;</button>
+            <button data-tool="teeth" title="Dragon's teeth (9)">&#9652;</button>
+            <button data-tool="ditch" title="Anti-tank ditch (0)">&#9698;</button>
+            <button data-tool="crater" title="Impact crater">&#9679;</button>
+            <button data-tool="erase" title="Zone eraser — clear trees &amp; buildings">&#9619;</button>
+            <button data-tool="paint" title="Control paint">&#9608;</button>
+            <button data-tool="screenshot" title="Screenshot">&#128247;</button>
+            <span class="sep"></span>
+            <button id="sandbox-undo" title="Undo (Ctrl+Z)">&#8630;</button>
+            <button id="sandbox-clear" title="Clear all sandbox edits">Clear</button>
+            <button id="sandbox-save" title="Save sandbox JSON">Save</button>
+            <button id="sandbox-load" title="Load sandbox JSON">Load</button>
+        </div>
+
+        <div id="sandbox-meta">
+            <span id="sandbox-hint"></span>
+            <span id="sandbox-count"></span>
+        </div>
     </div>
 
     <div id="walk-hint" class="hidden">WASD / Arrow keys to move &middot; drag to look &middot; scroll to zoom</div>

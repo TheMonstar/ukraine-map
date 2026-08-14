@@ -146,6 +146,27 @@ export async function fetchMapFeatures(bbox) {
     return geojson;
 }
 
+// Built linear obstacles — barbed wire and dragon's teeth — from the PlayFra
+// fortification datasets, the same files the 2D map's "Wire" and "Dragon teeth"
+// toggles load (`DeepUtils.loadFeatures` in js/utils.js). Nationwide coverage:
+// ~11k wire and ~9.5k teeth MultiLineStrings, versus 76 and 2 in OSM.
+//
+// The files are several MB, so the parsed collection is cached in-module (same
+// pattern as motorlines/settlements above) and only the features intersecting the
+// tile bbox are returned. Callers fetch these lazily, on first layer toggle.
+const playfraCache = {};
+
+export async function fetchPlayfraObstacles(feature, bbox) {
+    if (!playfraCache[feature]) {
+        const res = await fetch(`https://playframap.github.io/${feature}.geojson`);
+        if (!res.ok) throw new Error(`${feature}.geojson fetch failed: ${res.status}`);
+        playfraCache[feature] = await res.json();
+    }
+    const features = (playfraCache[feature].features || [])
+        .filter(f => f.geometry && bboxIntersects(f.geometry.coordinates, bbox));
+    return { type: 'FeatureCollection', features };
+}
+
 // Shoelace area of a [lng,lat] ring — used to pick the least-clipped duplicate of a
 // building that spans several vector tiles.
 function mvtRingArea(ring) {

@@ -49,9 +49,31 @@ GeoJSON is always `[lng, lat]`; local/Three.js coords are always `{x, z}` /
 | [features/roads.js](features/roads.js) | Draped road ribbons, width/color by `highway` tag |
 | [features/water.js](features/water.js) | River ribbons + lake polygons, animated normal-map shimmer |
 | [features/ditches.js](features/ditches.js) | Fortification trench ribbons (dark, from app API) |
+| [features/water-labels.js](features/water-labels.js) | River / canal / stream **name** labels floating over the watercourse, grouped by name so a river split across many OSM ways gets one label (repeated every ~1.6 km on long runs). Prefers `name:en` — the transliteration analysis uses — falling back to the local `name`. Off by default (`#layer-river-names`) |
+| [features/fortifications.js](features/fortifications.js) | **Built** obstacles from the PlayFra datasets — one instance per type, `'wire'` and `'teeth'` — rendered with the same builders the sandbox draw tools use. Off by default and **lazily loaded** (`#layer-wire` / `#layer-teeth`) |
 | [features/buildings.js](features/buildings.js) | Textured buildings merged into one mesh per texture style (≤8 draw calls; per-building style pick: industrial → panels/gray roofs, multi-story (apartments / `building:levels` ≥ 3 / height > 8.5 m) → brick/panel walls + flat bitumen roof, never gabled, houses → plaster/brick + tile/corrugated/seam, plus vertex-color tints), gabled roofs for small rectangular houses, capped at 15000; sourced from Mapbox vector tiles when `localStorage.mapboxToken` is set (same data as the main map's `buildings-3d` layer in `js/map-3d.js`), Overpass otherwise; Mapbox's placeholder `height: 3` is treated as unknown, and real OSM tags (type/levels/height) are borrowed from the Overpass buildings via centroid matching (`_enrichFromOsm`) — untagged apartment-type blocks default to 5 or 9 stories; exposes `footprints` for player collision and per-building style indices + vertex ranges for `reDrape` |
 | [features/vegetation.js](features/vegetation.js) | Procedural instanced trees (3-tier conifer / multi-blob deciduous, per-instance color jitter), capped at 25000 |
 | [features/grass.js](features/grass.js) | Instanced grass tufts (three crossed alpha-tested planes) on meadow/grass/farmland polygons; 120000 budget spread area-proportionally across all fields (steps scale up together when over budget, so no field is left bare) |
+| [sprite-label.js](sprite-label.js) | `makeLabelSprite(text, heightM, accent)` — rounded-rect CanvasTexture pill in a camera-facing Sprite; shared by settlement titles and sandbox marker labels |
+
+### Tactical sandbox (`sandbox/`)
+
+Authoring tools layered on top of the read-only scene — draw, mark, destroy, fortify,
+export. See "Tactical sandbox" below for the conventions.
+
+| File | Responsibility |
+|---|---|
+| [sandbox/sandbox.js](sandbox/sandbox.js) | `Sandbox` — the only sandbox class `main.js` touches: active tool state machine, annotation group, undo stack, selection, toolbar wiring, serialise/deserialise, `reDrape` fan-out |
+| [sandbox/picker.js](sandbox/picker.js) | The one `Raycaster`: `pickTerrain` / `pickBuilding` / `pickAnnotation` / `pickSurface`, plus `attachPointerHandlers` (click-vs-orbit-drag discrimination) and `ScreenSampler` (freehand point thinning) |
+| [sandbox/arrows.js](sandbox/arrows.js) | `buildDrapedArrow` — Catmull-Rom-smoothed, terrain-draped advance arrows (tapered shaft + wedge head) and dashed phase lines, unlit with a dark outline layer |
+| [sandbox/markers.js](sandbox/markers.js) | Red/blue map markers (canvas teardrop billboard, tip on the marked point) or symbol-head markers, text labels, foxhole positions; ground- or roof-anchored |
+| [sandbox/unit-icons.js](sandbox/unit-icons.js) | Places the **real** APP-6 symbol PNGs from `images/ru/` and `images/ua/` — the same icons the main map draws on its unit markers — as bottom-anchored billboards |
+| [sandbox/symbols.js](sandbox/symbols.js) | Hand-drawn APP-6-lite glyphs on CanvasTextures (hostile diamond / friendly rectangle × infantry, mech, armour, AT, MG, arty, OP, HQ), used for the Marker tool's optional symbol head. For real symbology prefer the Unit tool |
+| [sandbox/damage.js](sandbox/damage.js) | Staged building damage (intact → gutted shell → rubble), footprint-clipped scorch, merged rubble piles, impact craters |
+| [sandbox/obstacles.js](sandbox/obstacles.js) | Composite obstacle belts: dragon's teeth (InstancedMesh, 3 staggered rows), barbed-wire concertina (helix `TubeGeometry` + instanced stakes) and anti-tank ditches (a cross-section swept along the path). One drawn line can carry any combination — `laneLayout()` places them in parallel lanes. All are **passive**: obstacles belong to no side, so there is deliberately no `side` option |
+| [sandbox/paint.js](sandbox/paint.js) | `TerrainPaint` — a full-tile paintable overlay (clone of the terrain geometry + a canvas texture you stamp soft dabs into). Instantiated twice: red/blue control paint, and the eraser's scorch |
+| [sandbox/eraser.js](sandbox/eraser.js) | Zone eraser brush: hides trees, flattens buildings to rubble and scorches the ground over a painted area. One drag = one undo step |
+| [sandbox/export.js](sandbox/export.js) | High-res PNG capture with an optional poster title block (title, date/coords, scale bar, north arrow), plus JSON download/upload helpers |
 
 Each feature class follows the same shape: `load(bbox[, mapFeatures])` (fetch),
 `build(terrain, proj)` (populate `this.group`/`this.meshes`), `reDrape(terrain)`
@@ -150,7 +172,174 @@ Each feature class follows the same shape: `load(bbox[, mapFeatures])` (fetch),
 - **Buildings are merged**: all walls live in one `BufferGeometry`, all roofs
   in another (2 draw calls). Per-building vertex ranges + footprints are kept
   in `records` so `reDrape()` can shift each building vertically; collision
-  uses `buildings.footprints`, not meshes.
+  uses `buildings.footprints`, not meshes. Because of the merge, a raycast hit
+  is resolved back to a building by `buildings.buildingAt(mesh, faceIndex)` —
+  the geometries are non-indexed, so vertex index = `faceIndex * 3`, and
+  `wallPick`/`roofPick` binary-search the per-style vertex-range starts.
+  Wall materials are `DoubleSide` so a roofless (sandbox-damaged) building
+  reads as a hollow shell instead of paper-thin slivers.
+
+## Tactical sandbox (`sandbox/`)
+
+Authoring layer for illustration stills: terrain-following arrows and phase lines,
+red/blue markers (pin or APP-6-lite symbol head, optional label), foxholes, staged
+building destruction, impact craters, barbed wire and dragon's teeth, plus high-res
+PNG export and save/load. Toolbar is `#sandbox-toolbar` in
+[3d-view.html](../../3d-view.html); keys `1`–`0` pick a tool, `Esc` returns to
+Select, `Delete` removes the selection, `Ctrl+Z` undoes.
+
+- **Picking is gated on camera mode.** `sandbox.setEnabled(false)` runs whenever
+  walk / drone / free camera is on (`syncSandbox()` in `main.js`) — those modes own
+  the pointer. The toolbar greys out.
+- **Click vs. orbit drag**: `attachPointerHandlers` only reports a click when the
+  pointer went down and up within 5 px and 400 ms. Freehand line drawing is opt-in
+  (the "Freehand drag" checkbox) and disables `controls` from a **capture-phase**
+  `pointerdown` so OrbitControls never starts rotating.
+- **Picker updates `camera.matrixWorld` before every ray** — raycasting after a
+  programmatic camera move but before the next render otherwise places things
+  somewhere else entirely.
+- **Everything must implement re-drape.** `sandbox.reDrape(terrain)` is called from
+  the exaggeration slider next to `features.forEach(...)`. Arrows/craters re-drape
+  per vertex, markers re-derive Y from `userData.localX/localZ` (or the attached
+  building's `wallTopY`), and obstacle belts are **rebuilt** from
+  `userData.points` — the concertina helix and per-tooth rotations both depend on
+  the terrain.
+- **Arrow layers use `depthWrite: false`.** The fill and its dark outline sit ~5 cm
+  apart, which the depth buffer cannot separate at multi-kilometre view distances;
+  without this they z-fight into stripes. `renderOrder` (1 outline, 2 fill) keeps
+  the stacking right, and they still depth-test against the terrain.
+- **Destruction mutates the merged building geometry in place.** Collapsing a
+  vertex range to a single point makes those triangles zero-area (invisible) with
+  no rebuild. The pre-damage vertices are snapshotted into `record._orig` on first
+  mutation and restored on undo, shifted by `record.baseY - _orig.baseY` so undo
+  survives an exaggeration change in between. Per-vertex jitter uses a hash of the
+  vertex index, so re-applying a state reproduces the same ruin exactly. State 2
+  also removes the footprint from `buildings.footprints` (walk-mode collision).
+- **Scorch follows the footprint, not a circle** — it reuses `buildDrapedOverlay`
+  from `ribbon.js` (which needs `[lng,lat]`, hence the `proj.toLatLng` round-trip).
+  A circular scorch swallows the neighbours on any large or L-shaped building.
+- **Unit icons come from `images/{ru,ua}/icon-N.png`** — the same PNGs the main map
+  puts on its unit markers (`getUnitIcon` in `ui-bindings.js` parses the KML
+  `styleUrl` to build that path). The main map enumerates the available ids from
+  whatever appears in the day's KML (`dashboard._dailyIconIds`); this page has no
+  KML, so `UNIT_ICON_COUNTS` in `unit-icons.js` states the ranges — **ru 1–96,
+  ua 1–57, both contiguous**. Add icons to those folders and bump the counts.
+  The toolbar's Side buttons drive the palette: red → `ru`, blue → `ua`.
+  Icon textures are **cached and shared** between placements, so they are flagged
+  `userData.sharedTexture` and `disposeMarker` skips them — disposing one would
+  blank every other unit using the same symbol.
+- **A belt is a slot sequence, and ditches are its backbone.** Real lines are one complex
+  obstacle built in parallel, so `laneLayout()` lays out ordered slots one Width apart,
+  enemy side first:
+
+  | ditches | cross-section |
+  |---|---|
+  | 0 | `teeth+wire` |
+  | 1 | `ditch · teeth+wire` |
+  | 2 | `ditch · teeth+wire · ditch` |
+  | 3 | `ditch · teeth+wire · ditch · wire · ditch` |
+
+  Rules: lay the ditches out; insert the teeth just behind the forward ditch; drop a wire
+  lane into any gap left **between two adjacent ditches** (which is what produces the
+  3-ditch tail — at 2 ditches the teeth already fill the only gap); optionally bookend
+  with wire front/behind. Offsets come from the slot index measured from the teeth, so
+  the drawn line is always the teeth centreline — or from the leading slot when teeth are
+  unticked, which puts a lone ditch exactly on the line drawn. Wire also threads between
+  the tooth rows whenever both are present: infantry is the threat wire answers, so it
+  belongs on the teeth rather than strewn through every gap. Wire alone degenerates to a
+  single centreline coil — the pre-belt Wire tool, unchanged.
+  A lane is just the same builder fed a laterally shifted path (`offsetRun`), so the
+  three builders know nothing about belts.
+- **All ditches share one berm handedness**, from the Friendly side control — a belt
+  faces one way, so the spoil is not mirrored per flank.
+- **Lanes of the same type are built in one call.** `populate()` batches by
+  `type:mirror` before calling a builder, which lets `buildWire` merge every coil in the
+  belt into a single mesh. Without it a full belt was 45 meshes and ~1.17 M triangles;
+  batching plus cheaper coil tessellation (`COIL_SAMPLES_PER_TURN` 6 on a 3-sided tube)
+  brings that to **5 meshes** and roughly half the triangles. Note frame rate cannot be
+  measured under swiftshader — it renders seconds per frame regardless — so triangle and
+  draw-call counts are the metrics to watch here.
+- **A mirrored ditch walks its profile backwards.** Negating the across-path offset alone
+  would reverse the quad winding and light the trough from underneath, so `buildDitch`
+  reverses the profile index at the same time, keeping offsets ascending either way.
+- **Belt options are stored as semantics, never as derived lanes** —
+  `{ components, ditchCount, friendlySide, wireFront, wireBehind, width, scale }`.
+  `migrateBeltOpts()` normalises three vintages: current, the first belt round
+  (ditches lived in `components` with `ditchesPerSide`/`ditchSide`), and pre-belt
+  `{type, scale}`. Obstacle `opts` is
+  serialised wholesale and passed straight back into `buildObstacleBelt()`, so save/load
+  needed no changes; saves written before belts existed carry only `{type, scale}` and
+  fall through to the single-component path.
+- **Anti-tank ditches are geometry, never carved into the heightmap.**
+  `carveTrenches` uses a 4 m reach but the heightmap cell is `SCENE_SIZE / 256`
+  ≈ **23.4 m** on a 5 km tile, so a cut that width is far below grid resolution
+  (and `-=` / `+=` make it non-idempotent). `buildDitch` instead sweeps a
+  five-point cross-section — berm crest, near lip, floor ×2, far lip — along the
+  draped path. `flatShading` plus per-band vertex colours are what make it read as
+  an excavation rather than a painted stripe.
+- **The paint overlay clones the terrain geometry and re-drapes by copying Y.**
+  Heightmap index == terrain vertex index, so `TerrainPaint.reDrape` is an exact
+  index-for-index Y copy, not a re-sample. The clone gets **plain 0..1 grid UVs**
+  because the terrain's own UVs are re-fitted to Mercator by `_applyMercatorUVs`
+  once satellite imagery loads. Watch the V convention: the vertex UVs use
+  `v = 1 - iz/segments` and `CanvasTexture` already flips Y, so the canvas stamp
+  must **not** flip again — doing both mirrors the paint in Z.
+- **Hidden trees need the `hidden` map, not just a zeroed matrix.**
+  `VegetationFeature.reDrape` decomposes every instance matrix, and a zero-scale
+  matrix decomposes to a degenerate quaternion. `setHidden` therefore stores the
+  original matrix (rotation and scale are randomised at build time and live
+  nowhere else) and `reDrape` re-grounds that saved copy instead. `p.instanceIndex`
+  is now recorded at build time so nothing depends on placement array order.
+- **The eraser saves circles, not tree indices.** The vegetation scatter is
+  re-randomised on every load, so a saved index list would clear an essentially
+  random set of trees. `Eraser.serialize()` stores the painted `{x, z, r}` dabs and
+  `load()` replays them, which reproduces the same cleared area; buildings still
+  resolve through their own stable `record.id`.
+- **Markers and unit icons are billboards at constant screen size.** 3D pin geometry reads as a
+  stray line at map scale, so the marker is a canvas-drawn teardrop `Sprite` with
+  `center.set(0.5, 0)` — its tip is exactly the marked point. `sandbox.update()`
+  (called each frame from `animate()`) scales each marker by its distance to the
+  camera, which cancels out perspective and keeps it the same size on screen from
+  street level to a 5 km overview. The Size slider multiplies on top.
+- **Obstacles have a display `scale`.** Real dragon's teeth are ~1.1 m tall and
+  vanish in a 5 km overview shot, so the Size slider blows the whole belt up
+  proportionally (same spirit as `vegetation.setZoomScale`). 1× is true scale;
+  the OSM `fortifications` layer uses a fixed 2×. Positions are always true —
+  only the objects standing on them are drawn larger.
+- **River name labels lie flat along the water's course**, like a printed map
+  label — a subdivided plane draped vertex-by-vertex (a single-height quad would
+  punch through a valley side), yawed to the local bearing and flipped 180° when the
+  course heads west so the text is never mirrored.
+- **River names use OSM `name:en`, with the local `name` as fallback.** Analysis
+  refers to rivers by transliteration ("Bakhmutka", "Donets"), which is exactly
+  what `name:en` carries — it is set on 32 of the 35 named rivers across the
+  Donbas box. Small streams usually only have the Cyrillic `name`, so some labels
+  render in Cyrillic; that is the data, not a bug. Labels are **grouped by name**
+  because OSM splits a river into many ways — without that, one river produces a
+  dozen stacked labels. Rivers outrank canals outrank streams when `MAX_LABELS`
+  runs out.
+- **Built obstacles come from PlayFra, not OSM.**
+  `https://playframap.github.io/{wire,teeth}.geojson` — the same files the 2D map's
+  "Wire" / "Dragon teeth" toggles load through `DeepUtils.loadFeatures`
+  (js/utils.js), which is also where the base URL lives if it moves again.
+  Coverage is ~11k wire and ~9.5k teeth MultiLineStrings nationwide. (OSM was
+  evaluated and rejected: `fence_type=barbed_wire` has ~76 ways on the entire
+  front and `barrier=tank_trap` just **2**. `barrier=block` nodes are urban
+  bollards, not teeth.)
+- **The obstacle files are several MB, so both layers are lazy.** `load()`/`build()`
+  are no-ops; `ensure(terrain, proj, bbox)` fetches, filters to the tile bbox and
+  builds on the first tick of the checkbox, which is disabled meanwhile. The parsed
+  file is cached in-module, so the second layer and any re-toggle cost nothing.
+  A dense sector yields hundreds of belts (~273 teeth at 48.265, 37.185), each one
+  InstancedMesh, hence `BELT_CAP` — longest lines first.
+- **Screenshot export needs `preserveDrawingBuffer: true`** on the renderer
+  (set in `main.js`) — without it `toDataURL` returns a blank image. The panel and
+  toolbar are DOM overlays, so they are never in the capture.
+- **Annotations serialise as lat/lng** so a saved scene survives a change of tile
+  size or origin. Damaged buildings are keyed by `record.id` = footprint centroid
+  rounded to 0.5 m — nothing stable survives the building merge, so a scene loaded
+  against different building data skips unmatched ids with a console warning.
+  A debounced autosave goes to `localStorage` per `lat,lng,size`, offered on load.
 
 ## Local dev / verification
 
@@ -195,10 +384,25 @@ richer procedural trees with per-instance color jitter, grass-tuft layer on
 meadow/farmland polygons (`#layer-grass` toggle), humanoid player with walk
 cycle.
 
+Tactical sandbox (August 2026): picking layer (`sandbox/picker.js`) plus the
+authoring tools — terrain-following arrows and phase lines, pin/symbol markers
+with labels, unit symbols placed from the map's own APP-6 icon set (on the
+ground or on a building roof), foxholes, staged building destruction with rubble and scorch,
+impact craters, barbed wire and dragon's teeth (drawn, or laid along every ditch
+in one click), undo/select/delete, high-res PNG export with a poster title
+block, and JSON save/load with localStorage autosave. A `fortifications` layer
+renders the obstacles that are actually surveyed in OSM (see the coverage note
+above) with the same builders.
+
 **Explicitly out of scope / not implemented** (don't start without the user
 asking):
 - GLTF tree models (requires sourcing/committing binary assets)
-- Phase 5: frontline/occupation overlay, ditch date-diffing (`?dateStart=`),
-  screenshot export, quality presets + URL state, minimap inset
+- Frontline/occupation overlay, ditch date-diffing (`?dateStart=`),
+  quality presets + URL state, minimap inset
+- Smoke/fire particles on destroyed buildings
+
+Known pre-existing issue: `features/water.js` requests `waternormals.jpg` from a
+jsdelivr path that 404s for r165, so the water shimmer normal map never loads
+(the water still renders).
 
 All work so far is uncommitted on the `3dview` branch.

@@ -21,7 +21,7 @@ function boundaryPoint(a, b) {
 
 // Split a polyline of {x,z} points into runs inside the terrain bounds, with
 // boundary intersection points added where the line enters/leaves the sector.
-function clipPolyline(pts) {
+export function clipPolyline(pts) {
     const runs = [];
     let current = [];
     for (let i = 0; i < pts.length; i++) {
@@ -70,7 +70,7 @@ function clipRing(ring) {
 }
 
 // Resample a polyline of {x,z} points (meters) to roughly stepM-meter spacing.
-function resamplePolyline(pts, stepM) {
+export function resamplePolyline(pts, stepM) {
     if (pts.length < 2) return pts.slice();
     const cum = [0];
     for (let i = 1; i < pts.length; i++) {
