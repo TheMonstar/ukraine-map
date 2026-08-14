@@ -226,6 +226,15 @@
                                     max="5000" value="0" step="10" class="control-input-sm" /></label>
                         </div>
                         <div class="toggle-row">
+                            <select id="view3d-frame" class="control-select" style="width:auto;"
+                                title="Pick a size, then click the map to open that area in 3D">
+                                <option value="off" selected>3D view</option>
+                                <option value="5">5 km frame</option>
+                                <option value="10">10 km frame</option>
+                                <option value="15">15 km frame</option>
+                            </select>
+                        </div>
+                        <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="hex-tiles" /><span
                                     class="toggle-switch"></span>Hex Tiles</label>
                         </div>
@@ -1162,23 +1171,23 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
-    <script src="js/utils.js?562"></script>
-    <script src="js/hex-tiles.js?562"></script>
-    <script src="js/geometry-utils.js?562"></script>
-    <script src="js/data-store.js?562"></script>
-    <script src="js/map-layers.js?562"></script>
-    <script src="js/settlements.js?562"></script>
-    <script src="js/line-features.js?562"></script>
-    <script src="js/draw.js?562"></script>
-    <script src="js/image-mesh.js?562"></script>
-    <script src="js/image-align.js?562"></script>
-    <script src="js/image-extract.js?562"></script>
-    <script src="js/terrain-analysis.js?562"></script>
-    <script src="js/stream.js?562"></script>
-    <script src="js/ui-bindings.js?562"></script>
-    <script src="js/map-uml-engine.js?562"></script>
-    <script src="js/poster.js?562"></script>
-    <script src="js/app.js?562"></script>
+    <script src="js/utils.js?563"></script>
+    <script src="js/hex-tiles.js?563"></script>
+    <script src="js/geometry-utils.js?563"></script>
+    <script src="js/data-store.js?563"></script>
+    <script src="js/map-layers.js?563"></script>
+    <script src="js/settlements.js?563"></script>
+    <script src="js/line-features.js?563"></script>
+    <script src="js/draw.js?563"></script>
+    <script src="js/image-mesh.js?563"></script>
+    <script src="js/image-align.js?563"></script>
+    <script src="js/image-extract.js?563"></script>
+    <script src="js/terrain-analysis.js?563"></script>
+    <script src="js/stream.js?563"></script>
+    <script src="js/ui-bindings.js?563"></script>
+    <script src="js/map-uml-engine.js?563"></script>
+    <script src="js/poster.js?563"></script>
+    <script src="js/app.js?563"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

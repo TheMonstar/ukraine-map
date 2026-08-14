@@ -507,6 +507,10 @@ class UiBindings {
         dashboard.bindUI('match-the-front', 'change', scheduleHexUpdate);
         dashboard.bindUI('hex-viewbox', 'change', scheduleHexUpdate);
 
+        // Frame tool: the direct route into 3d-view.html (the hex click handler in
+        // hex-tiles.js is the other one).
+        dashboard.bindUI('view3d-frame', 'change', () => dashboard.toggleView3dFrame());
+
         dashboard.map.on('moveend zoomend rotate', () => {
             if (dashboard.isChecked('hex-tiles') && dashboard.isChecked('hex-viewbox')) {
                 scheduleHexUpdate();

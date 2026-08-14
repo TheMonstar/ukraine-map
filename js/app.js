@@ -996,6 +996,84 @@ class AttackMapDashboard {
         this.toggleGameTool();
     }
 
+    /**
+     * 3D view frame: pick a size in the sidebar and a frame follows the cursor;
+     * clicking opens that area in 3d-view.html. A more discoverable route than the
+     * hex-tile click handler in hex-tiles.js, which stays as it is.
+     *
+     * Unlike the game tool this stays armed after a click, so several sectors can be
+     * opened in a row. Esc, or setting the select back to Off, disarms it.
+     */
+    toggleView3dFrame() {
+        const select = this.getEl('view3d-frame');
+        const km = parseFloat(select?.value);
+        const map = this.map;
+
+        // always tear down first, so changing size simply re-arms at the new one
+        if (this.view3dFrameLayer) {
+            map.removeLayer(this.view3dFrameLayer);
+            this.view3dFrameLayer = null;
+        }
+        if (this.boundView3dHandlers) {
+            map.off('mousemove', this.boundView3dHandlers.move);
+            map.off('click', this.boundView3dHandlers.click);
+            document.removeEventListener('keydown', this.boundView3dHandlers.key);
+            this.boundView3dHandlers = null;
+        }
+        if (!isFinite(km)) {                       // 'off'
+            map.getContainer().style.cursor = '';
+            return;
+        }
+
+        this.view3dFrameKm = km;
+        map.getContainer().style.cursor = 'crosshair';
+        // interactive:false so the frame never swallows the click that opens the view
+        this.view3dFrameLayer = L.rectangle(this.view3dFrameBounds(map.getCenter(), km), {
+            color: '#38bdf8', weight: 2, dashArray: '6 4', fill: true,
+            fillColor: '#38bdf8', fillOpacity: 0.08, interactive: false
+        }).addTo(map);
+
+        this.boundView3dHandlers = {
+            move: (e) => this.view3dFrameLayer?.setBounds(this.view3dFrameBounds(e.latlng, this.view3dFrameKm)),
+            click: (e) => this.view3dFrameClickHandler(e),
+            key: (e) => {
+                if (e.key !== 'Escape') return;
+                if (select) select.value = 'off';
+                this.toggleView3dFrame();
+            }
+        };
+        // dragging is deliberately left enabled — panning must still work while armed
+        map.on('mousemove', this.boundView3dHandlers.move);
+        map.on('click', this.boundView3dHandlers.click);
+        document.addEventListener('keydown', this.boundView3dHandlers.key);
+    }
+
+    /**
+     * Bounds of the area 3d-view.html will actually render around `latlng`.
+     * Its scene is `size * 1000 + 1000` metres square (setSceneSize in js/3d/terrain.js),
+     * so a "5 km" frame is drawn 6 km across and what you frame is what you get.
+     * The projection matches js/3d/geo.js so the frame lines up with the 3D bbox.
+     */
+    view3dFrameBounds(latlng, km) {
+        const M_PER_DEG_LAT = 111320;
+        const half = (km * 1000 + 1000) / 2;
+        const dLat = half / M_PER_DEG_LAT;
+        const dLng = half / (M_PER_DEG_LAT * Math.cos(latlng.lat * Math.PI / 180));
+        return L.latLngBounds(
+            [latlng.lat - dLat, latlng.lng - dLng],
+            [latlng.lat + dLat, latlng.lng + dLng]
+        );
+    }
+
+    view3dFrameClickHandler(e) {
+        const { lat, lng } = e.latlng;
+        // same URL shape the hex-tile route uses (hex-tiles.js)
+        const date = this.getEl('date-end')?.value || new Date().toISOString().slice(0, 10);
+        window.open(
+            `3d-view.html?lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}&size=${this.view3dFrameKm}&date=${date}`,
+            '_blank');
+    }
+
     toggleRulerTool() {
         this.rulerEnabled = this.isChecked('ruler-tool');
 
