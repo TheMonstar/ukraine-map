@@ -28,7 +28,8 @@ class Settlements {
     }
 
     getSettlementStyle(population) {
-        const pop = this.parsePopulation(population);
+        // Callers that already parsed pass the number straight through
+        const pop = typeof population === 'number' ? population : this.parsePopulation(population);
 
         if (pop < 1000) {
             return { color: '#4a90e2', radius: 3, label: 'Small village' };
@@ -90,8 +91,7 @@ class Settlements {
 
         settlementsToShow.forEach(settlement => {
             const coords = settlement.geometry.coordinates;
-            const props = settlement.properties;
-            const population = this.parsePopulation(props.population);
+            const population = this.parsePopulation(settlement.properties.population);
             const style = this.getSettlementStyle(population);
 
             const marker = L.circleMarker([coords[1], coords[0]], {
@@ -103,48 +103,56 @@ class Settlements {
                 fillOpacity: 0.8
             });
 
-            const osmId = props.osm_id;
-            const escapedName = (props.name || '').replace(/'/g, "\\'");
-            const escapedNameEn = (props['name:en'] || '').replace(/'/g, "\\'");
-            const displayTitle = escapedNameEn || escapedName;
-            let popupContent = `
-                <div class="settlement-popup">
-                    <div class="settlement-name">${props['name:en'] || props.name || 'Unknown'}</div>
-                    ${props.name ? `<div class="settlement-info">UA: ${props.name}</div>` : ''}
-                    ${props.place ? `<div class="settlement-info">Type: ${props.place}</div>` : ''}
-                    <div class="settlement-info">Category: ${style.label}</div>
-                    ${props.population ? `<div class="settlement-info">Population: ${this.parsePopulation(props.population).toLocaleString()}</div>` : ''}
-                    <div class="settlement-info">Coordinates: ${coords[1].toFixed(6)}, ${coords[0].toFixed(6)}</div>
-                    <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
-                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-bottom:4px;">
-                            <input type="checkbox" ${this.popupTitleLayers.has(osmId) ? 'checked' : ''}
-                                onchange="window.dashboard.settlements.togglePopupTitle(this, '${osmId}', ${coords[1]}, ${coords[0]}, '${displayTitle}')">
-                            Show title on map
-                        </label>
-                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
-                            <input type="checkbox" ${this.popupBoundaryLayers.has(osmId) ? 'checked' : ''}
-                                onchange="window.dashboard.settlements.togglePopupBoundary(this, '${osmId}', '${props.osm_type}')">
-                            Highlight boundary
-                            <input type="color" value="${this.popupBoundaryLayers.get(osmId)?.options?.color || '#ff6600'}"
-                                style="width:28px;height:20px;padding:0;border:1px solid #ccc;cursor:pointer;border-radius:3px;"
-                                onchange="window.dashboard.settlements.updatePopupBoundaryColor('${osmId}', this.value)">
-                        </label>
-                    </div>
-                    <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
-                        ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
-                        <button
-                            onclick="window.markerAdjuster && window.markerAdjuster.pickSettlementLocation(${coords[1]}, ${coords[0]}, '${escapedName}', '${escapedNameEn}')"
-                            style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; width: 100%; margin-top: 5px;"
-                        >
-                            Pick Location
-                        </button>
-                    </div>
-                </div>
-            `;
-
-            marker.bindPopup(popupContent);
+            // Built on open, not up front: eagerly rendering ~1.5 KB of HTML for
+            // every one of ~29k settlements cost tens of MB of retained strings.
+            marker.bindPopup(() => this._settlementPopupHtml(settlement, style, population));
             this.dashboard.settlementsLayer.addLayer(marker);
         });
+    }
+
+    _settlementPopupHtml(settlement, style, population) {
+        const coords = settlement.geometry.coordinates;
+        const props = settlement.properties;
+        const osmId = props.osm_id;
+        const escapedName = (props.name || '').replace(/'/g, "\\'");
+        const escapedNameEn = (props['name:en'] || '').replace(/'/g, "\\'");
+        const displayTitle = escapedNameEn || escapedName;
+        let popupContent = `
+            <div class="settlement-popup">
+                <div class="settlement-name">${props['name:en'] || props.name || 'Unknown'}</div>
+                ${props.name ? `<div class="settlement-info">UA: ${props.name}</div>` : ''}
+                ${props.place ? `<div class="settlement-info">Type: ${props.place}</div>` : ''}
+                <div class="settlement-info">Category: ${style.label}</div>
+                ${props.population ? `<div class="settlement-info">Population: ${population.toLocaleString()}</div>` : ''}
+                <div class="settlement-info">Coordinates: ${coords[1].toFixed(6)}, ${coords[0].toFixed(6)}</div>
+                <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-bottom:4px;">
+                        <input type="checkbox" ${this.popupTitleLayers.has(osmId) ? 'checked' : ''}
+                            onchange="window.dashboard.settlements.togglePopupTitle(this, '${osmId}', ${coords[1]}, ${coords[0]}, '${displayTitle}')">
+                        Show title on map
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+                        <input type="checkbox" ${this.popupBoundaryLayers.has(osmId) ? 'checked' : ''}
+                            onchange="window.dashboard.settlements.togglePopupBoundary(this, '${osmId}', '${props.osm_type}')">
+                        Highlight boundary
+                        <input type="color" value="${this.popupBoundaryLayers.get(osmId)?.options?.color || '#ff6600'}"
+                            style="width:28px;height:20px;padding:0;border:1px solid #ccc;cursor:pointer;border-radius:3px;"
+                            onchange="window.dashboard.settlements.updatePopupBoundaryColor('${osmId}', this.value)">
+                    </label>
+                </div>
+                <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
+                    ${window.markerAdjuster ? window.markerAdjuster.getMissingEntitiesHTML() : ''}
+                    <button
+                        onclick="window.markerAdjuster && window.markerAdjuster.pickSettlementLocation(${coords[1]}, ${coords[0]}, '${escapedName}', '${escapedNameEn}')"
+                        style="background-color: #3388ff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; width: 100%; margin-top: 5px;"
+                    >
+                        Pick Location
+                    </button>
+                </div>
+            </div>
+        `;
+
+        return popupContent;
     }
 
     filterSettlementsByRadius() {
@@ -268,8 +276,9 @@ class Settlements {
             return this.dashboard.settlementBoundariesCache.get(cacheKey);
         }
 
-        if (this.dashboard.settlementBoundariesData && this.dashboard.settlementBoundariesData[cacheKey]) {
-            const offlineData = this.dashboard.settlementBoundariesData[cacheKey];
+        const boundariesData = await this.dashboard.loadSettlementBoundariesData();
+        if (boundariesData && boundariesData[cacheKey]) {
+            const offlineData = boundariesData[cacheKey];
             if (offlineData && offlineData.boundary) {
                 this.dashboard.settlementBoundariesCache.set(cacheKey, offlineData.boundary);
                 return offlineData.boundary;
@@ -552,9 +561,12 @@ class Settlements {
         }
     }
 
-    renderLocalBoundaries() {
-        const data = this.dashboard.settlementBoundariesData;
+    async renderLocalBoundaries() {
+        const data = await this.dashboard.loadSettlementBoundariesData();
         if (!data) return;
+
+        // The checkbox may have been switched back off during the download
+        if (!this.dashboard.isChecked('show-settlement-boundaries')) return;
 
         const minPop = this._getLocalBoundaryMinPop();
 

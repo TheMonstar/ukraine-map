@@ -515,17 +515,17 @@ class AttackMapDashboard {
         };
 
         try {
-            // Load regions data - try API first, then local file
-            this.regionsData = await fetchJSON(`${APP_STATIC_URL}/regions.json`, './regions.json');
-
-            // Load settlements data - try API first, then local file
-            this.settlementsData = await fetchJSON(`${APP_STATIC_URL}/settlements.json`, './settlements.json');
-
-            // Load corps-brigade OOB for linked-units filter
-            const [corpsBrigadeData, ruCorpsBrigadeData] = await Promise.all([
+            // These four are independent, so they go out together rather than in
+            // series — regions and settlements each gate first paint of their layer.
+            const [regionsData, settlementsData, corpsBrigadeData, ruCorpsBrigadeData] = await Promise.all([
+                fetchJSON(`${APP_STATIC_URL}/regions.json`, './regions.json'),
+                fetchJSON(`${APP_STATIC_URL}/settlements.json`, './settlements.json'),
                 fetchJSON('./data/corps-brigade.json'),
                 fetchJSON('./data/ru-corps-brigade.json')
             ]);
+            this.regionsData = regionsData;
+            this.settlementsData = settlementsData;
+
             this.linkedUnitNames = new Set();
             this.linkedUnitsByParent = new Map();
             if (corpsBrigadeData) {
@@ -554,9 +554,6 @@ class AttackMapDashboard {
                 this.updateDailyPositions();
             }
 
-            // Load local settlement boundaries data
-            this.settlementBoundariesData = await fetchJSON('./data/settlements_boundaries.json');
-
             if (this.settlementsData) {
                 console.log(`Loaded ${this.settlementsData.features?.length || 0} settlements`);
             }
@@ -565,6 +562,67 @@ class AttackMapDashboard {
         } catch (error) {
             console.error('Error loading geographic data:', error);
         }
+    }
+
+    /**
+     * Offline settlement boundary geometries, keyed `${osm_type}_${osm_id}`.
+     *
+     * This file is ~47 MB (15 MB gzipped) and only two opt-in features read it,
+     * so it is fetched on first use rather than during init. Concurrent callers
+     * share one request; the result is cached for the life of the page.
+     */
+    loadSettlementBoundariesData() {
+        if (this.settlementBoundariesData) return Promise.resolve(this.settlementBoundariesData);
+        if (this._boundariesDataPromise) return this._boundariesDataPromise;
+
+        // Measured uncompressed size — the file is gzipped on the wire, so
+        // Content-Length can't drive the progress bar.
+        const EXPECTED_BYTES = 48.9e6;
+
+        this._boundariesDataPromise = (async () => {
+            const settlements = this.settlements;
+            settlements?.showBoundariesLoader();
+            try {
+                const response = await fetch('./data/settlements_boundaries.json');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                let text;
+                if (response.body) {
+                    // Decode each chunk as it arrives and drop it. Collecting the
+                    // chunks and running them through a Blob + ArrayBuffer instead
+                    // would keep four full copies of a 47 MB payload alive at once.
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let received = 0;
+                    text = '';
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        received += value.length;
+                        text += decoder.decode(value, { stream: true });
+                        settlements?.updateBoundariesLoader(
+                            Math.min(99, Math.round(100 * received / EXPECTED_BYTES)),
+                            `Settlement boundaries: ${(received / 1e6).toFixed(1)} MB`
+                        );
+                    }
+                    text += decoder.decode();
+                } else {
+                    text = await response.text();
+                }
+                settlements?.updateBoundariesLoader(100, 'Settlement boundaries: parsing...');
+                this.settlementBoundariesData = JSON.parse(text);
+                return this.settlementBoundariesData;
+            } catch (error) {
+                console.error('Failed to load settlement boundaries:', error);
+                // Let a later toggle retry instead of caching the failure forever
+                this._boundariesDataPromise = null;
+                return null;
+            } finally {
+                settlements?.hideBoundariesLoader();
+            }
+        })();
+
+        return this._boundariesDataPromise;
     }
 
     /**
@@ -3395,11 +3453,26 @@ class AttackMapDashboard {
      * Create colored marker icon
      */
     createColoredMarkerIcon(color, count = 1) {
+        // Icons are immutable and safely shared between markers, so build each
+        // (color, count) pair once instead of once per marker.
+        if (!this._markerIconCache) this._markerIconCache = new Map();
+        const cacheKey = `${color}:${count}`;
+        const cached = this._markerIconCache.get(cacheKey);
+        if (cached) return cached;
+
+        const icon = this._buildColoredMarkerIcon(color, count);
+        // Counts are unbounded; keep the cache from growing without limit.
+        if (this._markerIconCache.size > 500) this._markerIconCache.clear();
+        this._markerIconCache.set(cacheKey, icon);
+        return icon;
+    }
+
+    _buildColoredMarkerIcon(color, count) {
         if (count === 1) {
             // Standard marker for single incident
             return new L.Icon({
-                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${color}.png`,
-                shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+                iconUrl: `images/markers/marker-icon-${color}.png`,
+                shadowUrl: 'images/markers/marker-shadow.png',
                 iconSize: [25, 41],
                 iconAnchor: [12, 41],
                 popupAnchor: [1, -34],
@@ -3420,7 +3493,7 @@ class AttackMapDashboard {
                 className: 'custom-marker-icon',
                 html: `
                     <div style="position: relative;">
-                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${color}.png"
+                        <img src="images/markers/marker-icon-${color}.png"
                              style="width: 25px; height: 41px;" />
                         <div style="
                             position: absolute;
@@ -3746,13 +3819,23 @@ class AttackMapDashboard {
             this.renderEventCoverageIndex();
             return;
         }
+        // The icon depends only on the category, so build one per category
+        if (!this._eventIconCache) this._eventIconCache = new Map();
+        const eventIconFor = (category) => {
+            let icon = this._eventIconCache.get(category);
+            if (!icon) {
+                icon = L.icon({
+                    iconUrl: `images/events/${category}.png`,
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                });
+                this._eventIconCache.set(category, icon);
+            }
+            return icon;
+        };
+
         this.filteredEventsData().forEach(e => {
-            const eventIcon = L.icon({
-                iconUrl: `images/events/${e.category}.png`,
-                iconSize: [16, 16],
-                iconAnchor: [8, 8]
-            });
-            const marker = L.marker([e.lat, e.lon], { icon: eventIcon });
+            const marker = L.marker([e.lat, e.lon], { icon: eventIconFor(e.category) });
             marker.bindPopup(`<strong>${e.name}</strong><br><em>${e.category}</em>`);
             marker.addTo(this.eventsLayer);
         });
@@ -4510,50 +4593,65 @@ class AttackMapDashboard {
                 }
             }
             this.syncDiffSliceRange();
-            if (this.dailyPositionsDebounce) clearTimeout(this.dailyPositionsDebounce);
-            this.dailyPositionsDebounce = setTimeout(() => {
-                if (this.updateDailyPositions) this.updateDailyPositions();
-                if (this.renderPositionChanges && this.isChecked('position-change')) this.renderPositionChanges();
-            }, 800);
-            if (this.eventsRefreshDebounce) clearTimeout(this.eventsRefreshDebounce);
-            this.eventsRefreshDebounce = setTimeout(() => this.refreshEvents(), 800);
-            if (this.ditchesRefreshDebounce) clearTimeout(this.ditchesRefreshDebounce);
-            this.ditchesRefreshDebounce = setTimeout(() => this.refreshDitches(), 800);
-            // RIA overlay is one file per day — re-fetch when the selected date settles
-            if (this.riaRefreshDebounce) clearTimeout(this.riaRefreshDebounce);
-            this.riaRefreshDebounce = setTimeout(() => {
-                if (this.isChecked('ria-overlay')) this.layers.toggleRiaOverlay(true);
-            }, 800);
-            if (this.modrRefreshDebounce) clearTimeout(this.modrRefreshDebounce);
-            this.modrRefreshDebounce = setTimeout(() => {
-                if (this.isChecked('feature-modr')) this.refreshModr();
-            }, 800);
-            if (this.riaEventsRefreshDebounce) clearTimeout(this.riaEventsRefreshDebounce);
-            this.riaEventsRefreshDebounce = setTimeout(() => {
-                if (this.isChecked('feature-ria-events')) this.refreshRiaEvents();
-            }, 800);
-            if (this.owlEventsRefreshDebounce) clearTimeout(this.owlEventsRefreshDebounce);
-            this.owlEventsRefreshDebounce = setTimeout(() => {
-                if (this.isChecked('feature-owl-events')) this.refreshOwlEvents();
-            }, 800);
-            // DeepState territory/diff only re-renders on checkbox toggles otherwise —
-            // without this, dragging the date slider leaves the diff frozen on stale
-            // start/end dates while other date-tied layers keep following the slider
-            if (this.deepLayerRefreshDebounce) clearTimeout(this.deepLayerRefreshDebounce);
-            this.deepLayerRefreshDebounce = setTimeout(() => {
-                if (this.isChecked('diff-area') && this.renderDeepLayer) this.renderDeepLayer();
-            }, 800);
-            // Coverage index reads GSUA direction counts, which follow the slider
-            // even when the event feeds themselves are not re-fetched
-            if (this.coverageRefreshDebounce) clearTimeout(this.coverageRefreshDebounce);
-            this.coverageRefreshDebounce = setTimeout(() => {
-                if (this.isChecked('event-coverage')) this.renderEventCoverageIndex();
-            }, 800);
-            if (this.overlayDiffRefreshDebounce) clearTimeout(this.overlayDiffRefreshDebounce);
-            this.overlayDiffRefreshDebounce = setTimeout(() => {
-                if (this.isChecked('diff-highlight') && this.updateOverlayDiffTotals) this.updateOverlayDiffTotals();
-            }, 800);
+            // During playback every tick calls slider.set(), which re-fires this
+            // handler and rearmed all ten timers below. At any playback speed
+            // under 800 ms they were reset faster than they could fire, so these
+            // layers sat frozen on stale dates for the whole run while the timer
+            // churn bought nothing. Refresh once when playback stops instead.
+            if (this.isPlaying) return;
+            this.scheduleDateDependentRefreshes();
         });
+    }
+
+    /**
+     * Re-fetch/redraw everything keyed to the selected date range, debounced so
+     * that dragging the slider issues one round of requests rather than one per
+     * intermediate value.
+     */
+    scheduleDateDependentRefreshes() {
+        if (this.dailyPositionsDebounce) clearTimeout(this.dailyPositionsDebounce);
+        this.dailyPositionsDebounce = setTimeout(() => {
+            if (this.updateDailyPositions) this.updateDailyPositions();
+            if (this.renderPositionChanges && this.isChecked('position-change')) this.renderPositionChanges();
+        }, 800);
+        if (this.eventsRefreshDebounce) clearTimeout(this.eventsRefreshDebounce);
+        this.eventsRefreshDebounce = setTimeout(() => this.refreshEvents(), 800);
+        if (this.ditchesRefreshDebounce) clearTimeout(this.ditchesRefreshDebounce);
+        this.ditchesRefreshDebounce = setTimeout(() => this.refreshDitches(), 800);
+        // RIA overlay is one file per day — re-fetch when the selected date settles
+        if (this.riaRefreshDebounce) clearTimeout(this.riaRefreshDebounce);
+        this.riaRefreshDebounce = setTimeout(() => {
+            if (this.isChecked('ria-overlay')) this.layers.toggleRiaOverlay(true);
+        }, 800);
+        if (this.modrRefreshDebounce) clearTimeout(this.modrRefreshDebounce);
+        this.modrRefreshDebounce = setTimeout(() => {
+            if (this.isChecked('feature-modr')) this.refreshModr();
+        }, 800);
+        if (this.riaEventsRefreshDebounce) clearTimeout(this.riaEventsRefreshDebounce);
+        this.riaEventsRefreshDebounce = setTimeout(() => {
+            if (this.isChecked('feature-ria-events')) this.refreshRiaEvents();
+        }, 800);
+        if (this.owlEventsRefreshDebounce) clearTimeout(this.owlEventsRefreshDebounce);
+        this.owlEventsRefreshDebounce = setTimeout(() => {
+            if (this.isChecked('feature-owl-events')) this.refreshOwlEvents();
+        }, 800);
+        // DeepState territory/diff only re-renders on checkbox toggles otherwise —
+        // without this, dragging the date slider leaves the diff frozen on stale
+        // start/end dates while other date-tied layers keep following the slider
+        if (this.deepLayerRefreshDebounce) clearTimeout(this.deepLayerRefreshDebounce);
+        this.deepLayerRefreshDebounce = setTimeout(() => {
+            if (this.isChecked('diff-area') && this.renderDeepLayer) this.renderDeepLayer();
+        }, 800);
+        // Coverage index reads GSUA direction counts, which follow the slider
+        // even when the event feeds themselves are not re-fetched
+        if (this.coverageRefreshDebounce) clearTimeout(this.coverageRefreshDebounce);
+        this.coverageRefreshDebounce = setTimeout(() => {
+            if (this.isChecked('event-coverage')) this.renderEventCoverageIndex();
+        }, 800);
+        if (this.overlayDiffRefreshDebounce) clearTimeout(this.overlayDiffRefreshDebounce);
+        this.overlayDiffRefreshDebounce = setTimeout(() => {
+            if (this.isChecked('diff-highlight') && this.updateOverlayDiffTotals) this.updateOverlayDiffTotals();
+        }, 800);
     }
 
     initDiffSlices() {
@@ -4704,6 +4802,25 @@ class AttackMapDashboard {
      */
     filterDataByDateRange() {
         const capturedOnly = this.isChecked('captured');
+
+        // Three callers per update cycle (updateMap, the GSUA heatmap and the
+        // coverage index) each triggered a full scan of both datasets. Every
+        // input to the filter is in the key, so no explicit invalidation is
+        // needed — combineSourceData() assigns fresh arrays whenever the source
+        // selection changes, so identity covers the data itself.
+        const cacheKey = [
+            this.startDate?.getTime(),
+            this.endDate?.getTime(),
+            capturedOnly ? 'c1' : 'c0',
+            this.selectRegions.join('|')
+        ].join('~');
+        const cache = this._dateFilterCache;
+        if (cache && cache.key === cacheKey
+            && cache.directionSource === this.directionData
+            && cache.locationSource === this.locationData) {
+            return cache.value;
+        }
+
         const filteredDirectionData = this.directionData.filter(item => {
             const itemDate = item._date || new Date(item.Date);
             if (capturedOnly && itemDate.getDay() !== 5) return false;
@@ -4717,10 +4834,17 @@ class AttackMapDashboard {
             return itemDate >= this.startDate && itemDate <= this.endDate;
         });
 
-        return {
+        const value = {
             directionData: filteredDirectionData,
             locationData: filteredLocationData
         };
+        this._dateFilterCache = {
+            key: cacheKey,
+            value,
+            directionSource: this.directionData,
+            locationSource: this.locationData
+        };
+        return value;
     }
 
     /**
@@ -4784,6 +4908,10 @@ class AttackMapDashboard {
             playBtn.querySelector('.icon-pause').style.display = 'none';
             playBtn.classList.remove('playing');
         }
+
+        // The slider handler skips these while playing, so bring the date-tied
+        // layers back in sync with wherever playback landed.
+        this.scheduleDateDependentRefreshes();
     }
 
     /**
