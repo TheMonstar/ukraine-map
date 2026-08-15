@@ -3916,17 +3916,26 @@ class AttackMapDashboard {
             });
     }
 
-    renderRiaEventsMarkers() {
-        if (!this.riaEventsLayer) return;
-        this.riaEventsLayer.clearLayers();
+    /** RIA events surviving every filter — shared by the marker renderer and
+     *  the custom-layer proximity filter so both see the same set. */
+    filteredRiaEventsData() {
         const nameTerms = this.riaEventsNameFilter
             .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
+        return this.riaEventsData.filter(e => {
+            if (!e.lat || !e.lng) return false;
+            if (!this.riaEventsFilterEnabled[e.icon]) return false;
+            if (nameTerms.length && !nameTerms.some(t => (e.name || '').toLowerCase().includes(t))) return false;
+            return true;
+        });
+    }
+
+    renderRiaEventsMarkers() {
+        if (!this.riaEventsLayer) return;
+        this.riaEventsLayer.clearLayers();
+
         const groups = {};
-        this.riaEventsData.forEach(e => {
-            if (!e.lat || !e.lng) return;
-            if (!this.riaEventsFilterEnabled[e.icon]) return;
-            if (nameTerms.length && !nameTerms.some(t => (e.name || '').toLowerCase().includes(t))) return;
+        this.filteredRiaEventsData().forEach(e => {
             const key = `${e.lat},${e.lng},${e.icon}`;
             (groups[key] = groups[key] || []).push(e);
         });

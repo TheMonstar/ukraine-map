@@ -1591,7 +1591,17 @@ class MapLayers {
                 return capturedColor;
             };
 
-            L.geoJSON(dashboard.customKmlData, {
+            const eventFilterMode = dashboard.getEl('custom-kml-event-filter')?.value || 'all';
+            const eventRadiusM = Number(dashboard.getEl('custom-kml-event-radius')?.value) || 50;
+            const renderData = eventFilterMode === 'all'
+                ? dashboard.customKmlData
+                : {
+                    ...dashboard.customKmlData,
+                    features: this.filterFeaturesByEventProximity(
+                        dashboard.customKmlData.features, eventFilterMode, eventRadiusM)
+                };
+
+            L.geoJSON(renderData, {
                 style: function (feature) {
                     const color = getFeatureColor(feature);
                     return {
@@ -1617,10 +1627,88 @@ class MapLayers {
                 }
             }).addTo(dashboard.customKmlOverlay);
 
-            console.log('✓ Custom KML overlay displayed');
+            console.log(`✓ Custom KML overlay displayed (${renderData.features.length}/${dashboard.customKmlData.features.length} features)`);
         } else if (dashboard.customKmlOverlay) {
             dashboard.customKmlOverlay.clearLayers();
         }
+    }
+
+    /**
+     * Keep only custom-layer features that are within (mode 'near') or beyond
+     * (mode 'far') radiusM of a currently visible event. Features are tested by
+     * their centroid — exact for the Point features this is meant for.
+     * Events are bucketed into a grid so the test stays linear-ish on large layers.
+     */
+    /**
+     * Every visible event marker, from all four feeds, as {lat, lon}.
+     * Each feed contributes only when its layer toggle is on, and each one's
+     * own category/name filters are respected.
+     */
+    visibleEventPoints() {
+        const dashboard = this.dashboard;
+        const points = [];
+        const push = (list, lonKey) => list.forEach(e => {
+            const lat = e.lat, lon = e[lonKey];
+            if (lat && lon) points.push({ lat, lon });
+        });
+
+        if (dashboard.isChecked('feature-events')) push(dashboard.filteredEventsData(), 'lon');
+        if (dashboard.isChecked('feature-ria-events')) push(dashboard.filteredRiaEventsData(), 'lng');
+        if (dashboard.isChecked('feature-owl-events')) push(dashboard.filteredOwlEventsData(), 'lng');
+        if (dashboard.isChecked('feature-modr')) push(dashboard.modrData || [], 'lng');
+
+        return points;
+    }
+
+    filterFeaturesByEventProximity(features, mode, radiusM) {
+        const events = this.visibleEventPoints();
+        console.log(`Custom layer event filter: ${events.length} event points, radius ${radiusM} m`);
+        if (!events.length) return mode === 'near' ? [] : features;
+
+        // Cell ≥ radiusM in both axes anywhere in Ukraine (cos(53°) ≈ 0.6),
+        // so a ±1 cell scan always covers the search circle
+        const cellLat = radiusM / 111320;
+        const cellLon = cellLat / 0.6;
+        const key = (gy, gx) => `${gy}|${gx}`;
+        const grid = new Map();
+        events.forEach(e => {
+            const k = key(Math.floor(e.lat / cellLat), Math.floor(e.lon / cellLon));
+            if (!grid.has(k)) grid.set(k, []);
+            grid.get(k).push(e);
+        });
+
+        const isNear = (lat, lon) => {
+            const gy = Math.floor(lat / cellLat);
+            const gx = Math.floor(lon / cellLon);
+            const cosLat = Math.cos(lat * Math.PI / 180);
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const bucket = grid.get(key(gy + dy, gx + dx));
+                    if (!bucket) continue;
+                    for (const e of bucket) {
+                        const dLat = (e.lat - lat) * 111320;
+                        const dLon = (e.lon - lon) * 111320 * cosLat;
+                        if (dLat * dLat + dLon * dLon <= radiusM * radiusM) return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        return features.filter(f => {
+            if (!f.geometry) return false;
+            let lon, lat;
+            if (f.geometry.type === 'Point') {
+                [lon, lat] = f.geometry.coordinates;
+            } else {
+                try {
+                    [lon, lat] = turf.centroid(f).geometry.coordinates;
+                } catch (err) {
+                    return false;
+                }
+            }
+            return isNear(lat, lon) === (mode === 'near');
+        });
     }
 
     /**

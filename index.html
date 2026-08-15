@@ -171,6 +171,15 @@
                             <button id="load-custom-kml-file" class="btn btn-sm">Load from File</button>
                             <label class="toggle-label"><input type="checkbox" id="custom-kml-overlay" /><span
                                     class="toggle-switch"></span>Show Custom</label>
+                            <select id="custom-kml-event-filter" class="control-input">
+                                <option value="all">All features</option>
+                                <option value="near">Only near events</option>
+                                <option value="far">Only away from events</option>
+                            </select>
+                            <label class="control-label">Event distance (m)
+                                <input type="number" id="custom-kml-event-radius" class="control-input" value="50"
+                                    min="1" step="10" />
+                            </label>
                         </div>
                         <div class="control-group">
                             <label class="control-label">Diff Colors</label>

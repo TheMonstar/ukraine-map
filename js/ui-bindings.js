@@ -901,6 +901,14 @@ class UiBindings {
             await dashboard.layers.toggleCustomKmlOverlay(dashboard.isChecked('custom-kml-overlay'));
         });
 
+        const refreshCustomKmlEventFilter = async () => {
+            if (dashboard.isChecked('custom-kml-overlay')) {
+                await dashboard.layers.toggleCustomKmlOverlay(true);
+            }
+        };
+        dashboard.bindUI('custom-kml-event-filter', 'change', refreshCustomKmlEventFilter);
+        dashboard.bindUI('custom-kml-event-radius', 'change', refreshCustomKmlEventFilter);
+
         // Update custom KML colors when changed
         const updateCustomKmlColors = async () => {
             if (dashboard.isChecked('custom-kml-overlay')) {
