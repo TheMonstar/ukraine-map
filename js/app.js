@@ -94,8 +94,12 @@ class AttackMapDashboard {
         this.owlEventsFilterEnabled = {};
         this.owlEventsActorFilter = { RU: true, UA: true };
         this.owlEventsOutcomeFilter = {};
-        this.owlEventsTargetFilter = {};
+        // Keyed `target|kind` — `unknown` is valid under every parent, so a bare kind key
+        // would make one parent's `unknown` toggle all of them. Targets have no separate
+        // state: the target checkbox reflects and drives its kinds.
+        this.owlEventsKindFilter = {};
         this.owlEventsWeaponFilter = {};
+        this.owlEventsTerritoryFilter = { ukraine: true, occupied: true, russia: true };
         this.owlEventsNameFilter = '';
         this.owlEventsRefreshDebounce = null;
         this.owlEventsLoading = false;
@@ -4058,6 +4062,8 @@ class AttackMapDashboard {
                 const [lng, lat] = f.geometry.coordinates;
                 return { ...f.properties, lat, lng };
             });
+            await this.loadOwlTerritoryContext();
+            this.classifyOwlEventsTerritory();
             this.renderOwlEventsFilterList();
             const attr = this.getEl('owl-events-attribution');
             if (attr) attr.style.display = '';
@@ -4068,44 +4074,277 @@ class AttackMapDashboard {
         }
     }
 
-    owlEventCategoryIcon(category) {
-        const icons = {
-            intercept: 'blue_intercept.png',
-            assault: 'blue_fighting.png',
-            destruction: 'blue_explosion.png',
-            strike: 'blue_explosion.png',
-            sighting: 'eyeball.png',
-            control: 'blue_flag.png',
-            other: 'blue_other.png'
-        };
-        return `images/events/${icons[category] || 'blue_other.png'}`;
+    /**
+     * Territory buckets for the OWL event filter, for the currently selected end date:
+     * Ukraine (UA-held), Occupied (inside a DeepState control polygon), Russia (outside the UA border).
+     * Rebuilt only when the date changes — the point tests run once per event, not per filter click.
+     */
+    async loadOwlTerritoryContext() {
+        const date = this.endDate || this.maxDate;
+        if (!date) return null;
+
+        const key = this.formatDateYMD(date);
+        if (this._owlTerritoryContext && this._owlTerritoryContext.key === key) return this._owlTerritoryContext;
+
+        const utils = new DeepUtils(null);
+        try {
+            // Not DeepUtils.loadTheBorder('ua') — that border stops at 45.2°N, which would
+            // put all of Crimea in the Russia bucket instead of Occupied
+            if (!this._uaBorderFeature) {
+                const response = await fetch('data/ua.json');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                this._uaBorderFeature = (await response.json()).features[0];
+            }
+            const data = await utils.addDeepMap(date);
+            this._owlTerritoryContext = {
+                key,
+                uaBorder: this._uaBorderFeature,
+                uaBbox: this._uaBorderFeature ? turf.bbox(this._uaBorderFeature) : null,
+                occupied: utils.normalizePolygon(data.polygons).map(f => ({ feature: f, bbox: turf.bbox(f) }))
+            };
+        } catch (error) {
+            console.warn('OWL events: territory filter unavailable', error);
+            this._owlTerritoryContext = null;
+        }
+        return this._owlTerritoryContext;
     }
 
-    owlEventIconUrl(e) {
-        const side = e.actor === 'RU' ? 'red' : e.actor === 'UA' ? 'blue' : null;
+    owlEventTerritory(e) {
+        const ctx = this._owlTerritoryContext;
+        if (!ctx) return null;
 
-        if (e.event === 'control') {
-            if (side === 'red') return 'images/events/red_flag_gold.png';
-            if (side === 'blue') return 'images/events/blue_flag.png';
-            return 'images/events/eyeball.png';
+        const inBbox = (bbox) => e.lng >= bbox[0] && e.lng <= bbox[2] && e.lat >= bbox[1] && e.lat <= bbox[3];
+        const point = turf.point([e.lng, e.lat]);
+
+        // No border loaded — everything stays Ukraine/Occupied rather than being mislabelled Russia
+        if (ctx.uaBorder && !(inBbox(ctx.uaBbox) && turf.booleanPointInPolygon(point, ctx.uaBorder))) {
+            return 'russia';
         }
+        for (const o of ctx.occupied) {
+            if (inBbox(o.bbox) && turf.booleanPointInPolygon(point, o.feature)) return 'occupied';
+        }
+        return 'ukraine';
+    }
 
-        const weaponMap = {
+    classifyOwlEventsTerritory() {
+        this.owlEventsData.forEach(e => {
+            e.territory = (e.lat && e.lng) ? this.owlEventTerritory(e) : null;
+        });
+    }
+
+    // images/events/ is asymmetric — most glyphs exist for both sides, a few only for one, and the
+    // infrastructure ones have no side at all. A glyph is only used when it exists for that side.
+    static get OWL_GLYPH_SIDES() {
+        return {
+            truck: 'both', drone: 'both', fire: 'both', death: 'both', plane: 'both',
+            shelling: 'both', fighting: 'both', explosion: 'both', rocket: 'both',
+            intercept: 'both', other: 'both',
+            motorcycle: 'red', helicopter: 'red',
+            sunk: 'blue', airdef_w: 'blue',
+            flag: 'split',
+            broken_bridge: 'neutral', purple_power_gold_w: 'neutral', eyeball: 'neutral'
+        };
+    }
+
+    owlGlyphFile(glyph, side) {
+        const availability = AttackMapDashboard.OWL_GLYPH_SIDES[glyph];
+        if (availability === 'neutral') return `images/events/${glyph}.png`;
+        if (availability === 'split') return `images/events/${side === 'red' ? 'red_flag_gold' : 'blue_flag'}.png`;
+        return `images/events/${side}_${glyph}.png`;
+    }
+
+    // Colour says who acted, glyph says what happened. The event category always picks the glyph;
+    // for strike/destruction it is refined by what was hit (kind), then by what hit it (weapon) —
+    // the target is more informative than the delivery method, and weapon is filterable on its own.
+    owlEventGlyph(e, side = 'blue') {
+        const glyphs = {
+            control: 'flag', sighting: 'eyeball', intercept: 'intercept',
+            assault: 'fighting', strike: 'explosion', destruction: 'explosion',
+            other: 'other'
+        };
+        const glyph = glyphs[e.event] || 'other';
+        if (e.event !== 'strike' && e.event !== 'destruction') return glyph;
+
+        const kindGlyphs = {
+            infantry: 'fighting', position: 'fighting', crew: 'fighting', column: 'fighting',
+            casualties: 'death',
+            truck: 'truck', car: 'truck', pickup: 'truck', loaf: 'truck', bus: 'truck',
+            fuel_truck: 'truck', ugv: 'truck', civilian_vehicle: 'truck', motorcycle: 'motorcycle',
+            howitzer: 'shelling', mlrs: 'shelling', mortar: 'shelling',
+            pantsir: 'airdef_w', buk: 'airdef_w', sam_long: 'airdef_w', radar: 'airdef_w',
+            recon_uav: 'drone', attack_drone: 'drone', plane: 'plane', helicopter: 'helicopter',
+            factory: 'fire', warehouse: 'fire', chemical: 'fire', refinery: 'fire',
+            oil_depot: 'fire', gas_station: 'fire', pipeline: 'fire',
+            substation: 'purple_power_gold_w', power_plant: 'purple_power_gold_w',
+            bridge: 'broken_bridge', pontoon: 'broken_bridge',
+            tanker: 'sunk', cargo_ship: 'sunk', boat: 'sunk'
+        };
+        // Side-specific fallbacks for glyphs that only exist in one colour
+        const kindFallbacks = { motorcycle: 'truck', helicopter: 'plane' };
+
+        const weaponGlyphs = {
             drone_strike: 'drone', drone_bomber: 'drone', uav_recon: 'drone',
             fpv: 'drone', fpv_fiber: 'drone', naval_drone: 'drone',
             missile: 'rocket', kab: 'explosion', mine: 'explosion',
             artillery: 'shelling', mlrs: 'shelling', arty_sys: 'shelling',
             small_arms: 'fighting'
         };
-        const eventMap = {
-            intercept: 'intercept', assault: 'fighting',
-            destruction: 'explosion', strike: 'explosion',
-            sighting: 'other', other: 'other'
-        };
-        const suffix = weaponMap[e.weapon] || eventMap[e.event] || 'other';
 
-        if (!side) return 'images/events/eyeball.png';
-        return `images/events/${side}_${suffix}.png`;
+        const available = (g) => {
+            const a = AttackMapDashboard.OWL_GLYPH_SIDES[g];
+            return a === 'both' || a === 'neutral' || a === side;
+        };
+
+        let kindGlyph = kindGlyphs[e.kind];
+        if (kindGlyph && !available(kindGlyph)) kindGlyph = kindFallbacks[kindGlyph];
+        if (kindGlyph && available(kindGlyph)) return kindGlyph;
+
+        // Kinds with no glyph of their own on purpose — armor has no artwork in images/events/,
+        // the rest read fine as a plain explosion. Listed so only NEW vocabulary warns.
+        const unglyphed = new Set([
+            'tank', 'turtle_tank', 'bmp', 'btr', 'mt_lb', 'mrap', 'afv',
+            'house', 'social', 'hangar', 'fortification',
+            'railway', 'road', 'port', 'unknown'
+        ]);
+
+        // The API vocabulary is open-ended — surface additions instead of silently defaulting
+        if (!unglyphed.has(e.kind)) this.warnOwlUnmapped('kind', e.kind, kindGlyphs);
+        this.warnOwlUnmapped('weapon', e.weapon, weaponGlyphs);
+
+        return weaponGlyphs[e.weapon] || glyph;
+    }
+
+    warnOwlUnmapped(field, value, table) {
+        if (!value || table[value]) return;
+        if (!this._owlUnmapped) this._owlUnmapped = new Set();
+        const key = `${field}:${value}`;
+        if (this._owlUnmapped.has(key)) return;
+        this._owlUnmapped.add(key);
+        console.warn(`OWL events: unmapped ${field} "${value}" — falling back`);
+    }
+
+    owlEventCategoryIcon(category) {
+        return this.owlGlyphFile(this.owlEventGlyph({ event: category }), 'blue');
+    }
+
+    owlEventIconUrl(e) {
+        const side = e.actor === 'RU' ? 'red' : 'blue';
+        return this.owlGlyphFile(this.owlEventGlyph(e, side), side);
+    }
+
+    /**
+     * Target › kind tree. Every kind belongs to exactly one target, so checking a target writes
+     * through to its kinds — that is what lets the panel filter at either level.
+     */
+    owlEventKindKey(e) {
+        return `${e.target ?? 'unknown'}|${e.kind ?? 'unknown'}`;
+    }
+
+    renderOwlEventsNestedFilter(container) {
+        const counts = {};
+        this.owlEventsData.forEach(e => {
+            const target = e.target ?? 'unknown';
+            const kind = e.kind ?? 'unknown';
+            if (!counts[target]) counts[target] = {};
+            counts[target][kind] = (counts[target][kind] || 0) + 1;
+        });
+
+        const details = document.createElement('details');
+        details.style.cssText = 'margin-bottom:3px;';
+        const summary = document.createElement('summary');
+        summary.style.cssText = 'cursor:pointer; font-size:11px; color:#aaa; display:flex; align-items:center; gap:5px;';
+        const summaryText = document.createElement('span');
+        summaryText.textContent = `Target / Kind (${Object.keys(counts).length})`;
+        summary.appendChild(summaryText);
+
+        const targetBoxes = [];
+        const masterCb = document.createElement('input');
+        masterCb.type = 'checkbox';
+        masterCb.title = 'Select/deselect all targets';
+        masterCb.style.cssText = 'margin-left:auto;';
+        masterCb.addEventListener('click', (ev) => ev.stopPropagation());
+        masterCb.addEventListener('change', () => {
+            // Read once — each setTarget() runs syncTarget(), which rewrites masterCb.checked
+            // from the targets processed so far
+            const on = masterCb.checked;
+            targetBoxes.forEach(setTarget => setTarget(on));
+            masterCb.checked = on;
+            this.renderOwlEventsMarkers();
+        });
+        summary.appendChild(masterCb);
+        details.appendChild(summary);
+
+        const list = document.createElement('div');
+        list.style.cssText = 'margin-top:3px; max-height:180px; overflow-y:auto;';
+
+        const targetTotal = (kinds) => Object.values(kinds).reduce((a, b) => a + b, 0);
+
+        Object.entries(counts)
+            .sort(([, a], [, b]) => targetTotal(b) - targetTotal(a))
+            .forEach(([target, kinds]) => {
+                const targetRow = document.createElement('label');
+                targetRow.style.cssText = 'display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;';
+                const targetCb = document.createElement('input');
+                targetCb.type = 'checkbox';
+                targetRow.appendChild(targetCb);
+                targetRow.appendChild(document.createTextNode(`${target} (${targetTotal(kinds)})`));
+
+                const kindList = document.createElement('div');
+                kindList.style.cssText = 'display:flex; flex-wrap:wrap; gap:3px 6px; margin:1px 0 3px 14px;';
+                const kindBoxes = [];
+
+                Object.entries(kinds)
+                    .sort(([, a], [, b]) => b - a)
+                    .forEach(([kind, count]) => {
+                        const key = `${target}|${kind}`;
+                        const kindRow = document.createElement('label');
+                        kindRow.style.cssText = 'display:flex; align-items:center; gap:3px; font-size:10px; color:#aaa; cursor:pointer; white-space:nowrap;';
+                        const kindCb = document.createElement('input');
+                        kindCb.type = 'checkbox';
+                        kindCb.dataset.key = key;
+                        kindCb.checked = this.owlEventsKindFilter[key] !== false;
+                        kindCb.addEventListener('change', () => {
+                            this.owlEventsKindFilter[key] = kindCb.checked;
+                            syncTarget();
+                            this.renderOwlEventsMarkers();
+                        });
+                        kindBoxes.push(kindCb);
+                        kindRow.appendChild(kindCb);
+                        kindRow.appendChild(document.createTextNode(`${kind} (${count})`));
+                        kindList.appendChild(kindRow);
+                    });
+
+                // Kinds are the single source of truth — the target box only reflects and drives
+                // them, so checking one kind under a cleared target brings that kind back
+                const syncTarget = () => {
+                    const checked = kindBoxes.filter(cb => cb.checked).length;
+                    targetCb.checked = checked > 0;
+                    targetCb.indeterminate = checked > 0 && checked < kindBoxes.length;
+                    masterCb.checked = targetBoxes.length > 0 && targetBoxes.every(t => t.isOn());
+                };
+
+                const setTarget = (on) => {
+                    kindBoxes.forEach(cb => {
+                        cb.checked = on;
+                        this.owlEventsKindFilter[cb.dataset.key] = on;
+                    });
+                    syncTarget();
+                };
+                setTarget.isOn = () => targetCb.checked && !targetCb.indeterminate;
+
+                targetCb.addEventListener('change', () => {
+                    setTarget(targetCb.checked);
+                    this.renderOwlEventsMarkers();
+                });
+                targetBoxes.push(setTarget);
+
+                syncTarget();
+                list.appendChild(targetRow);
+                list.appendChild(kindList);
+            });
+
+        details.appendChild(list);
+        container.appendChild(details);
     }
 
     renderOwlEventsCheckboxFilter(container, label, field, filterState, opts = {}) {
@@ -4208,8 +4447,36 @@ class AttackMapDashboard {
         });
         container.appendChild(sideRow);
 
+        const territoryCounts = {};
+        this.owlEventsData.forEach(e => {
+            if (e.territory) territoryCounts[e.territory] = (territoryCounts[e.territory] || 0) + 1;
+        });
+        if (Object.keys(territoryCounts).length) {
+            const territoryRow = document.createElement('div');
+            territoryRow.style.cssText = 'display:flex; gap:10px; margin-bottom:6px; flex-wrap:wrap;';
+            const labels = { ukraine: 'Ukraine', occupied: 'Occupied', russia: 'Russia' };
+            Object.entries(labels).forEach(([territory, text]) => {
+                const label = document.createElement('label');
+                label.title = territory === 'occupied'
+                    ? 'Ukrainian territory inside a DeepState control polygon'
+                    : territory === 'russia' ? 'Outside the Ukrainian border' : 'Ukrainian-held territory';
+                label.style.cssText = 'display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = this.owlEventsTerritoryFilter[territory] !== false;
+                cb.addEventListener('change', () => {
+                    this.owlEventsTerritoryFilter[territory] = cb.checked;
+                    this.renderOwlEventsMarkers();
+                });
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(`${text} (${territoryCounts[territory] || 0})`));
+                territoryRow.appendChild(label);
+            });
+            container.appendChild(territoryRow);
+        }
+
         this.renderOwlEventsCheckboxFilter(container, 'Weapon', 'weapon', this.owlEventsWeaponFilter, { selectAll: true });
-        this.renderOwlEventsCheckboxFilter(container, 'Target', 'target', this.owlEventsTargetFilter, { selectAll: true });
+        this.renderOwlEventsNestedFilter(container);
         this.renderOwlEventsCheckboxFilter(container, 'Outcome', 'outcome', this.owlEventsOutcomeFilter);
 
         const grid = document.createElement('div');
@@ -4269,8 +4536,9 @@ class AttackMapDashboard {
             if (e.side === 'UA' && !this.owlEventsActorFilter.RU) return false;
             if (e.side === 'RU' && !this.owlEventsActorFilter.UA) return false;
             if (this.owlEventsOutcomeFilter[e.outcome] === false) return false;
-            if (this.owlEventsTargetFilter[e.target] === false) return false;
+            if (this.owlEventsKindFilter[this.owlEventKindKey(e)] === false) return false;
             if (this.owlEventsWeaponFilter[e.weapon] === false) return false;
+            if (e.territory && this.owlEventsTerritoryFilter[e.territory] === false) return false;
             if (nameTerms.length && !nameTerms.some(t => (e.desc || '').toLowerCase().includes(t))) return false;
             return true;
         });
@@ -4286,18 +4554,33 @@ class AttackMapDashboard {
             return;
         }
 
+        // The icon depends only on the resolved url, so build one per distinct url
+        if (!this._owlEventIconCache) this._owlEventIconCache = new Map();
+        const owlIconFor = (e) => {
+            const url = this.owlEventIconUrl(e);
+            // Neither side claimed — show the category glyph, desaturated
+            const className = (e.actor === 'RU' || e.actor === 'UA') ? '' : 'owl-actor-unknown';
+            const key = `${url}|${className}`;
+            let icon = this._owlEventIconCache.get(key);
+            if (!icon) {
+                icon = L.icon({
+                    iconUrl: url,
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8],
+                    className
+                });
+                this._owlEventIconCache.set(key, icon);
+            }
+            return icon;
+        };
+
         this.filteredOwlEventsData().forEach(e => {
-            const icon = L.icon({
-                iconUrl: this.owlEventIconUrl(e),
-                iconSize: [16, 16],
-                iconAnchor: [8, 8]
-            });
-            const marker = L.marker([e.lat, e.lng], { icon });
+            const marker = L.marker([e.lat, e.lng], { icon: owlIconFor(e) });
             const links = (e.src || []).map((s, i) => `<a href="${s}" target="_blank">Source${e.src.length > 1 ? ` ${i + 1}` : ''}</a>`).join(' ');
             marker.bindPopup(`
                 <strong>${e.event}</strong> <small>(${e.actor} → ${e.side}, ${e.date})</small><br>
                 ${e.desc || ''}<br>
-                <small>Weapon: ${e.weapon} · Target: ${e.target} · Outcome: ${e.outcome}</small><br>
+                <small>Weapon: ${e.weapon} · Target: ${e.target}${e.kind ? ` › ${e.kind}` : ''} · Outcome: ${e.outcome}</small><br>
                 ${links}
             `);
             marker.addTo(this.owlEventsLayer);

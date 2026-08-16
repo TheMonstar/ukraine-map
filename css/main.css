@@ -784,6 +784,12 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
 .settlement-label.tier-town    { font-size: 13px; }
 .settlement-label.tier-village { font-size: 11px; font-weight: 600; }
 
+/* ---- OWL Event Markers ---- */
+/* Neither RU nor UA claimed the event — keep the category glyph, drop the side colour */
+.owl-actor-unknown {
+    filter: grayscale(1) opacity(0.75);
+}
+
 /* ---- Settlement Boundaries Loader ---- */
 #settlement-boundaries-loader {
     position: absolute;
