@@ -246,6 +246,7 @@ class AttackMapDashboard {
         this.dataStore = new DataStore(this);
         this.settlements = new Settlements(this);
         this.lineFeatures = new LineFeatures(this);
+        this.overpass = new Overpass(this);
         this.uiBindings = new UiBindings(this);
     }
 
@@ -1637,7 +1638,7 @@ class AttackMapDashboard {
         'waterways-type-river', 'waterways-type-stream',
         'forest-overlay',
         'show-settlements', 'show-regions', 'position-change',
-        'hex-tiles', 'show-date-overlay', 'custom-kml-overlay', 'firms-overlay',
+        'hex-tiles', 'show-date-overlay', 'custom-kml-overlay', 'overpass-overlay', 'firms-overlay',
         'event-heatmap', 'event-coverage'
     ];
 
@@ -1713,7 +1714,8 @@ class AttackMapDashboard {
                         ? { n: rec.meshPoints.n, points: rec.meshPoints.points.map(p => ({ lat: p.lat, lng: p.lng })) }
                         : null
                 })),
-            customKmlUrl: this.getEl('custom-kml-url')?.value?.trim() || ''
+            customKmlUrl: this.getEl('custom-kml-url')?.value?.trim() || '',
+            overpassQuery: this.getEl('overpass-query')?.value?.trim() || ''
         };
     }
 
@@ -1771,6 +1773,7 @@ class AttackMapDashboard {
         if (state.toggles) {
             for (const [id, checked] of Object.entries(state.toggles)) {
                 if (id === 'custom-kml-overlay') continue; // handled with the KML URL below
+                if (id === 'overpass-overlay') continue;   // handled with the query below
                 const el = this.getEl(id);
                 if (el && typeof checked === 'boolean' && el.checked !== checked) {
                     el.checked = checked;
@@ -1809,6 +1812,16 @@ class AttackMapDashboard {
                 const cb = this.getEl('custom-kml-overlay');
                 if (cb) cb.checked = true;
                 await this.layers.loadCustomKml(state.customKmlUrl);
+            }
+        }
+
+        if (state.overpassQuery) {
+            const input = this.getEl('overpass-query');
+            if (input) input.value = state.overpassQuery;
+            // The result is not serialized — re-run the query to get it back,
+            // the same trade-off customKmlUrl makes by refetching its URL
+            if (state.toggles?.['overpass-overlay']) {
+                await this.overpass.run(state.overpassQuery);
             }
         }
 

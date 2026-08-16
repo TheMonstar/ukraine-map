@@ -100,6 +100,7 @@ Push to `main` → GitHub Actions ([.github/workflows/deploy.yml](.github/workfl
 | [js/geometry-utils.js](js/geometry-utils.js) | `GeometryUtils` | GeoJSON ↔ Leaflet coordinate conversions |
 | [js/data-store.js](js/data-store.js) | `DataStore` | Data source stubs (private data removed in public version) |
 | [js/poster.js](js/poster.js) | `Poster` | Title block + auto-derived legend for publication-quality exports |
+| [js/overpass.js](js/overpass.js) | `Overpass` | Live OSM queries — Overpass QL input, `{{bbox}}` → viewport, own overlay |
 
 Script load order in `index.html` matters — CDN libraries first, then `utils.js` → ... → `app.js`. `window.dashboard` is set at end of `index.html`.
 
@@ -118,6 +119,7 @@ All app coupling lives in [mcp/browser/agent-api.js](mcp/browser/agent-api.js), 
 | Military events | `<API_BASE_URL>/events` |
 | Settlements | `https://storage.googleapis.com/telegram-reader-static/static/settlements.json` |
 | Roads / waterways / railways | `<APP_STATIC_URL>/{roads,water,rail}-*.json` — slim per-class files built by [tools/slim_geodata.py](tools/slim_geodata.py), served gzipped |
+| OSM live queries | `https://overpass-api.de/api/interpreter` — POST `data=<Overpass QL>`; CORS-open, rate-limited (2 slots/IP) |
 
 `API_BASE_URL` is defined at the top of [js/app.js](js/app.js).
 
@@ -129,6 +131,7 @@ All app coupling lives in [mcp/browser/agent-api.js](mcp/browser/agent-api.js), 
 - **Leaflet Draw 1.0.4** — polygon/shape drawing
 - **Leaflet MarkerCluster 1.5.3** — clustered unit markers
 - **toGeoJSON 4.4.1** — KML/GPX import
+- **osmtogeojson 3.0.0-beta.5** — Overpass/OSM JSON → GeoJSON
 - **PapaParse 5.4.1** — CSV parsing
 
 ### Coding Conventions

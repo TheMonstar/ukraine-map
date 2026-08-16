@@ -901,9 +901,14 @@ class UiBindings {
             await dashboard.layers.toggleCustomKmlOverlay(dashboard.isChecked('custom-kml-overlay'));
         });
 
+        // The event-proximity filter applies to every user-supplied layer:
+        // the custom KML/GeoJSON overlay and the Overpass query results
         const refreshCustomKmlEventFilter = async () => {
             if (dashboard.isChecked('custom-kml-overlay')) {
                 await dashboard.layers.toggleCustomKmlOverlay(true);
+            }
+            if (dashboard.isChecked('overpass-overlay')) {
+                dashboard.overpass.render(true);
             }
         };
         dashboard.bindUI('custom-kml-event-filter', 'change', refreshCustomKmlEventFilter);
@@ -919,6 +924,44 @@ class UiBindings {
         dashboard.bindUI('color-captured', 'change', updateCustomKmlColors);
         dashboard.bindUI('color-grey', 'change', updateCustomKmlColors);
         dashboard.bindUI('color-controlled', 'change', updateCustomKmlColors);
+
+        // Overpass (OSM) bindings
+        const overpassPreset = dashboard.getEl('overpass-preset');
+        const overpassQuery = dashboard.getEl('overpass-query');
+        if (overpassPreset && overpassQuery) {
+            overpassPreset.innerHTML = Overpass.PRESETS
+                .map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+            overpassQuery.value = Overpass.PRESETS[0].query;
+        }
+
+        dashboard.bindUI('overpass-preset', 'change', (e) => {
+            const preset = Overpass.PRESETS.find(p => p.id === e.target.value);
+            if (preset && overpassQuery) overpassQuery.value = preset.query;
+        });
+
+        dashboard.bindUI('overpass-run', 'click', async (e) => {
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            btn.textContent = 'Running…';
+            try {
+                await dashboard.overpass.run(overpassQuery?.value);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Run query';
+            }
+        });
+
+        dashboard.bindUI('overpass-clear', 'click', () => {
+            dashboard.overpass.clear();
+        });
+
+        dashboard.bindUI('overpass-overlay', 'change', () => {
+            dashboard.overpass.render(dashboard.isChecked('overpass-overlay'));
+        });
+
+        dashboard.bindUI('overpass-color', 'change', () => {
+            if (dashboard.isChecked('overpass-overlay')) dashboard.overpass.render(true);
+        });
 
         dashboard.bindUI('compare-deep-amk', 'click', async () => {
             try {

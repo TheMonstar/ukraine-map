@@ -405,6 +405,42 @@
                     </div>
                 </div>
 
+                <!-- Overpass (OSM) -->
+                <div class="accordion-section" data-section="overpass">
+                    <div class="accordion-header">
+                        <span class="accordion-arrow">&#9654;</span>
+                        Overpass (OSM)
+                    </div>
+                    <div class="accordion-body" style="display:none;">
+                        <div class="control-group">
+                            <label class="control-label">Preset</label>
+                            <select id="overpass-preset" class="control-select"></select>
+                            <label class="control-label">Query ({{bbox}} = current view)</label>
+                            <textarea id="overpass-query" class="control-input" rows="8"
+                                spellcheck="false" style="font-family:monospace; resize:vertical;"></textarea>
+                            <div class="btn-row">
+                                <button id="overpass-run" class="btn btn-sm">Run query</button>
+                                <button id="overpass-clear" class="btn btn-sm btn-danger">Clear</button>
+                            </div>
+                            <label class="toggle-label"><input type="checkbox" id="overpass-overlay" /><span
+                                    class="toggle-switch"></span>Show Overpass</label>
+                            <label class="color-label">Color <input type="color" id="overpass-color"
+                                    value="#ffb300" /></label>
+                            <div class="attribution">
+                                Near/away-from-events filtering uses the
+                                <strong>Custom Layer</strong> event distance settings above.
+                            </div>
+                            <div id="overpass-status" class="attribution"></div>
+                            <div class="attribution">
+                                Data: ©
+                                <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>
+                                contributors (ODbL), via
+                                <a href="https://overpass-api.de/" target="_blank">Overpass API</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Events -->
                 <div class="accordion-section" data-section="events">
                     <div class="accordion-header">
@@ -1182,6 +1218,7 @@ Situation report:
     <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="https://unpkg.com/@tmcw/togeojson@4.4.1/dist/togeojson.umd.js"></script>
+    <script src="https://unpkg.com/osmtogeojson@3.0.0-beta.5/osmtogeojson.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
@@ -1197,6 +1234,7 @@ Situation report:
     <script src="js/image-align.js?563"></script>
     <script src="js/image-extract.js?563"></script>
     <script src="js/terrain-analysis.js?563"></script>
+    <script src="js/overpass.js?563"></script>
     <script src="js/stream.js?563"></script>
     <script src="js/ui-bindings.js?563"></script>
     <script src="js/map-uml-engine.js?563"></script>
