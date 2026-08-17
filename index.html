@@ -2,6 +2,58 @@
 <html lang="en">
 
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ukraine Frontline Map — Daily Territorial Control &amp; Events</title>
+    <meta name="description"
+        content="Interactive map of the war in Ukraine: daily frontline and territorial control, military events, fortifications, settlements, terrain and 3D relief. Compare any two dates and share the view.">
+    <link rel="canonical" href="https://themonstar.github.io/ukraine-map/">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+    <meta name="theme-color" content="#12161c">
+
+    <!-- Social cards (X, Telegram, Facebook, Discord, Slack).
+         Crawlers do not run JS and drop the #session fragment, so every shared
+         link previews with this same static card. -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Ukraine Frontline Map">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:url" content="https://themonstar.github.io/ukraine-map/">
+    <meta property="og:title" content="Ukraine Frontline Map — Daily Territorial Control &amp; Events">
+    <meta property="og:description"
+        content="Interactive map of the war in Ukraine: daily frontline and territorial control, military events, fortifications, settlements, terrain and 3D relief.">
+    <meta property="og:image" content="https://themonstar.github.io/ukraine-map/images/og-cover.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Ukraine frontline map showing territorial control along the eastern front">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Ukraine Frontline Map — Daily Territorial Control &amp; Events">
+    <meta name="twitter:description"
+        content="Interactive map of the war in Ukraine: daily frontline and territorial control, military events, fortifications, settlements, terrain and 3D relief.">
+    <meta name="twitter:image" content="https://themonstar.github.io/ukraine-map/images/og-cover.png">
+    <meta name="twitter:image:alt" content="Ukraine frontline map showing territorial control along the eastern front">
+
+    <link rel="icon" href="images/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="images/favicon.png" type="image/png" sizes="512x512">
+    <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
+
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Ukraine Frontline Map",
+        "url": "https://themonstar.github.io/ukraine-map/",
+        "applicationCategory": "https://schema.org/TravelApplication",
+        "operatingSystem": "Any (web browser)",
+        "browserRequirements": "Requires JavaScript",
+        "description": "Interactive map of the war in Ukraine: daily frontline and territorial control, military events, fortifications, settlements, terrain and 3D relief.",
+        "image": "https://themonstar.github.io/ukraine-map/images/og-cover.png",
+        "inLanguage": "en",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    }
+    </script>
+
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-TDKVEL6LDH"></script>
     <script>
@@ -11,9 +63,6 @@
 
         gtag('config', 'G-TDKVEL6LDH');
     </script>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ukraine Frontline Map</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- The library <script> tags at the end of <body> are spread over four
@@ -426,6 +475,8 @@
                                     class="toggle-switch"></span>Show Overpass</label>
                             <label class="color-label">Color <input type="color" id="overpass-color"
                                     value="#ffb300" /></label>
+                            <div id="overpass-territory-filter"
+                                style="display:none; gap:10px; margin:6px 0; flex-wrap:wrap;"></div>
                             <div class="attribution">
                                 Near/away-from-events filtering uses the
                                 <strong>Custom Layer</strong> event distance settings above.

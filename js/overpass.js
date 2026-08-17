@@ -79,7 +79,16 @@ out tags center;`
         this.data = null;
         this.elapsed = null;
         this.controller = null;
+        this.territoryFilter = { ukraine: true, occupied: true, russia: true };
     }
+
+    /** Same buckets, labels and colors the OWL event filter uses, so a
+     *  substation and a strike on it read the same way. */
+    static TERRITORY = {
+        ukraine: { label: 'Ukraine', color: '#2b7cff', title: 'Ukrainian-held territory' },
+        occupied: { label: 'Occupied', color: '#e53935', title: 'Ukrainian territory inside a DeepState control polygon' },
+        russia: { label: 'Russia', color: '#b71c1c', title: 'Outside the Ukrainian border' }
+    };
 
     /**
      * Substitute overpass-turbo's {{bbox}} for the current viewport. Any other
@@ -153,9 +162,13 @@ out tags center;`
                 return;
             }
 
+            await this.classifyTerritory();
+            if (controller.signal.aborted) return;
+            this.renderTerritoryFilter();
+
             const toggle = this.dashboard.getEl('overpass-overlay');
             if (toggle) toggle.checked = true;
-            this.render(true); // reports the counts, which depend on the event filter
+            this.render(true); // reports the counts, which depend on the filters
 
         } catch (error) {
             if (error.name === 'AbortError') return;
@@ -216,22 +229,31 @@ out tags center;`
         // user-supplied layer
         const mode = dashboard.getEl('custom-kml-event-filter')?.value || 'all';
         const radiusM = Number(dashboard.getEl('custom-kml-event-radius')?.value) || 50;
-        const features = mode === 'all'
+        const nearFar = mode === 'all'
             ? this.data.features
             : dashboard.layers.filterFeaturesByEventProximity(this.data.features, mode, radiusM);
+
+        // Unclassified features always show — an unavailable territory context
+        // must not silently empty the layer
+        const features = nearFar.filter(f => {
+            const territory = f.properties?._territory;
+            return !territory || this.territoryFilter[territory] !== false;
+        });
+
+        const colorFor = (feature) => Overpass.TERRITORY[feature.properties?._territory]?.color || color;
 
         L.geoJSON({ ...this.data, features }, {
             pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
                 radius: 5,
-                color: color,
+                color: colorFor(feature),
                 weight: 2,
-                fillColor: color,
+                fillColor: colorFor(feature),
                 fillOpacity: 0.7
             }),
-            style: () => ({
-                color: color,
+            style: (feature) => ({
+                color: colorFor(feature),
                 weight: 2,
-                fillColor: color,
+                fillColor: colorFor(feature),
                 fillOpacity: 0.3
             }),
             onEachFeature: (feature, layer) => {
@@ -241,13 +263,81 @@ out tags center;`
 
         const total = this.data.features.length;
         const proximity = mode === 'near'
-            ? `near events ≤ ${radiusM} m`
-            : `away from events > ${radiusM} m`;
-        const shown = mode === 'all'
+            ? ` near events ≤ ${radiusM} m`
+            : mode === 'far' ? ` away from events > ${radiusM} m` : '';
+        const shown = features.length === total
             ? `${total} features`
-            : `${features.length} / ${total} features ${proximity}`;
-        this.setStatus(this.elapsed ? `${shown} · ${this.elapsed} s` : shown,
-            mode !== 'all' && features.length === 0);
+            : `${features.length} / ${total} features${proximity}`;
+        this.setStatus(this.elapsed ? `${shown} · ${this.elapsed} s` : shown, features.length === 0);
+    }
+
+    /** Lat/lng to classify a result by — its own coordinates for a point,
+     *  the centroid for ways and relations returned with full geometry. */
+    static featureLatLng(feature) {
+        if (!feature.geometry) return null;
+        try {
+            const [lng, lat] = feature.geometry.type === 'Point'
+                ? feature.geometry.coordinates
+                : turf.centroid(feature).geometry.coordinates;
+            return { lat, lng };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Bucket every result into Ukraine / Occupied / Russia with the context the
+     * OWL event filter builds for the selected end date, so both layers agree
+     * on where the line is. Runs once per query — re-run after changing the
+     * date to reclassify against that day's control polygons.
+     */
+    async classifyTerritory() {
+        const dashboard = this.dashboard;
+        const context = await dashboard.loadOwlTerritoryContext();
+
+        this.data.features.forEach(feature => {
+            const point = context ? Overpass.featureLatLng(feature) : null;
+            if (!feature.properties) feature.properties = {};
+            feature.properties._territory = point ? dashboard.owlEventTerritory(point) : null;
+        });
+    }
+
+    /** Territory checkboxes with live counts, mirroring the OWL event filter's
+     *  territory row. Hidden when nothing could be classified. */
+    renderTerritoryFilter() {
+        const container = this.dashboard.getEl('overpass-territory-filter');
+        if (!container) return;
+
+        const counts = {};
+        (this.data?.features || []).forEach(f => {
+            const territory = f.properties?._territory;
+            if (territory) counts[territory] = (counts[territory] || 0) + 1;
+        });
+
+        container.innerHTML = '';
+        container.style.display = Object.keys(counts).length ? 'flex' : 'none';
+
+        Object.entries(Overpass.TERRITORY).forEach(([territory, { label, color, title }]) => {
+            const wrap = document.createElement('label');
+            wrap.title = title;
+            wrap.style.cssText = 'display:flex; align-items:center; gap:3px; font-size:10px; cursor:pointer; white-space:nowrap;';
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = this.territoryFilter[territory] !== false;
+            cb.addEventListener('change', () => {
+                this.territoryFilter[territory] = cb.checked;
+                if (this.dashboard.isChecked('overpass-overlay')) this.render(true);
+            });
+
+            const swatch = document.createElement('span');
+            swatch.style.cssText = `width:8px; height:8px; border-radius:50%; background:${color}; flex-shrink:0;`;
+
+            wrap.appendChild(cb);
+            wrap.appendChild(swatch);
+            wrap.appendChild(document.createTextNode(`${label} (${counts[territory] || 0})`));
+            container.appendChild(wrap);
+        });
     }
 
     /** Tag table plus a link back to the object on openstreetmap.org. */
@@ -255,11 +345,14 @@ out tags center;`
         const props = feature.properties || {};
         const id = props.id || feature.id || '';
         const rows = Object.entries(props)
-            .filter(([key]) => key !== 'id')
+            .filter(([key]) => key !== 'id' && key !== '_territory')
             .map(([key, value]) => `<tr><td><strong>${key}</strong></td><td>${value}</td></tr>`)
             .join('');
 
+        const territory = Overpass.TERRITORY[props._territory];
+
         return `<div style="max-height:220px; overflow:auto;">
+            ${territory ? `<div style="color:${territory.color}; font-weight:600; margin-bottom:2px;">${territory.label}</div>` : ''}
             <table style="font-size:11px; border-spacing:4px 1px;">${rows}</table>
             ${id ? `<a href="https://www.openstreetmap.org/${id}" target="_blank">${id} on OSM</a>` : ''}
         </div>`;
@@ -272,6 +365,7 @@ out tags center;`
         if (this.layer) this.layer.clearLayers();
         const toggle = this.dashboard.getEl('overpass-overlay');
         if (toggle) toggle.checked = false;
+        this.renderTerritoryFilter();
         this.setStatus('');
     }
 

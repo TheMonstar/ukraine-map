@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /mcp/
+Disallow: /tools/
+Disallow: /tasks/
+
+Sitemap: https://themonstar.github.io/ukraine-map/sitemap.xml
