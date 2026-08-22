@@ -340,6 +340,41 @@ export async function frontLine({ bbox, date, color = '#c62828', thickness = 3,
     return { ...res, segments: shapes.length, vertices: runs[0].length, source: 'DeepState control boundary' };
 }
 
+/**
+ * A concealed approach route rather than an axis of advance: it hugs treelines,
+ * woods, villages and stream corridors, and reports how much of the route is
+ * actually under cover so the open crossings can be planned around.
+ */
+export async function infiltrationRoute({ from, to, via = [], radius_m = 300, cell_m = 40,
+                                          avoid_settlements = false, routes = 1, use_terrain = true,
+                                          side, color, thickness = 3, label }) {
+    const waypoints = await resolveAll([from, ...via, to]);
+    const found = await session.call('infiltrationPath', waypoints.map((w) => w.coords),
+                                     // waypoints already shape the route, and each leg
+                                     // multiplies the search, so alternatives are dropped
+                                     { radius_m, cell_m, avoid_settlements, use_terrain,
+                                       routes: via.length ? 1 : routes });
+    const stroke = color || (side ? colorFor(side) : '#2e7d32');
+    const shapes = found.map((r) => ({
+        type: 'freedraw',
+        points: geo.smoothPath(decimate(r.points, 140), 0, 4),
+        head: true, dash: true, color: stroke,
+        thickness: r.rank === 1 ? thickness : Math.max(1, thickness - 1),
+    }));
+    if (label) {
+        const best = found[0].points;
+        const mid = best[Math.floor(best.length / 2)];
+        shapes.push(textShape(mid, label, { size: 16, color: stroke, bearingRad: 0 }));
+    }
+    const res = await session.call('addShapes', shapes);
+    return {
+        ...res,
+        waypoints: waypoints.map((w) => w.name),
+        color: stroke,
+        routes: found.map((r) => ({ rank: r.rank, ...r.stats })),
+    };
+}
+
 /** Elevation readings, so an analysis can be grounded in the actual ground. */
 export async function elevation({ places, points }) {
     const coords = points?.length

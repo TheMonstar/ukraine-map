@@ -353,6 +353,25 @@ const TOOLS = [
         }),
         handler: (a) => draw.elevation(a),
     },
+    {
+        name: 'map_infiltration_route',
+        description: 'Trace and draw the most CONCEALED route between two places — the way a small group actually moves. It is a least-cost path over real terrain: ravines and other dead ground are cheap (from the elevation model), forest blocks, treelines (лісосмуги) and the brush along streams are cheap, settlements cheaper still because a group can halt and accumulate there, open field is expensive in proportion to how far it is from cover, and roads, railways and rivers carry a crossing penalty. Use this instead of map_draw_axis when the question is infiltration or a covered approach rather than a mechanised advance. Returns per-route length_km, covered_pct, settlement_pct and longest_open_m — the open crossings are where the route is actually at risk.',
+        inputSchema: obj({
+            from: { type: 'string', description: PLACE },
+            to: { type: 'string', description: PLACE },
+            via: { type: 'array', items: { type: 'string' }, description: 'Waypoints the route must pass through, in order — use them to force it through a specific gap or assembly area. One terrain fetch covers the whole path however many legs it has. Supplying any waypoint drops `routes` to 1.' },
+            radius_m: { type: 'number', description: 'Treat every waypoint as a disc of this radius, so the search picks the best entry and exit point rather than an exact spot. Default 300.' },
+            cell_m: { type: 'number', description: 'Grid resolution in metres, 25–80. Finer resolves individual treelines but costs more time. Default 40.' },
+            use_terrain: { type: 'boolean', description: 'Price dead ground from the elevation model: a balka sitting below its surroundings is cheap, a crest is expensive, and climbing out costs extra. This is what makes the route follow ravines the way real infiltration does — most gullies carry no OSM tag at all, so without it the router only sees vegetation. Default true; set false to compare against the landcover-only line.' },
+            avoid_settlements: { type: 'boolean', description: 'Settlements are treated as good ground by default — concealment plus somewhere to halt and accumulate. Set true when they are the ones held, to route around them instead of through them.' },
+            routes: { type: 'number', description: 'Return up to 3 separated alternatives, best first. Each one is re-searched with the previous route\'s ground made expensive, so they are genuinely different lines rather than variations on one. Ignored when `via` is given. Default 1.' },
+            side: SIDE,
+            color: COLOR,
+            thickness: { type: 'number' },
+            label: { type: 'string' },
+        }, ['from', 'to']),
+        handler: (a) => draw.infiltrationRoute(a),
+    },
 
     // ── persistence ──────────────────────────────────────────────────────────
     {

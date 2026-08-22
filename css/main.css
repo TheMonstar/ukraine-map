@@ -531,6 +531,69 @@ body {
     margin-top: 4px;
 }
 
+/* ---- Infiltration Routes ---- */
+.infil-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--sidebar-muted);
+}
+
+.infil-legend i {
+    display: inline-block;
+    width: 10px;
+    height: 3px;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+.infil-status-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+/* Reuses the btn-spin keyframes defined with .btn-loading above. */
+.infil-spinner {
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+    margin-top: 6px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: btn-spin 0.8s linear infinite;
+}
+
+.infil-tooltip {
+    background: rgba(30, 41, 59, 0.92);
+    border: 1px solid #475569;
+    color: #e2e8f0;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    padding: 4px 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.infil-tooltip::before {
+    border-top-color: #475569 !important;
+}
+
+/* Route number badge, so overlapping alternates match the stats readout. */
+.infil-badge span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(11, 11, 11, 0.75);
+    color: #fff;
+    font: 600 11px/1 system-ui, sans-serif;
+}
+
 /* ---- Saved Image Overlays ---- */
 .image-overlay-list {
     margin-top: 8px;

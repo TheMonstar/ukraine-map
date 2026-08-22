@@ -985,6 +985,69 @@
                             <button id="los-clear" class="btn btn-sm btn-danger">Clear LoS</button>
                         </div>
                         <div id="los-status" class="stats-text" style="min-height:16px;"></div>
+                        <div class="control-group">
+                            <label class="control-label">Infiltration Route</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="infil-mode" />
+                                    <span class="toggle-switch"></span>Trace Route
+                                </label>
+                            </div>
+                            <div id="infil-hint" class="draw-hint" style="display:none;"></div>
+                            <div class="control-row">
+                                <label class="small-label">Route mode:</label>
+                                <select id="infil-route-mode" class="control-select-sm">
+                                    <option value="solve" selected>Solve</option>
+                                    <option value="draw">Draw</option>
+                                </select>
+                            </div>
+                            <div class="control-row">
+                                <label class="small-label">Start/end radius (m):</label>
+                                <input type="number" id="infil-radius" value="300" min="0" max="3000" step="50" class="control-input-sm" />
+                            </div>
+                            <div class="control-row">
+                                <label class="small-label">Cell size (m):</label>
+                                <input type="number" id="infil-cell" value="40" min="25" max="80" step="5" class="control-input-sm" />
+                            </div>
+                            <div class="control-row" id="infil-routes-row">
+                                <label class="small-label">Alternative routes:</label>
+                                <input type="number" id="infil-routes" value="1" min="1" max="3" step="1" class="control-input-sm" />
+                            </div>
+                            <div class="control-row" id="infil-corridor-row" style="display:none;">
+                                <label class="small-label">Corridor half-width (m):</label>
+                                <input type="number" id="infil-corridor" value="300" min="50" max="2000" step="50" class="control-input-sm" />
+                            </div>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="infil-terrain" checked />
+                                    <span class="toggle-switch"></span>Terrain (ravines)
+                                </label>
+                                <label class="toggle-label" id="infil-snap-row" style="display:none;">
+                                    <input type="checkbox" id="infil-snap" checked />
+                                    <span class="toggle-switch"></span>Snap to cover
+                                </label>
+                            </div>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="infil-avoid-settlements" />
+                                    <span class="toggle-switch"></span>Avoid built-up areas
+                                </label>
+                            </div>
+                            <div class="btn-row">
+                                <button id="infil-to-drawing" class="btn btn-sm">Send to drawing</button>
+                                <button id="infil-clear" class="btn btn-sm btn-danger">Clear</button>
+                            </div>
+                            <div class="infil-legend">
+                                <span><i style="background:#2e7d32"></i>under cover</span>
+                                <span><i style="background:#f5c518"></i>through settlement</span>
+                                <span><i style="background:#e53935"></i>open ground</span>
+                                <span><i style="background:#94a3b8"></i>as drawn</span>
+                            </div>
+                            <div class="infil-status-row">
+                                <span id="infil-spinner" class="infil-spinner" style="display:none;"></span>
+                                <div id="infil-status" class="stats-text" style="min-height:16px; white-space:pre-line;"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1277,24 +1340,25 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
-    <script src="js/utils.js?563"></script>
-    <script src="js/hex-tiles.js?563"></script>
-    <script src="js/geometry-utils.js?563"></script>
-    <script src="js/data-store.js?563"></script>
-    <script src="js/map-layers.js?563"></script>
-    <script src="js/settlements.js?563"></script>
-    <script src="js/line-features.js?563"></script>
-    <script src="js/draw.js?563"></script>
-    <script src="js/image-mesh.js?563"></script>
-    <script src="js/image-align.js?563"></script>
-    <script src="js/image-extract.js?563"></script>
-    <script src="js/terrain-analysis.js?563"></script>
-    <script src="js/overpass.js?563"></script>
-    <script src="js/stream.js?563"></script>
-    <script src="js/ui-bindings.js?563"></script>
-    <script src="js/map-uml-engine.js?563"></script>
-    <script src="js/poster.js?563"></script>
-    <script src="js/app.js?563"></script>
+    <script src="js/utils.js?566"></script>
+    <script src="js/hex-tiles.js?566"></script>
+    <script src="js/geometry-utils.js?566"></script>
+    <script src="js/data-store.js?566"></script>
+    <script src="js/map-layers.js?566"></script>
+    <script src="js/settlements.js?566"></script>
+    <script src="js/line-features.js?566"></script>
+    <script src="js/draw.js?566"></script>
+    <script src="js/image-mesh.js?566"></script>
+    <script src="js/image-align.js?566"></script>
+    <script src="js/image-extract.js?566"></script>
+    <script src="js/terrain-analysis.js?566"></script>
+    <script src="js/overpass.js?566"></script>
+    <script src="js/infiltration.js?566"></script>
+    <script src="js/stream.js?566"></script>
+    <script src="js/ui-bindings.js?566"></script>
+    <script src="js/map-uml-engine.js?566"></script>
+    <script src="js/poster.js?566"></script>
+    <script src="js/app.js?566"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

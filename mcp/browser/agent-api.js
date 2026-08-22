@@ -483,6 +483,35 @@
             return path;
         },
 
+        /**
+         * Most concealed route through a list of waypoints: a least-cost path
+         * over woods, treelines, built-up areas and stream corridors, with open
+         * ground priced by how far it is from the nearest cover. Every waypoint
+         * is a disc of `radius_m`, so this is really area-to-area. One terrain
+         * fetch covers the whole path, however many legs it has.
+         *
+         * Returns the path plus the stats that decide whether it is usable —
+         * above all how much of it is under cover and how long the worst open
+         * crossing is.
+         */
+        async infiltrationPath(path, { radius_m = 300, cell_m = 40, avoid_settlements = false,
+                                       routes = 1, use_terrain = true } = {}) {
+            const inf = d().infiltration;
+            if (!inf) throw new Error('Infiltration not loaded');
+            const found = await inf.computeRoutes(
+                path.map(([lat, lng]) => ({ lat, lng })),
+                { radiusM: radius_m, cellM: cell_m, avoidBuiltUp: avoid_settlements, routes,
+                  useTerrain: use_terrain });
+            return found.map((r) => ({
+                rank: r.rank,
+                legs: r.legs,
+                points: r.latlngs,
+                // each leg of the route, so the agent can talk about where it is exposed
+                runs: r.runs.map((run) => ({ category: run.category, points: run.points.length })),
+                stats: r.stats,
+            }));
+        },
+
         /** Road-network route between the roads nearest a and b. */
         async roadPath(a, b) {
             const lf = d().lineFeatures;

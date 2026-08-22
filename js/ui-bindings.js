@@ -3,6 +3,17 @@ class UiBindings {
         this.dashboard = dashboard;
     }
 
+    /** LoS and infiltration both take over the map click, so turning one on has
+     *  to switch the others off — checkbox and click handler alike. */
+    static releaseMapClick(dashboard, ...ids) {
+        for (const id of ids) {
+            const el = dashboard.getEl(id);
+            if (el) el.checked = false;
+            if (id === 'infil-mode') dashboard.infiltration?.disableMode();
+            else dashboard.terrainAnalysis?.disableMode();
+        }
+    }
+
     init() {
         this.dashboard.cacheUI();
         this.register();
@@ -4329,6 +4340,7 @@ class UiBindings {
                 if (dashboard.isChecked('los-p2p-mode')) {
                     const vsEl = dashboard.getEl('los-viewshed-mode');
                     if (vsEl) vsEl.checked = false;
+                    UiBindings.releaseMapClick(dashboard, 'infil-mode');
                     ta.enableMode('p2p');
                 } else {
                     ta.disableMode();
@@ -4339,6 +4351,7 @@ class UiBindings {
                 if (dashboard.isChecked('los-viewshed-mode')) {
                     const p2pEl = dashboard.getEl('los-p2p-mode');
                     if (p2pEl) p2pEl.checked = false;
+                    UiBindings.releaseMapClick(dashboard, 'infil-mode');
                     ta.enableMode('viewshed');
                 } else {
                     ta.disableMode();
@@ -4350,6 +4363,36 @@ class UiBindings {
                 const hint = dashboard.getEl('los-hint');
                 if (hint) hint.textContent = '';
             });
+        }
+
+        // Infiltration Route
+        if (dashboard.infiltration) {
+            const inf = dashboard.infiltration;
+
+            dashboard.bindUI('infil-mode', 'change', () => {
+                if (dashboard.isChecked('infil-mode')) {
+                    UiBindings.releaseMapClick(dashboard, 'los-p2p-mode', 'los-viewshed-mode');
+                    inf.enableMode();
+                } else {
+                    inf.disableMode();
+                }
+            });
+
+            dashboard.bindUI('infil-route-mode', 'change', () => {
+                // Alternatives belong to the solver; corridor and snap to a drawn line.
+                const drawing = inf.mode() === Infiltration.MODE_DRAW;
+                const show = (id, on) => {
+                    const el = dashboard.getEl(id);
+                    if (el) el.style.display = on ? '' : 'none';
+                };
+                show('infil-routes-row', !drawing);
+                show('infil-corridor-row', drawing);
+                show('infil-snap-row', drawing);
+                inf.clear();
+            });
+
+            dashboard.bindUI('infil-to-drawing', 'click', () => inf.toDrawing());
+            dashboard.bindUI('infil-clear', 'click', () => inf.clear());
         }
 
         // ---- Air Defense Range ----

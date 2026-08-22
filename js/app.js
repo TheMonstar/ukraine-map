@@ -68,8 +68,10 @@ class AttackMapDashboard {
 
         this.eventsLayer = null;
         this.terrainAnalysis = null;
+        this.infiltration = null;
         this.losLayer = null;
         this.forestLayer = null;
+        this.infiltrationLayer = null;
         this.eventsData = [];
         this.eventsFilterEnabled = {};
         this.eventsNameFilter = '';
@@ -281,6 +283,7 @@ class AttackMapDashboard {
         this.mapUmlEngine = new MapUMLEngine(this);
         this.poster = new Poster(this);
         this.terrainAnalysis = new TerrainAnalysis(this);
+        this.infiltration = new Infiltration(this);
         this.uiBindings.init();
         this.terrainAnalysis._initLosCanvas();
         this.buildRegionPolygonCache();
@@ -447,7 +450,24 @@ class AttackMapDashboard {
             'los-tree-bonus',
             'los-hint',
             'los-status',
-            'los-clear'
+            'los-clear',
+            'infil-mode',
+            'infil-radius',
+            'infil-cell',
+            'infil-routes',
+            'infil-routes-row',
+            'infil-route-mode',
+            'infil-corridor',
+            'infil-corridor-row',
+            'infil-snap',
+            'infil-snap-row',
+            'infil-terrain',
+            'infil-avoid-settlements',
+            'infil-hint',
+            'infil-status',
+            'infil-spinner',
+            'infil-to-drawing',
+            'infil-clear'
         ];
         ids.forEach(id => {
             this.ui[id] = document.getElementById(id);
