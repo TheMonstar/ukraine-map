@@ -87,6 +87,7 @@ class MapLayers {
             shiftKeyRotate: true
         }).setView([49.0, 37.0], 6);
 
+        dashboard.currentBaseStyle = 'esri-elevation';
         dashboard.currentTileLayer = L.tileLayer(dashboard.mapStyles['esri-elevation'].url, {
             attribution: dashboard.mapStyles['esri-elevation'].attribution
         }).addTo(dashboard.map);
@@ -150,21 +151,168 @@ class MapLayers {
 
     setBaseLayer(style) {
         const dashboard = this.dashboard;
+        const cfg = dashboard.mapStyles[style];
+        // Only dated imagery can be compared; tear the swipe down without
+        // letting it reset the base layer we are about to set.
+        if (!cfg.dated && dashboard.nasaCompare) {
+            this.disableNasaCompare(false);
+            const cb = dashboard.getEl('nasa-compare');
+            if (cb) cb.checked = false;
+        }
         if (dashboard.currentTileLayer) {
             dashboard.map.removeLayer(dashboard.currentTileLayer);
         }
-        let url = dashboard.mapStyles[style].url;
-        if (style === 'nasa-gibs' && dashboard.endDate) {
-            const d = dashboard.endDate;
-            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-            url = url.replace(/\/\d{4}-\d{2}-\d{2}\//, `/${dateStr}/`);
+        dashboard.currentBaseStyle = style;
+        let url = cfg.url;
+        if (cfg.dated && dashboard.endDate) {
+            // While comparing, the base layer holds the *start* date and the
+            // clipped overlay pane holds the end date.
+            url = this.gibsUrlForDate(dashboard.nasaCompare ? dashboard.startDate : dashboard.endDate, style);
         }
         dashboard.currentTileLayer = L.tileLayer(url, {
-            attribution: dashboard.mapStyles[style].attribution
+            attribution: cfg.attribution,
+            maxNativeZoom: cfg.maxNativeZoom
         }).addTo(dashboard.map);
         dashboard.currentTileLayer.bringToBack();
         if (dashboard.topoTileLayer) dashboard.topoTileLayer.bringToBack();
         dashboard.currentTileLayer.bringToBack();
+    }
+
+    /** GIBS tile URL for a given Date — swaps the /YYYY-MM-DD/ path segment. */
+    gibsUrlForDate(date, style) {
+        const d = date || this.dashboard.endDate || new Date();
+        const cfg = this.dashboard.mapStyles[style || this.dashboard.currentBaseStyle];
+        return cfg.url.replace(/\/\d{4}-\d{2}-\d{2}\//, `/${MapLayers.isoDate(d)}/`);
+    }
+
+    static isoDate(d) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    /**
+     * Worldview-style swipe: a second GIBS layer for the slider's end date sits
+     * in its own pane above the basemap, clipped to the area right of a
+     * draggable divider. The basemap below it carries the start date.
+     */
+    enableNasaCompare() {
+        const dashboard = this.dashboard;
+        const map = dashboard.map;
+        if (dashboard.nasaCompareLayer) return;
+
+        dashboard.nasaCompare = true;
+        // leaflet-rotate nests tilePane inside a leaflet-rotate-pane, so the
+        // compare pane must be created in that same parent — a sibling of the
+        // rotate pane would paint underneath the whole basemap.
+        const paneParent = map.getPane('tilePane').parentElement;
+        let pane = map.getPane('nasa-compare');
+        if (!pane) {
+            pane = map.createPane('nasa-compare', paneParent);
+            pane.style.zIndex = 250; // above tilePane (200), below overlayPane (400)
+        } else if (pane.parentElement !== paneParent) {
+            paneParent.appendChild(pane);
+        }
+
+        const style = dashboard.currentBaseStyle;
+        dashboard.nasaCompareLayer = L.tileLayer(this.gibsUrlForDate(dashboard.endDate, style), {
+            pane: 'nasa-compare',
+            attribution: dashboard.mapStyles[style].attribution,
+            maxNativeZoom: dashboard.mapStyles[style].maxNativeZoom
+        }).addTo(map);
+
+        // Base layer flips to the start date now that compare is on.
+        this.setBaseLayer(style);
+
+        this._buildNasaSwipeHandle();
+        this._nasaClipHandler = () => this._updateNasaClip();
+        map.on('move zoom zoomend resize viewreset', this._nasaClipHandler);
+        this._updateNasaClip();
+        this.refreshNasaCompare();
+    }
+
+    disableNasaCompare(resetBase = true) {
+        const dashboard = this.dashboard;
+        const map = dashboard.map;
+        if (!dashboard.nasaCompare && !dashboard.nasaCompareLayer) return;
+
+        dashboard.nasaCompare = false;
+        if (this._nasaClipHandler) {
+            map.off('move zoom zoomend resize viewreset', this._nasaClipHandler);
+            this._nasaClipHandler = null;
+        }
+        if (dashboard.nasaCompareLayer) {
+            map.removeLayer(dashboard.nasaCompareLayer);
+            dashboard.nasaCompareLayer = null;
+        }
+        const pane = map.getPane('nasa-compare');
+        if (pane) pane.style.clip = '';
+        if (this._nasaSwipeEl) {
+            this._nasaSwipeEl.remove();
+            this._nasaSwipeEl = null;
+        }
+        if (resetBase) this.setBaseLayer(dashboard.currentBaseStyle);
+    }
+
+    /** Point the compare layer at the current end date and relabel the divider. */
+    refreshNasaCompare() {
+        const dashboard = this.dashboard;
+        if (!dashboard.nasaCompareLayer) return;
+        dashboard.nasaCompareLayer.setUrl(this.gibsUrlForDate(dashboard.endDate));
+        if (this._nasaSwipeEl) {
+            this._nasaSwipeEl.querySelector('.nasa-swipe-a').textContent = MapLayers.isoDate(dashboard.startDate);
+            this._nasaSwipeEl.querySelector('.nasa-swipe-b').textContent = MapLayers.isoDate(dashboard.endDate);
+        }
+    }
+
+    /**
+     * Clip the compare pane in layer-point space so the divider stays put on
+     * screen while the map pans (the leaflet-side-by-side technique).
+     * Note: the rect is axis-aligned in layer space, so with a non-zero map
+     * bearing the cut rotates with the map instead of staying vertical.
+     */
+    _updateNasaClip() {
+        const map = this.dashboard.map;
+        const pane = map.getPane('nasa-compare');
+        if (!pane) return;
+        const size = map.getSize();
+        const nw = map.containerPointToLayerPoint([0, 0]);
+        const se = map.containerPointToLayerPoint([size.x, size.y]);
+        const x = nw.x + size.x * this.dashboard.nasaSwipePos;
+        pane.style.clip = `rect(${nw.y}px, ${se.x}px, ${se.y}px, ${x}px)`;
+    }
+
+    _buildNasaSwipeHandle() {
+        const dashboard = this.dashboard;
+        const container = dashboard.map.getContainer().parentElement;
+        const el = document.createElement('div');
+        el.id = 'nasa-swipe';
+        el.innerHTML = '<span class="nasa-swipe-label nasa-swipe-a"></span>' +
+            '<span class="nasa-swipe-grip">\u21c4</span>' +
+            '<span class="nasa-swipe-label nasa-swipe-b"></span>';
+        el.style.left = `${dashboard.nasaSwipePos * 100}%`;
+        container.appendChild(el);
+        this._nasaSwipeEl = el;
+
+        const grip = el.querySelector('.nasa-swipe-grip');
+        const onMove = (e) => {
+            const rect = container.getBoundingClientRect();
+            const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            dashboard.nasaSwipePos = pos;
+            el.style.left = `${pos * 100}%`;
+            this._updateNasaClip();
+        };
+        const onUp = (e) => {
+            grip.releasePointerCapture?.(e.pointerId);
+            grip.removeEventListener('pointermove', onMove);
+            grip.removeEventListener('pointerup', onUp);
+            dashboard.map.dragging.enable();
+        };
+        grip.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            dashboard.map.dragging.disable();
+            grip.setPointerCapture?.(e.pointerId);
+            grip.addEventListener('pointermove', onMove);
+            grip.addEventListener('pointerup', onUp);
+        });
     }
 
     static ELEV_STOPS = [

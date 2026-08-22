@@ -5,4 +5,5 @@ CLAUDE.md
 *.md
 !mcp/**/*.md
 tasks/
+exports/
 /tools/

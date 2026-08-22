@@ -232,11 +232,33 @@ class AttackMapDashboard {
             },
             'nasa-gibs': {
                 url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/2026-05-19/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpeg',
-                attribution: 'Imagery provided by GIBS, operated by the NASA/GSFC/Earth Science Data and Information System (ESDIS) project'
+                attribution: 'Imagery provided by GIBS, operated by the NASA/GSFC/Earth Science Data and Information System (ESDIS) project',
+                // Daily imagery: the /YYYY-MM-DD/ segment tracks the date slider.
+                dated: true,
+                maxNativeZoom: 9
+            },
+            'nasa-black-marble': {
+                // Daily VIIRS day/night band — the dated night-lights product, so
+                // the date slider and the compare swipe both work on it.
+                url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_DayNightBand_At_Sensor_Radiance/default/2026-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png',
+                attribution: 'Imagery provided by GIBS, operated by the NASA/GSFC/Earth Science Data and Information System (ESDIS) project',
+                dated: true,
+                maxNativeZoom: 8
+            },
+            'nasa-black-marble-2016': {
+                // Static 2016 composite — the poster-quality one, no date variation.
+                url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png',
+                attribution: 'Imagery provided by GIBS, operated by the NASA/GSFC/Earth Science Data and Information System (ESDIS) project',
+                maxNativeZoom: 8
             }
         };
 
         this.currentTileLayer = null;
+        // NASA GIBS date-compare swipe: second imagery layer clipped to the
+        // right of a draggable divider. Dates come from the main date slider.
+        this.nasaCompare = false;
+        this.nasaCompareLayer = null;
+        this.nasaSwipePos = 0.5;
 
         this.ui = {};
         this.updateMapDebounce = null;
@@ -299,6 +321,7 @@ class AttackMapDashboard {
     cacheUI() {
         const ids = [
             'map-style',
+            'nasa-compare',
             'diff-area',
             'shadow-ua',
             'clusterRadius',
@@ -4881,11 +4904,14 @@ class AttackMapDashboard {
 
             this.scheduleUpdateMap();
             const mapStyleEl = this.getEl('map-style');
-            if (mapStyleEl?.value === 'nasa-gibs') {
-                const dateStr = this.formatDate(this.endDate);
-                if (dateStr !== this._lastNasaDate) {
-                    this._lastNasaDate = dateStr;
-                    this.layers.setBaseLayer('nasa-gibs');
+            if (this.mapStyles[mapStyleEl?.value]?.dated) {
+                // Key on both dates: while comparing, the start handle drives the
+                // basemap and the end handle drives the clipped compare layer.
+                const key = `${MapLayers.isoDate(this.startDate)}|${MapLayers.isoDate(this.endDate)}`;
+                if (key !== this._lastNasaDate) {
+                    this._lastNasaDate = key;
+                    this.layers.setBaseLayer(mapStyleEl.value);
+                    this.layers.refreshNasaCompare();
                 }
             }
             this.syncDiffSliceRange();

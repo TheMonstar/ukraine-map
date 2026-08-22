@@ -395,6 +395,12 @@ body {
     display: none;
 }
 
+/* The input is display:none, so dim the whole label to show a disabled toggle. */
+.toggle-label:has(input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 .toggle-switch {
     width: 28px;
     height: 16px;
@@ -713,6 +719,62 @@ body {
     font-weight: 600;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     pointer-events: none;
+}
+
+/* ---- NASA Date-Compare Swipe Divider ---- */
+#nasa-swipe {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 2px solid rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    pointer-events: none;
+    font-family: var(--font);
+}
+
+.nasa-swipe-grip {
+    position: absolute;
+    top: 50%;
+    left: -14px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: #334155;
+    pointer-events: auto;
+    cursor: ew-resize;
+    touch-action: none;
+}
+
+.nasa-swipe-label {
+    position: absolute;
+    /* Below the #date overlay chip (top: 10px) so the two never collide. */
+    top: 48px;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #cbd5e1;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.nasa-swipe-a {
+    right: 8px;
+}
+
+.nasa-swipe-b {
+    left: 8px;
 }
 
 /* ---- Poster Chrome (title block + legend) ---- */

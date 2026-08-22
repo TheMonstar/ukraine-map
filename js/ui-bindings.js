@@ -390,6 +390,17 @@ class UiBindings {
 
         dashboard.bindUI('map-style', 'change', (e) => {
             dashboard.layers.setBaseLayer(e.target.value);
+            // Date compare only makes sense for dated (daily) NASA imagery.
+            const compareCb = dashboard.getEl('nasa-compare');
+            if (compareCb) compareCb.disabled = !dashboard.mapStyles[e.target.value]?.dated;
+        });
+
+        dashboard.bindUI('nasa-compare', 'change', (e) => {
+            if (e.target.checked) {
+                dashboard.layers.enableNasaCompare();
+            } else {
+                dashboard.layers.disableNasaCompare();
+            }
         });
 
         // ── Map rotation (leaflet-rotate) ─────────────────────────────────────
