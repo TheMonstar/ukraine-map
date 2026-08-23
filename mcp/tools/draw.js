@@ -346,13 +346,15 @@ export async function frontLine({ bbox, date, color = '#c62828', thickness = 3,
  * actually under cover so the open crossings can be planned around.
  */
 export async function infiltrationRoute({ from, to, via = [], radius_m = 300, cell_m = 40,
-                                          avoid_settlements = false, routes = 1, use_terrain = true,
-                                          side, color, thickness = 3, label }) {
+                                          profile = 'infiltration', routes = 1, use_terrain = true,
+                                          exposure_tolerance, side, color,
+                                          thickness = 3, label }) {
     const waypoints = await resolveAll([from, ...via, to]);
     const found = await session.call('infiltrationPath', waypoints.map((w) => w.coords),
                                      // waypoints already shape the route, and each leg
                                      // multiplies the search, so alternatives are dropped
-                                     { radius_m, cell_m, avoid_settlements, use_terrain,
+                                     { radius_m, cell_m, profile, use_terrain,
+                                       exposure_tolerance,
                                        routes: via.length ? 1 : routes });
     const stroke = color || (side ? colorFor(side) : '#2e7d32');
     const shapes = found.map((r) => ({

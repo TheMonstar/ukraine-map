@@ -494,14 +494,16 @@
          * above all how much of it is under cover and how long the worst open
          * crossing is.
          */
-        async infiltrationPath(path, { radius_m = 300, cell_m = 40, avoid_settlements = false,
-                                       routes = 1, use_terrain = true } = {}) {
+        async infiltrationPath(path, { radius_m = 300, cell_m = 40, profile = 'infiltration',
+                                       routes = 1, use_terrain = true,
+                                       exposure_tolerance } = {}) {
             const inf = d().infiltration;
             if (!inf) throw new Error('Infiltration not loaded');
             const found = await inf.computeRoutes(
                 path.map(([lat, lng]) => ({ lat, lng })),
-                { radiusM: radius_m, cellM: cell_m, avoidBuiltUp: avoid_settlements, routes,
-                  useTerrain: use_terrain });
+                // Unset means "whatever this profile normally accepts", not 40.
+                { radiusM: radius_m, cellM: cell_m, profile, routes, useTerrain: use_terrain,
+                  tolerance: exposure_tolerance ?? window.Infiltration.profile(profile).tolerance });
             return found.map((r) => ({
                 rank: r.rank,
                 legs: r.legs,

@@ -225,7 +225,9 @@ class MapLayers {
         this._buildNasaSwipeHandle();
         this._nasaClipHandler = () => this._updateNasaClip();
         map.on('move zoom zoomend resize viewreset', this._nasaClipHandler);
-        this._updateNasaClip();
+        const controls = dashboard.getEl('nasa-swipe-controls');
+        if (controls) controls.style.display = '';
+        this.setNasaSwipePos(dashboard.nasaSwipePos);
         this.refreshNasaCompare();
     }
 
@@ -249,6 +251,8 @@ class MapLayers {
             this._nasaSwipeEl.remove();
             this._nasaSwipeEl = null;
         }
+        const controls = dashboard.getEl('nasa-swipe-controls');
+        if (controls) controls.style.display = 'none';
         if (resetBase) this.setBaseLayer(dashboard.currentBaseStyle);
     }
 
@@ -261,6 +265,23 @@ class MapLayers {
             this._nasaSwipeEl.querySelector('.nasa-swipe-a').textContent = MapLayers.isoDate(dashboard.startDate);
             this._nasaSwipeEl.querySelector('.nasa-swipe-b').textContent = MapLayers.isoDate(dashboard.endDate);
         }
+    }
+
+    /**
+     * Move the swipe divider. Drives the map divider, the clip and the mirrored
+     * sidebar slider from one place, so dragging either keeps both in sync.
+     */
+    setNasaSwipePos(pos, fromSlider = false) {
+        const dashboard = this.dashboard;
+        dashboard.nasaSwipePos = Math.max(0, Math.min(1, Number(pos) || 0));
+        const pct = dashboard.nasaSwipePos * 100;
+        if (this._nasaSwipeEl) this._nasaSwipeEl.style.left = `${pct}%`;
+        if (!fromSlider) {
+            const slider = dashboard.getEl('nasa-swipe-slider');
+            if (slider) slider.value = Math.round(pct);
+        }
+        dashboard.setText('nasa-swipe-value', Math.round(pct));
+        this._updateNasaClip();
     }
 
     /**
@@ -295,10 +316,7 @@ class MapLayers {
         const grip = el.querySelector('.nasa-swipe-grip');
         const onMove = (e) => {
             const rect = container.getBoundingClientRect();
-            const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-            dashboard.nasaSwipePos = pos;
-            el.style.left = `${pos * 100}%`;
-            this._updateNasaClip();
+            this.setNasaSwipePos((e.clientX - rect.left) / rect.width);
         };
         const onUp = (e) => {
             grip.releasePointerCapture?.(e.pointerId);

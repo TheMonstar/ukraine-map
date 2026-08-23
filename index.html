@@ -143,6 +143,11 @@
                             </select>
                             <label class="toggle-label"><input type="checkbox" id="nasa-compare" disabled /><span
                                     class="toggle-switch"></span>Date compare</label>
+                            <div id="nasa-swipe-controls" class="sub-controls" style="display: none;">
+                                <label class="small-label">Swipe: <span id="nasa-swipe-value">50</span>%</label>
+                                <input type="range" id="nasa-swipe-slider" min="0" max="100" value="50"
+                                    class="control-range" />
+                            </div>
                         </div>
                         <div class="control-group">
                             <label class="control-label">Rotation</label>
@@ -589,6 +594,11 @@
                                 <label class="toggle-label" title="Click a point on the map to open the hex wargame centered there"><input type="checkbox" id="game-tool" /><span
                                         class="toggle-switch"></span>Game (click a point)</label>
                             </div>
+                            <div class="toggle-row">
+                                <label class="toggle-label" title="Click two opposite corners — the bounding box is copied as south,west,north,east"><input type="checkbox" id="box-coords-tool" /><span
+                                        class="toggle-switch"></span>Copy Box Coords</label>
+                            </div>
+                            <div id="box-coords-hint" class="draw-hint" style="display:none;"></div>
                             <div class="btn-row">
                                 <button id="clear-polygons" class="btn btn-sm">Clear Selection</button>
                                 <button id="export-polygons" class="btn btn-sm">Export</button>
@@ -994,6 +1004,13 @@
                                 </label>
                             </div>
                             <div id="infil-hint" class="draw-hint" style="display:none;"></div>
+                            <div class="control-row" title="DRG is going to a point: it avoids villages and their watched approaches, trades concealment for directness, and moves fast. Infiltration goes village to village — they give cover and somewhere to halt and accumulate — and buys concealment with time.">
+                                <label class="small-label">Moving as:</label>
+                                <select id="infil-profile" class="control-select-sm">
+                                    <option value="infiltration" selected>Infiltration</option>
+                                    <option value="drg">DRG</option>
+                                </select>
+                            </div>
                             <div class="control-row">
                                 <label class="small-label">Route mode:</label>
                                 <select id="infil-route-mode" class="control-select-sm">
@@ -1008,6 +1025,10 @@
                             <div class="control-row">
                                 <label class="small-label">Cell size (m):</label>
                                 <input type="number" id="infil-cell" value="40" min="25" max="80" step="5" class="control-input-sm" />
+                            </div>
+                            <div class="control-row" title="0 = never cross open ground. 100 = distance from cover is irrelevant. Open ground far from villages and roads is discounted either way — nobody is watching it.">
+                                <label class="small-label">Exposure tolerance:</label>
+                                <input type="number" id="infil-tolerance" value="25" min="0" max="100" step="10" class="control-input-sm" />
                             </div>
                             <div class="control-row" id="infil-routes-row">
                                 <label class="small-label">Alternative routes:</label>
@@ -1027,12 +1048,7 @@
                                     <span class="toggle-switch"></span>Snap to cover
                                 </label>
                             </div>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="infil-avoid-settlements" />
-                                    <span class="toggle-switch"></span>Avoid built-up areas
-                                </label>
-                            </div>
+
                             <div class="btn-row">
                                 <button id="infil-to-drawing" class="btn btn-sm">Send to drawing</button>
                                 <button id="infil-clear" class="btn btn-sm btn-danger">Clear</button>
@@ -1340,25 +1356,25 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
-    <script src="js/utils.js?566"></script>
-    <script src="js/hex-tiles.js?566"></script>
-    <script src="js/geometry-utils.js?566"></script>
-    <script src="js/data-store.js?566"></script>
-    <script src="js/map-layers.js?566"></script>
-    <script src="js/settlements.js?566"></script>
-    <script src="js/line-features.js?566"></script>
-    <script src="js/draw.js?566"></script>
-    <script src="js/image-mesh.js?566"></script>
-    <script src="js/image-align.js?566"></script>
-    <script src="js/image-extract.js?566"></script>
-    <script src="js/terrain-analysis.js?566"></script>
-    <script src="js/overpass.js?566"></script>
-    <script src="js/infiltration.js?566"></script>
-    <script src="js/stream.js?566"></script>
-    <script src="js/ui-bindings.js?566"></script>
-    <script src="js/map-uml-engine.js?566"></script>
-    <script src="js/poster.js?566"></script>
-    <script src="js/app.js?566"></script>
+    <script src="js/utils.js?568"></script>
+    <script src="js/hex-tiles.js?568"></script>
+    <script src="js/geometry-utils.js?568"></script>
+    <script src="js/data-store.js?568"></script>
+    <script src="js/map-layers.js?568"></script>
+    <script src="js/settlements.js?568"></script>
+    <script src="js/line-features.js?568"></script>
+    <script src="js/draw.js?568"></script>
+    <script src="js/image-mesh.js?568"></script>
+    <script src="js/image-align.js?568"></script>
+    <script src="js/image-extract.js?568"></script>
+    <script src="js/terrain-analysis.js?568"></script>
+    <script src="js/overpass.js?568"></script>
+    <script src="js/infiltration.js?568"></script>
+    <script src="js/stream.js?568"></script>
+    <script src="js/ui-bindings.js?568"></script>
+    <script src="js/map-uml-engine.js?568"></script>
+    <script src="js/poster.js?568"></script>
+    <script src="js/app.js?568"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

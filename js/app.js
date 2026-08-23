@@ -161,6 +161,8 @@ class AttackMapDashboard {
         this.rulerPoints = [];
         this.rulerMarkers = [];
         this.rulerTooltip = null;
+        this.boxCoordsFirst = null;
+        this.boxCoordsRect = null;
 
         // Image overlay
         this.customImageOverlay = null;
@@ -325,6 +327,8 @@ class AttackMapDashboard {
         const ids = [
             'map-style',
             'nasa-compare',
+            'nasa-swipe-slider',
+            'nasa-swipe-controls',
             'diff-area',
             'shadow-ua',
             'clusterRadius',
@@ -378,6 +382,8 @@ class AttackMapDashboard {
             'clear-polygons',
             'export-polygons',
             'ruler-tool',
+            'box-coords-tool',
+            'box-coords-hint',
             'load-image-overlay',
             'clear-image-overlay',
             'enable-image-resize',
@@ -458,11 +464,12 @@ class AttackMapDashboard {
             'infil-routes-row',
             'infil-route-mode',
             'infil-corridor',
+            'infil-tolerance',
             'infil-corridor-row',
             'infil-snap',
             'infil-snap-row',
             'infil-terrain',
-            'infil-avoid-settlements',
+            'infil-profile',
             'infil-hint',
             'infil-status',
             'infil-spinner',
@@ -1178,6 +1185,106 @@ class AttackMapDashboard {
         window.open(
             `3d-view.html?lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}&size=${this.view3dFrameKm}&date=${date}`,
             '_blank');
+    }
+
+    /**
+     * Box coordinates tool: click two opposite corners and the bounding box is
+     * copied to the clipboard as `south,west,north,east` — the order Overpass
+     * ({{bbox}}) uses, see Overpass.expandQuery(). Stays armed so several boxes
+     * can be grabbed in a row; Esc or unchecking the toggle turns it off.
+     */
+    toggleBoxCoordsTool() {
+        const map = this.map;
+
+        if (!this.boundBoxCoordsHandlers) {
+            this.boundBoxCoordsHandlers = {
+                click: (e) => this.boxCoordsClickHandler(e),
+                move: (e) => {
+                    if (!this.boxCoordsFirst) return;
+                    this.boxCoordsRect?.setBounds(L.latLngBounds(this.boxCoordsFirst, e.latlng));
+                },
+                key: (e) => {
+                    if (e.key !== 'Escape') return;
+                    const cb = this.getEl('box-coords-tool');
+                    if (cb) cb.checked = false;
+                    this.toggleBoxCoordsTool();
+                }
+            };
+        }
+        const h = this.boundBoxCoordsHandlers;
+
+        if (this.isChecked('box-coords-tool')) {
+            map.getContainer().style.cursor = 'crosshair';
+            map.on('click', h.click);
+            map.on('mousemove', h.move);
+            document.addEventListener('keydown', h.key);
+            this.setBoxCoordsHint('Click two opposite corners of the box.');
+        } else {
+            map.getContainer().style.cursor = '';
+            map.off('click', h.click);
+            map.off('mousemove', h.move);
+            document.removeEventListener('keydown', h.key);
+            this.clearBoxCoords();
+            this.setBoxCoordsHint('');
+        }
+    }
+
+    boxCoordsClickHandler(e) {
+        // first click starts a fresh box, discarding the previous one
+        if (!this.boxCoordsFirst) {
+            this.clearBoxCoords();
+            this.boxCoordsFirst = e.latlng;
+            this.boxCoordsRect = L.rectangle(L.latLngBounds(e.latlng, e.latlng), {
+                color: '#38bdf8', weight: 2, dashArray: '6 4',
+                fillColor: '#38bdf8', fillOpacity: 0.08, interactive: false
+            }).addTo(this.map);
+            this.setBoxCoordsHint('Click the opposite corner\u2026');
+            return;
+        }
+
+        const bounds = L.latLngBounds(this.boxCoordsFirst, e.latlng);
+        this.boxCoordsRect?.setBounds(bounds);
+        this.boxCoordsFirst = null;
+
+        const text = [bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast()]
+            .map(v => v.toFixed(5)).join(',');
+        this.lastBoxCoords = text;           // also used by automated verification
+        this.copyToClipboard(text);
+        this.setBoxCoordsHint(`Copied: ${text}`);
+    }
+
+    clearBoxCoords() {
+        if (this.boxCoordsRect) {
+            this.map.removeLayer(this.boxCoordsRect);
+            this.boxCoordsRect = null;
+        }
+        this.boxCoordsFirst = null;
+    }
+
+    setBoxCoordsHint(text) {
+        const el = this.getEl('box-coords-hint');
+        if (!el) return;
+        el.textContent = text;
+        el.style.display = text ? 'block' : 'none';
+    }
+
+    /** Clipboard write, with a textarea fallback for file:// where the async API is blocked. */
+    copyToClipboard(text) {
+        const fallback = () => {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+        };
+        if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(text).catch(fallback);
+        } else {
+            fallback();
+        }
     }
 
     toggleRulerTool() {

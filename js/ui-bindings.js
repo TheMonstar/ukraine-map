@@ -406,6 +406,10 @@ class UiBindings {
             if (compareCb) compareCb.disabled = !dashboard.mapStyles[e.target.value]?.dated;
         });
 
+        dashboard.bindUI('nasa-swipe-slider', 'input', (e) => {
+            dashboard.layers.setNasaSwipePos(e.target.value / 100);
+        });
+
         dashboard.bindUI('nasa-compare', 'change', (e) => {
             if (e.target.checked) {
                 dashboard.layers.enableNasaCompare();
@@ -3401,6 +3405,10 @@ class UiBindings {
             dashboard.toggleGameTool();
         });
 
+        dashboard.bindUI('box-coords-tool', 'change', () => {
+            dashboard.toggleBoxCoordsTool();
+        });
+
         dashboard.bindUI('save-session', 'click', () => {
             const state = dashboard.serializeSession();
             const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -4376,6 +4384,15 @@ class UiBindings {
                 } else {
                     inf.disableMode();
                 }
+            });
+
+            dashboard.bindUI('infil-profile', 'change', () => {
+                // The profile carries a sensible exposure stance; put it in the
+                // field so it is visible and can still be overridden.
+                const p = Infiltration.profile(dashboard.getEl('infil-profile')?.value);
+                const tol = dashboard.getEl('infil-tolerance');
+                if (tol) tol.value = p.tolerance;
+                inf.clear();
             });
 
             dashboard.bindUI('infil-route-mode', 'change', () => {

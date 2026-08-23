@@ -33,7 +33,44 @@ class Infiltration {
     static COST_BUILTUP  = 0.25;
     static COST_RIPARIAN = 0.45;   // brush and dead ground along streams/ditches
     static COST_WETLAND  = 0.75;   // concealed but slow going
-    static COST_BUILTUP_AVOID = 2.5;
+
+    /**
+     * Who is moving. The two do not want the same route.
+     *
+     * A ДРГ is going to a point. It is small, it avoids contact, and a village
+     * is the last place it wants to be — so built-up ground is priced as a
+     * hazard, the watched approaches to one are worse still, and cover is
+     * discounted less so the group does not trade five kilometres of walking
+     * for a marginally better treeline. It moves fast and light.
+     *
+     * Infiltration is the opposite errand: the settlements ARE the route.
+     * Villages give near-continuous cover and, more to the point, somewhere to
+     * halt, rest and accumulate before the next bound, so the ground approaching
+     * one is cheap rather than dangerous. It buys concealment with time.
+     */
+    static PROFILES = {
+        infiltration: {
+            label: 'Infiltration',
+            costBuiltUp: 0.20,
+            coverBias: 1.0,       // full value on concealment, detours are fine
+            nearSettlement: 0.75, // approaching a village is the plan
+            paceKmh: 1.2,
+            tolerance: 25,
+        },
+        drg: {
+            label: 'DRG',
+            costBuiltUp: 2.5,
+            coverBias: 1.75,      // cover is worth less than getting there
+            nearSettlement: 2.2,  // a village's approaches are watched ground
+            paceKmh: 2.5,
+            tolerance: 55,
+        },
+    };
+    static DEFAULT_PROFILE = 'infiltration';
+
+    static profile(name) {
+        return Infiltration.PROFILES[name] || Infiltration.PROFILES[Infiltration.DEFAULT_PROFILE];
+    }
     // Open water is priced, not forbidden: a group does cross a river, but only
     // where it is narrow. Making it impassable instead would cut the corridor in
     // two wherever a mapped river runs across it, and the search would fail.
@@ -42,11 +79,25 @@ class Infiltration {
     // Open ground is not uniformly bad: hugging a treeline edge is survivable,
     // the middle of a 2 km field is not. Without this ramp every open cell costs
     // the same and the search cuts straight across fields instead of skirting them.
-    static EXPOSURE_K = 3.0;
+    // How hard the ramp bites is the operator's call — see EXPOSURE_TOLERANCE.
+    static EXPOSURE_K_MAX = 5.0;
     static EXPOSURE_FULL_M = 400;
+    static EXPOSURE_TOLERANCE = 40;   // 0 = never cross open ground, 100 = indifferent
+
+    // Cover and observation are different questions. Being unseeable is one
+    // thing; whether anyone is looking at all is another. A field in the middle
+    // of nowhere is barely watched whoever you are — that is OBSERVED_REMOTE,
+    // and it holds for both profiles. What proximity to a settlement MEANS is
+    // the thing they disagree about, so it comes from the profile
+    // (`nearSettlement`) rather than from a constant here.
+    //
+    // Roads are deliberately not part of this: they already carry
+    // CROSSING_PENALTY_M, and counting them twice priced every rural lane as if
+    // it were a village.
+    static OBSERVED_REMOTE = 0.7;    // open ground with nothing around for a km
+    static OBSERVED_FULL_M = 1200;
 
     static CROSSING_PENALTY_M = 400; // extra metre-equivalents to cross road/rail
-    static PACE_KMH = 1.5;           // dismounted, at night, tactical movement
 
     // Dead ground. A balka with no waterway tag is invisible to OSM but is the
     // best concealment there is — you are simply below everyone's line of sight.
@@ -88,6 +139,13 @@ class Infiltration {
     static MAX_ROUTES = 3;
     static ALT_SEPARATION_M = 700;
     static ALT_PENALTY = 5.0;
+    // An "alternative" that runs down the same treeline as the route above it is
+    // not an alternative. Anything overlapping an accepted route by more than
+    // this is pushed away and re-searched, and dropped if it still comes back
+    // the same — better to return two real options than three near-identical ones.
+    static ALT_MAX_OVERLAP = 0.75;
+    static ALT_OVERLAP_M = 200;
+    static ALT_RETRIES = 2;
 
     static MODE_SOLVE = 'solve';
     static MODE_DRAW = 'draw';
@@ -148,8 +206,8 @@ class Infiltration {
     }
 
     static BUSY_IDS = ['infil-radius', 'infil-cell', 'infil-routes', 'infil-route-mode',
-                       'infil-corridor', 'infil-snap', 'infil-terrain',
-                       'infil-avoid-settlements', 'infil-to-drawing', 'infil-clear'];
+                       'infil-corridor', 'infil-snap', 'infil-terrain', 'infil-tolerance',
+                       'infil-profile', 'infil-to-drawing', 'infil-clear'];
 
     /** A cold run spends seconds inside Overpass. Without a visible busy state
      *  the panel looks broken, and every extra click starts another request. */
@@ -361,7 +419,8 @@ class Infiltration {
             cellM: parseFloat(el('infil-cell')?.value) || Infiltration.CELL_M,
             corridorM: parseFloat(el('infil-corridor')?.value) || 300,
             asked: parseFloat(el('infil-routes')?.value) || 1,
-            avoidBuiltUp: this.dashboard.isChecked('infil-avoid-settlements'),
+            tolerance: parseFloat(el('infil-tolerance')?.value ?? Infiltration.EXPOSURE_TOLERANCE),
+            profile: this.dashboard.getEl('infil-profile')?.value || Infiltration.DEFAULT_PROFILE,
             useTerrain: this.dashboard.isChecked('infil-terrain'),
             snap: this.dashboard.isChecked('infil-snap'),
         };
@@ -390,21 +449,24 @@ class Infiltration {
 
         this.drawn = null;
         this.routes = await this.computeRoutes(points, {
-            radiusM: o.radiusM, cellM: o.cellM, avoidBuiltUp: o.avoidBuiltUp,
-            routes, useTerrain: o.useTerrain,
+            radiusM: o.radiusM, cellM: o.cellM, profile: o.profile,
+            routes, useTerrain: o.useTerrain, tolerance: o.tolerance,
         });
         this.render(this.routes, { radiusM: o.radiusM });
         let status = Infiltration.describeRoutes(this.routes);
         if (multiLeg && o.asked > 1) {
             status += `\n(${points.length - 1} legs — alternatives skipped for multi-leg routes)`;
+        } else if (this.routes.length < routes) {
+            const short = routes - this.routes.length;
+            status += `\n(${short} alternative${short > 1 ? 's' : ''} dropped — too close to a route above)`;
         }
         this.setStatus(status);
     }
 
     async _runDrawn(points, o) {
         const { drawn, snapped } = await this.analyzeDrawn(points, {
-            cellM: o.cellM, avoidBuiltUp: o.avoidBuiltUp, useTerrain: o.useTerrain,
-            snap: o.snap, corridorM: o.corridorM, radiusM: 0,
+            cellM: o.cellM, profile: o.profile, useTerrain: o.useTerrain,
+            snap: o.snap, corridorM: o.corridorM, radiusM: 0, tolerance: o.tolerance,
         });
         this.drawn = drawn;
         this.routes = snapped ? [snapped] : [drawn];
@@ -421,7 +483,7 @@ class Infiltration {
             `${s.covered_pct}% under cover (${s.settlement_pct}% through settlements)`,
             `longest open crossing ${Math.round(s.longest_open_m)} m`,
             `${s.crossings} road/rail/water crossings`,
-            `~${Math.round(s.transit_min)} min at ${Infiltration.PACE_KMH} km/h`,
+            `~${Math.round(s.transit_min)} min at ${s.pace_kmh} km/h`,
         ];
         if (s.cell_m !== s.requested_cell_m) parts.push(`grid coarsened to ${s.cell_m} m`);
         return parts.join(' · ');
@@ -896,29 +958,41 @@ out body; >; out skel qt;`;
         return d;
     }
 
-    _costSurface(mask, grid, avoidBuiltUp, terrainFactor = null) {
+    _costSurface(mask, grid, profile, terrainFactor = null,
+                 tolerance = Infiltration.EXPOSURE_TOLERANCE) {
         const { W, H, cell } = grid;
         const M = Infiltration;
+        const p = typeof profile === 'string' ? M.profile(profile) : (profile || M.profile());
 
         const coverSeed = new Uint8Array(W * H);
+        const townSeed = new Uint8Array(W * H);
         for (let i = 0; i < mask.length; i++) {
             if (mask[i] & (M.M_COVER | M.M_TREELINE | M.M_BUILTUP)) coverSeed[i] = 1;
+            if (mask[i] & M.M_BUILTUP) townSeed[i] = 1;
         }
         const distCells = M.distanceTransform(coverSeed, W, H);
+        const townCells = M.distanceTransform(townSeed, W, H);
 
-        const builtupCost = avoidBuiltUp ? M.COST_BUILTUP_AVOID : M.COST_BUILTUP;
+        const tol = Math.min(100, Math.max(0, tolerance));
+        const exposureK = M.EXPOSURE_K_MAX * (1 - tol / 100);
         const cost = new Float32Array(W * H);
         for (let i = 0; i < cost.length; i++) {
             const m = mask[i];
             if (m & M.M_WATER)         cost[i] = M.COST_WATER;
-            else if (m & M.M_COVER)    cost[i] = M.COST_COVER;
-            else if (m & M.M_TREELINE) cost[i] = M.COST_TREELINE;
-            else if (m & M.M_BUILTUP)  cost[i] = builtupCost;
-            else if (m & M.M_RIPARIAN) cost[i] = M.COST_RIPARIAN;
-            else if (m & M.M_WETLAND)  cost[i] = M.COST_WETLAND;
+            else if (m & M.M_COVER)    cost[i] = M.COST_COVER * p.coverBias;
+            else if (m & M.M_TREELINE) cost[i] = M.COST_TREELINE * p.coverBias;
+            else if (m & M.M_BUILTUP)  cost[i] = p.costBuiltUp;
+            else if (m & M.M_RIPARIAN) cost[i] = M.COST_RIPARIAN * p.coverBias;
+            else if (m & M.M_WETLAND)  cost[i] = M.COST_WETLAND * p.coverBias;
             else {
                 const exposure = Math.min(1, (distCells[i] * cell) / M.EXPOSURE_FULL_M);
-                cost[i] = 1 + M.EXPOSURE_K * exposure;
+                // Only open ground carries this — inside cover, or inside a
+                // village, you are not standing in anyone's field of view.
+                // Whether nearby habitation is a threat or the destination is
+                // the profile's call.
+                const near = Math.max(0, 1 - (townCells[i] * cell) / M.OBSERVED_FULL_M);
+                const settlement = M.OBSERVED_REMOTE + (p.nearSettlement - M.OBSERVED_REMOTE) * near;
+                cost[i] = (1 + exposureK * exposure) * settlement;
             }
             // Dead ground is concealment the landcover layers cannot see, so it
             // multiplies whatever the surface already costs rather than replacing it.
@@ -1051,8 +1125,9 @@ out body; >; out skel qt;`;
     /** Grid, landcover mask and cost surface for the corridor spanning `path`.
      *  Shared by the solver and by the scoring of a hand-drawn route, so both
      *  are measured against exactly the same ground. */
-    async _buildSurface(path, { cellM = Infiltration.CELL_M, avoidBuiltUp = false,
-                                useTerrain = true } = {}) {
+    async _buildSurface(path, { cellM = Infiltration.CELL_M, profile = Infiltration.DEFAULT_PROFILE,
+                                useTerrain = true,
+                                tolerance = Infiltration.EXPOSURE_TOLERANCE } = {}) {
         const grid = this._makeGrid(path, cellM);
         const geojson = await this._fetchOsm(grid);
         let terrain = null;
@@ -1066,8 +1141,8 @@ out body; >; out skel qt;`;
         await new Promise(resolve => setTimeout(resolve, 0));  // let the status paint
 
         const mask = this._rasterize(geojson, grid);
-        const cost = this._costSurface(mask, grid, avoidBuiltUp, terrain?.factor);
-        return { grid, mask, cost, terrain };
+        const cost = this._costSurface(mask, grid, profile, terrain?.factor, tolerance);
+        return { grid, mask, cost, terrain, profile: Infiltration.profile(profile) };
     }
 
     /**
@@ -1076,24 +1151,56 @@ out body; >; out skel qt;`;
      * carries the runs it splits into and the stats that matter.
      */
     async computeRoutes(points, { radiusM = 300, cellM = Infiltration.CELL_M,
-                                  avoidBuiltUp = false, routes = 1, useTerrain = true } = {}) {
+                                  profile = Infiltration.DEFAULT_PROFILE, routes = 1,
+                                  useTerrain = true,
+                                  tolerance = Infiltration.EXPOSURE_TOLERANCE } = {}) {
         const path = Infiltration.toLatLngs(points);
         const wanted = Math.max(1, Math.min(Infiltration.MAX_ROUTES, Math.round(routes)));
-        const { grid, mask, cost } = await this._buildSurface(path, { cellM, avoidBuiltUp, useTerrain });
+        const { grid, mask, cost, profile: prof } = await this._buildSurface(
+            path, { cellM, profile, useTerrain, tolerance });
 
         const out = [];
         for (let n = 0; n < wanted; n++) {
             // The first search is the true optimum; each later one runs against
             // a surface where the ground already used has been made expensive.
             if (n > 0) this._penalizeNear(cost, out[n - 1].chain, grid);
-            const chain = this._searchLegs(grid, cost, mask, path, radiusM);
-            const route = this._describe(chain, grid, mask, cellM);
+            let chain = this._searchLegs(grid, cost, mask, path, radiusM);
+
+            // Penalising the previous route does not guarantee a different one:
+            // where the ground offers a single good line, the search comes
+            // straight back to it. Push away from the duplicate and retry, and
+            // give up rather than return the same route twice.
+            let overlap = Infiltration.overlapFraction(chain, out, grid);
+            for (let retry = 0; overlap > Infiltration.ALT_MAX_OVERLAP
+                                && retry < Infiltration.ALT_RETRIES; retry++) {
+                this._penalizeNear(cost, chain, grid);
+                chain = this._searchLegs(grid, cost, mask, path, radiusM);
+                overlap = Infiltration.overlapFraction(chain, out, grid);
+            }
+            if (overlap > Infiltration.ALT_MAX_OVERLAP) break;
+
+            const route = this._describe(chain, grid, mask, cellM, prof);
             route.chain = chain;
-            route.rank = n + 1;
+            route.rank = out.length + 1;
             route.legs = path.length - 1;
+            route.overlap = overlap;
             out.push(route);
         }
+        out.requested = wanted;
         return out;
+    }
+
+    /** How much of `chain` runs within ALT_OVERLAP_M of any route in `others`.
+     *  0 when there is nothing to compare against. */
+    static overlapFraction(chain, others, grid) {
+        if (!others.length || !chain.length) return 0;
+        const seed = new Uint8Array(grid.W * grid.H);
+        for (const route of others) for (const i of route.chain) seed[i] = 1;
+        const dist = Infiltration.distanceTransform(seed, grid.W, grid.H);
+        const limit = Infiltration.ALT_OVERLAP_M / grid.cell;
+        let shared = 0;
+        for (const i of chain) if (dist[i] <= limit) shared++;
+        return shared / chain.length;
     }
 
     /**
@@ -1104,14 +1211,15 @@ out body; >; out skel qt;`;
      * concealed line that still goes where you meant. Both versions are scored
      * through the same _describe as an automatic route, so the numbers compare.
      */
-    async analyzeDrawn(points, { cellM = Infiltration.CELL_M, avoidBuiltUp = false,
+    async analyzeDrawn(points, { cellM = Infiltration.CELL_M, profile = Infiltration.DEFAULT_PROFILE,
                                  useTerrain = true, snap = true, corridorM = 300,
-                                 radiusM = 0 } = {}) {
+                                 radiusM = 0, tolerance = Infiltration.EXPOSURE_TOLERANCE } = {}) {
         const path = Infiltration.toLatLngs(points);
-        const { grid, mask, cost } = await this._buildSurface(path, { cellM, avoidBuiltUp, useTerrain });
+        const { grid, mask, cost, profile: prof } = await this._buildSurface(
+            path, { cellM, profile, useTerrain, tolerance });
 
         const drawnChain = Infiltration.rasterizePath(path, grid);
-        const drawn = this._describe(drawnChain, grid, mask, cellM);
+        const drawn = this._describe(drawnChain, grid, mask, cellM, prof);
         drawn.chain = drawnChain;
         drawn.rank = 1;
         drawn.legs = path.length - 1;
@@ -1131,7 +1239,7 @@ out body; >; out skel qt;`;
 
         const ends = [path[0], path[path.length - 1]];
         const snappedChain = this._search(grid, constrained, mask, ends[0], ends[1], radiusM);
-        const snapped = this._describe(snappedChain, grid, mask, cellM);
+        const snapped = this._describe(snappedChain, grid, mask, cellM, prof);
         snapped.chain = snappedChain;
         snapped.rank = 1;
         snapped.legs = drawn.legs;
@@ -1198,7 +1306,7 @@ out body; >; out skel qt;`;
     }
 
     /** Cell chain -> lat/lng path, movement-class runs, and route stats. */
-    _describe(chain, grid, mask, requestedCellM) {
+    _describe(chain, grid, mask, requestedCellM, profile = Infiltration.profile()) {
         const { W, cell } = grid;
         const latlngs = chain.map(i => [grid.latOf((i / W) | 0), grid.lngOf(i % W)]);
         const category = chain.map(i => Infiltration.category(Infiltration.cellClass(mask[i])));
@@ -1262,7 +1370,9 @@ out body; >; out skel qt;`;
                 settlement_pct: lengthM ? Math.round(100 * settlementM / lengthM) : 0,
                 longest_open_m: longestOpenM,
                 crossings,
-                transit_min: (lengthM / 1000) / Infiltration.PACE_KMH * 60,
+                transit_min: (lengthM / 1000) / profile.paceKmh * 60,
+                pace_kmh: profile.paceKmh,
+                profile: profile.label,
                 cell_m: cell,
                 requested_cell_m: requestedCellM,
             },
