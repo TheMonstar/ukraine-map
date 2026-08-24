@@ -4373,6 +4373,11 @@ class UiBindings {
             });
         }
 
+        dashboard.bindUI('show-watermark', 'change', () => {
+            dashboard.getEl('map-watermark')
+                ?.classList.toggle('active', dashboard.isChecked('show-watermark'));
+        });
+
         // Infiltration Route
         if (dashboard.infiltration) {
             const inf = dashboard.infiltration;

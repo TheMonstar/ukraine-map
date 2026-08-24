@@ -1601,6 +1601,107 @@ class MapLayers {
      * `/frontline-geojson?date=…` with no extension at all. Prefer the declared
      * content type, fall back to the extension, then sniff the body.
      */
+    // A custom layer is filtered to the viewport before anything is drawn.
+    // Leaflet re-projects every vector layer on every move, so 48k of them make
+    // the map unusable even on canvas — loading measured fine (0.9 s) while a
+    // single pan never completed. Same fix as LineFeatures.
+    static CUSTOM_CELL_DEG = 0.5;          // ~55 km index cells
+    static CUSTOM_MOVE_DEBOUNCE_MS = 400;
+
+    /** Per-feature bbox plus a coarse grid of feature indices, so viewport
+     *  filtering costs O(features in view) rather than O(whole layer). */
+    static buildFeatureIndex(features) {
+        const bboxes = new Float64Array(features.length * 4);
+        const cells = new Map();
+        const CELL = MapLayers.CUSTOM_CELL_DEG;
+        features.forEach((feature, i) => {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const walk = (coords) => {
+                if (typeof coords[0] === 'number') {
+                    if (coords[0] < minX) minX = coords[0];
+                    if (coords[0] > maxX) maxX = coords[0];
+                    if (coords[1] < minY) minY = coords[1];
+                    if (coords[1] > maxY) maxY = coords[1];
+                    return;
+                }
+                for (const c of coords) walk(c);
+            };
+            if (feature.geometry?.coordinates) walk(feature.geometry.coordinates);
+            bboxes[i * 4] = minX; bboxes[i * 4 + 1] = minY;
+            bboxes[i * 4 + 2] = maxX; bboxes[i * 4 + 3] = maxY;
+            if (minX === Infinity) return;
+            for (let cx = Math.floor(minX / CELL); cx <= Math.floor(maxX / CELL); cx++) {
+                for (let cy = Math.floor(minY / CELL); cy <= Math.floor(maxY / CELL); cy++) {
+                    const key = `${cx},${cy}`;
+                    if (!cells.has(key)) cells.set(key, []);
+                    cells.get(key).push(i);
+                }
+            }
+        });
+        return { bboxes, cells };
+    }
+
+    /** Features whose bbox intersects the padded viewport. */
+    static featuresInView(features, index, map) {
+        if (!index || !map) return features;
+        const b = map.getBounds();
+        // Padded generously: leaflet-rotate reports the rotated viewport and the
+        // canvas renderer draws a margin outside the visible area.
+        const padX = Math.max(0.05, (b.getEast() - b.getWest()) * 0.25);
+        const padY = Math.max(0.05, (b.getNorth() - b.getSouth()) * 0.25);
+        const west = b.getWest() - padX, east = b.getEast() + padX;
+        const south = b.getSouth() - padY, north = b.getNorth() + padY;
+
+        const CELL = MapLayers.CUSTOM_CELL_DEG;
+        const { bboxes, cells } = index;
+        const seen = new Set();
+        const out = [];
+        for (let cx = Math.floor(west / CELL); cx <= Math.floor(east / CELL); cx++) {
+            for (let cy = Math.floor(south / CELL); cy <= Math.floor(north / CELL); cy++) {
+                for (const i of (cells.get(`${cx},${cy}`) || [])) {
+                    if (seen.has(i)) continue;
+                    seen.add(i);
+                    if (bboxes[i * 4] > east || bboxes[i * 4 + 2] < west) continue;
+                    if (bboxes[i * 4 + 1] > north || bboxes[i * 4 + 3] < south) continue;
+                    out.push(features[i]);
+                }
+            }
+        }
+        return out;
+    }
+
+    // Above this, merging is skipped entirely — see processCustomKmlText.
+    static MERGE_POLYGON_LIMIT = 20000;
+
+    /**
+     * Union a list of polygons by pairwise tree reduction rather than by
+     * folding into one accumulator.
+     *
+     * Same number of unions, but each one joins two similarly-sized shapes
+     * instead of a growing blob against a single small polygon, so the cost
+     * stays near O(n log n) instead of O(n^2). A polygon that cannot be merged
+     * is carried forward rather than dropped, so bad geometry costs one shape
+     * rather than the batch.
+     */
+    static mergePolygons(polygons) {
+        let level = polygons;
+        while (level.length > 1) {
+            const next = [];
+            for (let i = 0; i < level.length; i += 2) {
+                if (i + 1 >= level.length) { next.push(level[i]); continue; }
+                try {
+                    next.push(turf.union(level[i], level[i + 1]) || level[i]);
+                } catch (error) {
+                    next.push(level[i]);
+                    next.push(level[i + 1]);
+                }
+            }
+            if (next.length >= level.length) return next[0];   // no progress, bail
+            level = next;
+        }
+        return level[0] || null;
+    }
+
     static looksLikeGeoJson(source, text, contentType = '') {
         if (/json/i.test(contentType)) return true;
         if (/xml|kml/i.test(contentType)) return false;
@@ -1675,28 +1776,33 @@ class MapLayers {
                 throw new Error('parsed correctly but contains 0 features');
             }
 
-            // Store the GeoJSON data for layer comparison
+            // The merged polygon feeds the layer-comparison tool only. Building
+            // it used to fold turf.union over every polygon in sequence, which
+            // is O(n^2) because the accumulator keeps growing: measured at 1.4 s
+            // for 200 polygons, 27 s for 800, and an extrapolated ~51 HOURS for
+            // a 48k-feature layer. That is what "fails to load" looked like.
             const polygonsToMerge = [];
             geojson.features.forEach(feature => {
                 polygonsToMerge.push(...GeometryUtils.toTurfPolygons(feature.geometry));
             });
 
-            if (polygonsToMerge.length > 0) {
+            dashboard.customKmlMergedPolygon = null;
+            if (polygonsToMerge.length > MapLayers.MERGE_POLYGON_LIMIT) {
+                // Comparison degrades; display does not. The compare tool already
+                // reports a clear error when the merged polygon is missing.
+                console.warn(`Custom layer has ${polygonsToMerge.length} polygons — ` +
+                    `skipping the merge (limit ${MapLayers.MERGE_POLYGON_LIMIT}). ` +
+                    `Layer comparison will be unavailable for it.`);
+            } else if (polygonsToMerge.length > 0) {
                 console.log(`Merging ${polygonsToMerge.length} custom KML polygons...`);
-                let merged = polygonsToMerge[0];
-                for (let i = 1; i < polygonsToMerge.length; i++) {
-                    try {
-                        merged = turf.union(merged, polygonsToMerge[i]);
-                    } catch (err) {
-                        console.warn(`Warning: Could not merge polygon ${i}`);
-                    }
-                }
-                dashboard.customKmlMergedPolygon = merged;
+                dashboard.customKmlMergedPolygon = MapLayers.mergePolygons(polygonsToMerge);
                 console.log('✓ Custom KML polygons merged for comparison');
             }
 
-            // Store parsed GeoJSON for rendering
+            // Store parsed GeoJSON for rendering, with a spatial index so the
+            // overlay can be filtered to the viewport instead of drawing the lot.
             dashboard.customKmlData = geojson;
+            dashboard.customKmlIndex = MapLayers.buildFeatureIndex(geojson.features);
 
             console.log(`✓ Custom KML loaded: ${geojson.features.length} features`);
 
@@ -1714,6 +1820,11 @@ class MapLayers {
             console.error('Error parsing custom KML:', error);
             alert(`Failed to parse custom layer: ${error.message}`);
         }
+    }
+
+    setCustomKmlStatus(message) {
+        const el = this.dashboard.getEl('custom-kml-status');
+        if (el) el.textContent = message || '';
     }
 
     async toggleCustomKmlOverlay(enabled) {
@@ -1759,15 +1870,44 @@ class MapLayers {
 
             const eventFilterMode = dashboard.getEl('custom-kml-event-filter')?.value || 'all';
             const eventRadiusM = Number(dashboard.getEl('custom-kml-event-radius')?.value) || 50;
-            const renderData = eventFilterMode === 'all'
-                ? dashboard.customKmlData
-                : {
-                    ...dashboard.customKmlData,
-                    features: this.filterFeaturesByEventProximity(
-                        dashboard.customKmlData.features, eventFilterMode, eventRadiusM)
+            let visible = MapLayers.featuresInView(
+                dashboard.customKmlData.features, dashboard.customKmlIndex, dashboard.map);
+            if (eventFilterMode !== 'all') {
+                visible = this.filterFeaturesByEventProximity(visible, eventFilterMode, eventRadiusM);
+            }
+            const total = dashboard.customKmlData.features.length;
+            const renderData = { ...dashboard.customKmlData, features: visible };
+            // No zoom gate: whatever falls in the viewport is drawn, however
+            // much that is. "0 of 48,535" would otherwise read like a broken
+            // layer, so an empty view says why it is empty.
+            this.setCustomKmlStatus(visible.length
+                ? `showing ${visible.length.toLocaleString()} of ${total.toLocaleString()} features`
+                : `${total.toLocaleString()} features loaded — none in this view, pan or zoom to the data`);
+
+            // Re-filter as the map moves. Bound once and left in place; it does
+            // nothing while the overlay is off.
+            if (!this._customKmlMoveHandler) {
+                let timer = null;
+                this._customKmlMoveHandler = () => {
+                    clearTimeout(timer);
+                    timer = setTimeout(() => {
+                        if (dashboard.getEl('custom-kml-overlay')?.checked) {
+                            this.toggleCustomKmlOverlay(true);
+                        }
+                    }, MapLayers.CUSTOM_MOVE_DEBOUNCE_MS);
                 };
+                dashboard.map.on('moveend zoomend rotate', this._customKmlMoveHandler);
+            }
+
+            // Thousands of polygons as individual SVG paths is what makes a
+            // large layer unusable; canvas draws them all in one element. Same
+            // fix LineFeatures uses for the road and waterway overlays.
+            if (!this._customKmlRenderer) {
+                this._customKmlRenderer = L.canvas({ padding: 0.3 });
+            }
 
             L.geoJSON(renderData, {
+                renderer: this._customKmlRenderer,
                 style: function (feature) {
                     const color = getFeatureColor(feature);
                     return {
@@ -1793,7 +1933,8 @@ class MapLayers {
                 }
             }).addTo(dashboard.customKmlOverlay);
 
-            console.log(`✓ Custom KML overlay displayed (${renderData.features.length}/${dashboard.customKmlData.features.length} features)`);
+            console.log(`✓ Custom KML overlay displayed (${renderData.features.length}/${dashboard.customKmlData.features.length} features)` +
+                (renderData.features.length ? '' : ' — none in view'));
         } else if (dashboard.customKmlOverlay) {
             dashboard.customKmlOverlay.clearLayers();
         }

@@ -233,7 +233,8 @@
                                 style="display:none" />
                             <button id="load-custom-kml-file" class="btn btn-sm">Load from File</button>
                             <label class="toggle-label"><input type="checkbox" id="custom-kml-overlay" /><span
-                                    class="toggle-switch"></span>Show Custom</label>
+                                    class="toggle-switch"></span>Show</label>
+                            <div id="custom-kml-status" class="stats-text" style="min-height:14px;"></div>
                             <select id="custom-kml-event-filter" class="control-input">
                                 <option value="all">All features</option>
                                 <option value="near">Only near events</option>
@@ -243,6 +244,15 @@
                                 <input type="number" id="custom-kml-event-radius" class="control-input" value="50"
                                     min="1" step="10" />
                             </label>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Watermark</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="show-watermark" />
+                                    <span class="toggle-switch"></span>X:@M0nstas
+                                </label>
+                            </div>
                         </div>
                         <div class="control-group">
                             <label class="control-label">Diff Colors</label>
@@ -1043,6 +1053,10 @@
                                     <input type="checkbox" id="infil-terrain" checked />
                                     <span class="toggle-switch"></span>Terrain (ravines)
                                 </label>
+                                <label class="toggle-label" title="Shelterbelts derived from Sentinel-2/-1 for ground OSM has not surveyed. Priced below surveyed cover because roughly one in eight is not real.">
+                                    <input type="checkbox" id="infil-derived" checked />
+                                    <span class="toggle-switch"></span>Satellite shelterbelts
+                                </label>
                                 <label class="toggle-label" id="infil-snap-row" style="display:none;">
                                     <input type="checkbox" id="infil-snap" checked />
                                     <span class="toggle-switch"></span>Snap to cover
@@ -1216,6 +1230,7 @@
         <!-- Map -->
         <div class="map-container">
             <div id="date"></div>
+            <div id="map-watermark">X:@M0nstas</div>
             <div id="settlement-boundaries-loader">
                 <div class="loader-title" id="boundaries-loader-title">Loading Settlement Boundaries</div>
                 <div class="loader-progress">
@@ -1356,25 +1371,25 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated/Leaflet.ImageOverlay.Rotated.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
-    <script src="js/utils.js?568"></script>
-    <script src="js/hex-tiles.js?568"></script>
-    <script src="js/geometry-utils.js?568"></script>
-    <script src="js/data-store.js?568"></script>
-    <script src="js/map-layers.js?568"></script>
-    <script src="js/settlements.js?568"></script>
-    <script src="js/line-features.js?568"></script>
-    <script src="js/draw.js?568"></script>
-    <script src="js/image-mesh.js?568"></script>
-    <script src="js/image-align.js?568"></script>
-    <script src="js/image-extract.js?568"></script>
-    <script src="js/terrain-analysis.js?568"></script>
-    <script src="js/overpass.js?568"></script>
-    <script src="js/infiltration.js?568"></script>
-    <script src="js/stream.js?568"></script>
-    <script src="js/ui-bindings.js?568"></script>
-    <script src="js/map-uml-engine.js?568"></script>
-    <script src="js/poster.js?568"></script>
-    <script src="js/app.js?568"></script>
+    <script src="js/utils.js?577"></script>
+    <script src="js/hex-tiles.js?577"></script>
+    <script src="js/geometry-utils.js?577"></script>
+    <script src="js/data-store.js?577"></script>
+    <script src="js/map-layers.js?577"></script>
+    <script src="js/settlements.js?577"></script>
+    <script src="js/line-features.js?577"></script>
+    <script src="js/draw.js?577"></script>
+    <script src="js/image-mesh.js?577"></script>
+    <script src="js/image-align.js?577"></script>
+    <script src="js/image-extract.js?577"></script>
+    <script src="js/terrain-analysis.js?577"></script>
+    <script src="js/overpass.js?577"></script>
+    <script src="js/infiltration.js?577"></script>
+    <script src="js/stream.js?577"></script>
+    <script src="js/ui-bindings.js?577"></script>
+    <script src="js/map-uml-engine.js?577"></script>
+    <script src="js/poster.js?577"></script>
+    <script src="js/app.js?577"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

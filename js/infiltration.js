@@ -125,6 +125,31 @@ class Infiltration {
     static M_WETLAND = 16;
     static M_WATER = 32;
     static M_CROSS = 64;
+    static M_DERIVED = 128;   // shelterbelt polygons inferred from satellite
+
+    /**
+     * Cover the satellite layer found but OSM has not surveyed.
+     *
+     * Priced above a surveyed treeline (0.30) and well below open ground,
+     * because it is probably-but-not-certainly there: the detector measures 77%
+     * recall at 5.6% false-positive, so roughly one in eight of these is not
+     * real cover. Expected cost works out near 0.4; 0.45 leans conservative.
+     * Routing a group through cover that turns out to be a bare field is the
+     * failure that matters, so derived data must never price as fact.
+     */
+    static COST_DERIVED = 0.45;
+    // Resolved at call time, not here: API_BASE_URL lives in app.js, which loads
+    // after this file, and a static field is evaluated when the class is parsed.
+    static vegetationUrl() { return `${API_BASE_URL}/vegetation.geojson`; }
+
+    // How densely OSM maps concealment in ground that is mapped properly.
+    // Measured with tools/landcover-eval over 1400 km² blocks: rear-area steppe
+    // runs 1.35-2.16 cover polygons/km², the frontline belt 0.90, and the box at
+    // 47.88,36.17-47.97,36.35 only 0.17 — with лісосмуги plainly visible on
+    // imagery across all of it. Below this floor, absence of cover in OSM is
+    // absence of mapping, and a route through it is confident about ground
+    // nobody has surveyed.
+    static MAPPED_COVER_PER_KM2 = 1.0;
 
     static TREELINE_W_M = 20;   // painted width of a tree_row centreline
     static RIPARIAN_W_M = 120;  // painted width of the corridor along a watercourse
@@ -170,9 +195,11 @@ class Infiltration {
         this._lastPreviewAt = 0;
         this._osmCache = new Map();     // bbox key -> FeatureCollection
         this._osmPending = new Map();   // bbox key -> in-flight Promise
+        this._vegCache = new Map();     // bbox key -> derived feature array
         this.controller = null;
         this.routes = [];               // last result, best first
         this.drawn = null;              // the hand-drawn route, when there is one
+        this.coverage = null;           // set per corridor by coverageWarning
         this._busy = false;
         this._finished = false;
     }
@@ -206,7 +233,8 @@ class Infiltration {
     }
 
     static BUSY_IDS = ['infil-radius', 'infil-cell', 'infil-routes', 'infil-route-mode',
-                       'infil-corridor', 'infil-snap', 'infil-terrain', 'infil-tolerance',
+                       'infil-corridor', 'infil-snap', 'infil-terrain', 'infil-derived',
+                       'infil-tolerance',
                        'infil-profile', 'infil-to-drawing', 'infil-clear'];
 
     /** A cold run spends seconds inside Overpass. Without a visible busy state
@@ -422,6 +450,7 @@ class Infiltration {
             tolerance: parseFloat(el('infil-tolerance')?.value ?? Infiltration.EXPOSURE_TOLERANCE),
             profile: this.dashboard.getEl('infil-profile')?.value || Infiltration.DEFAULT_PROFILE,
             useTerrain: this.dashboard.isChecked('infil-terrain'),
+            useDerived: this.dashboard.isChecked('infil-derived'),
             snap: this.dashboard.isChecked('infil-snap'),
         };
     }
@@ -450,7 +479,7 @@ class Infiltration {
         this.drawn = null;
         this.routes = await this.computeRoutes(points, {
             radiusM: o.radiusM, cellM: o.cellM, profile: o.profile,
-            routes, useTerrain: o.useTerrain, tolerance: o.tolerance,
+            routes, useTerrain: o.useTerrain, useDerived: o.useDerived, tolerance: o.tolerance,
         });
         this.render(this.routes, { radiusM: o.radiusM });
         let status = Infiltration.describeRoutes(this.routes);
@@ -460,13 +489,14 @@ class Infiltration {
             const short = routes - this.routes.length;
             status += `\n(${short} alternative${short > 1 ? 's' : ''} dropped — too close to a route above)`;
         }
-        this.setStatus(status);
+        this.setStatus(this.coverage ? `${this.coverage}\n\n${status}` : status);
     }
 
     async _runDrawn(points, o) {
         const { drawn, snapped } = await this.analyzeDrawn(points, {
             cellM: o.cellM, profile: o.profile, useTerrain: o.useTerrain,
-            snap: o.snap, corridorM: o.corridorM, radiusM: 0, tolerance: o.tolerance,
+            useDerived: o.useDerived, snap: o.snap, corridorM: o.corridorM,
+            radiusM: 0, tolerance: o.tolerance,
         });
         this.drawn = drawn;
         this.routes = snapped ? [snapped] : [drawn];
@@ -474,6 +504,7 @@ class Infiltration {
 
         const rows = [`as drawn · ${Infiltration.describeStats(drawn.stats)}`];
         if (snapped) rows.push(`snapped · ${Infiltration.describeStats(snapped.stats)}`);
+        if (this.coverage) rows.unshift(this.coverage, '');
         this.setStatus(rows.join('\n'));
     }
 
@@ -485,6 +516,9 @@ class Infiltration {
             `${s.crossings} road/rail/water crossings`,
             `~${Math.round(s.transit_min)} min at ${s.pace_kmh} km/h`,
         ];
+        // Worth stating plainly: this share of the route is concealed by cover
+        // inferred from satellite rather than surveyed in OSM.
+        if (s.derived_pct) parts.push(`${s.derived_pct}% on satellite-derived cover`);
         if (s.cell_m !== s.requested_cell_m) parts.push(`grid coarsened to ${s.cell_m} m`);
         return parts.join(' · ');
     }
@@ -637,6 +671,41 @@ out body; >; out skel qt;`;
         }
     }
 
+    /**
+     * Shelterbelts derived from Sentinel-2/-1, for ground OSM has not mapped.
+     *
+     * Treelines only. Woods are already well surveyed in OSM — the gap this
+     * closes is the лісосмуги, and asking for one class rather than both cuts
+     * the payload roughly in half.
+     *
+     * Never fatal: the router works without it, and a route that fails to solve
+     * because an optional layer was unreachable would be a worse outcome than a
+     * route computed from OSM alone.
+     */
+    async _fetchVegetation(grid) {
+        const key = [grid.south, grid.west, grid.north, grid.east]
+            .map(v => v.toFixed(3)).join(',');
+        if (this._vegCache.has(key)) return this._vegCache.get(key);
+
+        const bbox = [grid.south, grid.west, grid.north, grid.east]
+            .map(v => v.toFixed(5)).join(',');
+        const url = `${Infiltration.vegetationUrl()}?bbox=${bbox}&class=treeline`;
+        try {
+            this.setStatus('Fetching shelterbelts…');
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const fc = await response.json();
+            const features = (fc.features || []).filter(f =>
+                f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
+            this._vegCache.set(key, features);
+            return features;
+        } catch (error) {
+            console.warn('Infiltration: shelterbelt layer unavailable —', error.message);
+            this._vegCache.set(key, []);   // do not retry every solve
+            return [];
+        }
+    }
+
     /** Which raster channel each feature paints into. A river is both: its
      *  valley is concealed ground, its channel is an obstacle to cross. */
     static channelsFor(p = {}) {
@@ -656,6 +725,35 @@ out body; >; out skel qt;`;
         return out;
     }
 
+    /**
+     * Whether this corridor's landcover can be believed.
+     *
+     * The router prices concealment from OSM, so where OSM is unmapped it
+     * returns a confident route over a blank map — and that failure is
+     * invisible from inside the app, because unmapped ground and open ground
+     * render identically. Counting the mapped cover polygons per km² makes it
+     * visible: it is the one signal that separates "no trees here" from "nobody
+     * has mapped here". Returns null when the corridor looks properly mapped.
+     */
+    static coverageWarning(geojson, grid) {
+        const areaKm2 = (grid.W * grid.cell / 1000) * (grid.H * grid.cell / 1000);
+        if (!areaKm2) return null;
+
+        let polygons = 0;
+        for (const feature of (geojson.features || [])) {
+            const type = feature.geometry?.type;
+            if (type !== 'Polygon' && type !== 'MultiPolygon') continue;
+            if (Infiltration.channelsFor(feature.properties).includes('cover')) polygons++;
+        }
+
+        const perKm2 = polygons / areaKm2;
+        if (perKm2 >= Infiltration.MAPPED_COVER_PER_KM2) return null;
+        return `⚠ OSM maps only ${perKm2.toFixed(2)} cover polygons/km² here ` +
+               `(${polygons} over ${Math.round(areaKm2)} km²; properly mapped ground runs ` +
+               `${Infiltration.MAPPED_COVER_PER_KM2.toFixed(1)}+). Treelines are probably ` +
+               `present but unmapped — check imagery before trusting this route.`;
+    }
+
     // ── Rasterisation ────────────────────────────────────────────────────────
 
     /**
@@ -664,7 +762,7 @@ out body; >; out skel qt;`;
      * colour channels under `lighter` compositing, so it costs three
      * getImageData calls instead of seven.
      */
-    _rasterize(geojson, grid) {
+    _rasterize(geojson, grid, derived = []) {
         const { W, H } = grid;
         const canvas = document.createElement('canvas');
         canvas.width = W;
@@ -673,19 +771,20 @@ out body; >; out skel qt;`;
 
         const buckets = {
             cover: [], treeline: [], builtup: [],
-            riparian: [], wetland: [], water: [], crossing: [],
+            riparian: [], wetland: [], water: [], crossing: [], derived: [],
         };
         for (const feature of (geojson.features || [])) {
             for (const channel of Infiltration.channelsFor(feature.properties)) {
                 if (buckets[channel]) buckets[channel].push(feature);
             }
         }
+        buckets.derived = derived;
 
         const mask = new Uint8Array(W * H);
         const PASSES = [
             [['cover', Infiltration.M_COVER], ['treeline', Infiltration.M_TREELINE], ['builtup', Infiltration.M_BUILTUP]],
             [['riparian', Infiltration.M_RIPARIAN], ['wetland', Infiltration.M_WETLAND], ['water', Infiltration.M_WATER]],
-            [['crossing', Infiltration.M_CROSS]],
+            [['crossing', Infiltration.M_CROSS], ['derived', Infiltration.M_DERIVED]],
         ];
         const CHANNEL_COLORS = ['rgb(255,0,0)', 'rgb(0,255,0)', 'rgb(0,0,255)'];
 
@@ -967,7 +1066,7 @@ out body; >; out skel qt;`;
         const coverSeed = new Uint8Array(W * H);
         const townSeed = new Uint8Array(W * H);
         for (let i = 0; i < mask.length; i++) {
-            if (mask[i] & (M.M_COVER | M.M_TREELINE | M.M_BUILTUP)) coverSeed[i] = 1;
+            if (mask[i] & (M.M_COVER | M.M_TREELINE | M.M_BUILTUP | M.M_DERIVED)) coverSeed[i] = 1;
             if (mask[i] & M.M_BUILTUP) townSeed[i] = 1;
         }
         const distCells = M.distanceTransform(coverSeed, W, H);
@@ -982,6 +1081,9 @@ out body; >; out skel qt;`;
             else if (m & M.M_COVER)    cost[i] = M.COST_COVER * p.coverBias;
             else if (m & M.M_TREELINE) cost[i] = M.COST_TREELINE * p.coverBias;
             else if (m & M.M_BUILTUP)  cost[i] = p.costBuiltUp;
+            // Surveyed cover above wins on precedence — this only prices ground
+            // OSM says nothing about.
+            else if (m & M.M_DERIVED)  cost[i] = M.COST_DERIVED * p.coverBias;
             else if (m & M.M_RIPARIAN) cost[i] = M.COST_RIPARIAN * p.coverBias;
             else if (m & M.M_WETLAND)  cost[i] = M.COST_WETLAND * p.coverBias;
             else {
@@ -1004,6 +1106,7 @@ out body; >; out skel qt;`;
     /** Green under cover, yellow through settlements, red in the open. */
     static category(klass) {
         if (klass === 'builtup') return 'settlement';
+        if (klass === 'derived') return 'concealed';
         if (klass === 'open' || klass === 'water') return 'exposed';
         return 'concealed';
     }
@@ -1020,6 +1123,7 @@ out body; >; out skel qt;`;
         if (m & M.M_COVER)    return 'cover';
         if (m & M.M_TREELINE) return 'treeline';
         if (m & M.M_BUILTUP)  return 'builtup';
+        if (m & M.M_DERIVED)  return 'derived';
         if (m & M.M_RIPARIAN) return 'riparian';
         if (m & M.M_WETLAND)  return 'wetland';
         return 'open';
@@ -1126,10 +1230,11 @@ out body; >; out skel qt;`;
      *  Shared by the solver and by the scoring of a hand-drawn route, so both
      *  are measured against exactly the same ground. */
     async _buildSurface(path, { cellM = Infiltration.CELL_M, profile = Infiltration.DEFAULT_PROFILE,
-                                useTerrain = true,
+                                useTerrain = true, useDerived = true,
                                 tolerance = Infiltration.EXPOSURE_TOLERANCE } = {}) {
         const grid = this._makeGrid(path, cellM);
         const geojson = await this._fetchOsm(grid);
+        const derived = useDerived ? await this._fetchVegetation(grid) : [];
         let terrain = null;
         if (useTerrain) {
             const elev = await this._fetchElevation(grid);
@@ -1140,9 +1245,13 @@ out body; >; out skel qt;`;
         this.setStatus('Building cost surface…');
         await new Promise(resolve => setTimeout(resolve, 0));  // let the status paint
 
-        const mask = this._rasterize(geojson, grid);
+        const mask = this._rasterize(geojson, grid, derived);
         const cost = this._costSurface(mask, grid, profile, terrain?.factor, tolerance);
-        return { grid, mask, cost, terrain, profile: Infiltration.profile(profile) };
+        // The shelterbelt layer fills exactly the gap the warning is about, so
+        // once it has supplied cover here the warning would be misleading.
+        this.coverage = derived.length ? null : Infiltration.coverageWarning(geojson, grid);
+        return { grid, mask, cost, terrain, derived: derived.length,
+                 profile: Infiltration.profile(profile) };
     }
 
     /**
@@ -1152,12 +1261,12 @@ out body; >; out skel qt;`;
      */
     async computeRoutes(points, { radiusM = 300, cellM = Infiltration.CELL_M,
                                   profile = Infiltration.DEFAULT_PROFILE, routes = 1,
-                                  useTerrain = true,
+                                  useTerrain = true, useDerived = true,
                                   tolerance = Infiltration.EXPOSURE_TOLERANCE } = {}) {
         const path = Infiltration.toLatLngs(points);
         const wanted = Math.max(1, Math.min(Infiltration.MAX_ROUTES, Math.round(routes)));
         const { grid, mask, cost, profile: prof } = await this._buildSurface(
-            path, { cellM, profile, useTerrain, tolerance });
+            path, { cellM, profile, useTerrain, useDerived, tolerance });
 
         const out = [];
         for (let n = 0; n < wanted; n++) {
@@ -1212,11 +1321,11 @@ out body; >; out skel qt;`;
      * through the same _describe as an automatic route, so the numbers compare.
      */
     async analyzeDrawn(points, { cellM = Infiltration.CELL_M, profile = Infiltration.DEFAULT_PROFILE,
-                                 useTerrain = true, snap = true, corridorM = 300,
+                                 useTerrain = true, useDerived = true, snap = true, corridorM = 300,
                                  radiusM = 0, tolerance = Infiltration.EXPOSURE_TOLERANCE } = {}) {
         const path = Infiltration.toLatLngs(points);
         const { grid, mask, cost, profile: prof } = await this._buildSurface(
-            path, { cellM, profile, useTerrain, tolerance });
+            path, { cellM, profile, useTerrain, useDerived, tolerance });
 
         const drawnChain = Infiltration.rasterizePath(path, grid);
         const drawn = this._describe(drawnChain, grid, mask, cellM, prof);
@@ -1311,7 +1420,7 @@ out body; >; out skel qt;`;
         const latlngs = chain.map(i => [grid.latOf((i / W) | 0), grid.lngOf(i % W)]);
         const category = chain.map(i => Infiltration.category(Infiltration.cellClass(mask[i])));
 
-        let lengthM = 0, coveredM = 0, settlementM = 0;
+        let lengthM = 0, coveredM = 0, settlementM = 0, derivedM = 0;
         let longestOpenM = 0, openRunM = 0, crossings = 0;
         let inCrossing = false;
         for (let k = 1; k < chain.length; k++) {
@@ -1328,6 +1437,7 @@ out body; >; out skel qt;`;
                 openRunM = 0;
                 coveredM += segM;
                 if (category[k] === 'settlement') settlementM += segM;
+                if (Infiltration.cellClass(mask[curI]) === 'derived') derivedM += segM;
             }
 
             const onCrossing = !!(mask[curI] & (Infiltration.M_CROSS | Infiltration.M_WATER));
@@ -1368,6 +1478,7 @@ out body; >; out skel qt;`;
                 length_km: lengthM / 1000,
                 covered_pct: lengthM ? Math.round(100 * coveredM / lengthM) : 0,
                 settlement_pct: lengthM ? Math.round(100 * settlementM / lengthM) : 0,
+                derived_pct: lengthM ? Math.round(100 * derivedM / lengthM) : 0,
                 longest_open_m: longestOpenM,
                 crossings,
                 transit_min: (lengthM / 1000) / profile.paceKmh * 60,

@@ -387,8 +387,9 @@ body {
     gap: 6px;
     font-size: 12px;
     cursor: pointer;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
     user-select: none;
+    vertical-align: bottom;
 }
 
 .toggle-label input[type="checkbox"] {
@@ -529,6 +530,34 @@ body {
     font-size: 11px;
     color: var(--sidebar-muted);
     margin-top: 4px;
+}
+
+/* Centred over the map so it survives a crop, and non-interactive so it never
+   swallows a click meant for the map underneath. */
+#map-watermark {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    /* The centring translate has to stay in the same transform as the rotation —
+       a second `transform` rule would replace it, not add to it, and the
+       watermark would jump to the bottom-right quadrant. */
+    transform: translate(-50%, -50%) rotate(30deg);
+    z-index: 1000;
+    display: none;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.4);
+    /* Faint text over busy satellite imagery needs the shadow kept, or it
+       disappears entirely against light fields. Softened to match. */
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+}
+
+#map-watermark.active {
+    display: block;
 }
 
 /* ---- Infiltration Routes ---- */
