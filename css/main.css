@@ -466,6 +466,58 @@ body {
     white-space: nowrap;
 }
 
+.settlement-progress-group {
+    margin: 8px 0;
+    padding: 8px;
+    border: 1px solid #475569;
+    border-radius: var(--radius-sm);
+    background: rgba(15, 23, 42, 0.28);
+}
+
+.settlement-progress-group .control-select {
+    margin-bottom: 6px;
+}
+
+.settlement-progress-settings {
+    justify-content: space-between;
+    margin-bottom: 0;
+}
+
+.settlement-progress-settings label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--sidebar-muted);
+    font-size: 10px;
+}
+
+.settlement-progress-settings .control-input-sm {
+    width: 42px;
+}
+
+.settlement-progress-summary {
+    margin-top: 7px;
+    color: var(--sidebar-muted);
+    font-size: 10px;
+}
+
+.settlement-progress-gradient {
+    height: 7px;
+    margin: 4px 0 2px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #fff7bc, #fec44f, #fe9929, #ec7014, #cc4c02, #7f0000);
+}
+
+.settlement-progress-scale {
+    display: flex;
+    justify-content: space-between;
+}
+
+.settlement-progress-heat-tooltip {
+    min-width: 165px;
+    line-height: 1.45;
+}
+
 .control-row {
     display: flex;
     gap: 6px;

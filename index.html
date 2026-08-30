@@ -78,7 +78,7 @@
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-    <link rel="stylesheet" href="css/main.css?583" />
+    <link rel="stylesheet" href="css/main.css?584" />
 </head>
 
 <body>
@@ -1151,6 +1151,26 @@
                             <label><input type="radio" name="settlement-timeline-status" value="captured" /> Captured</label>
                             <span id="settlement-timeline-result-count" class="timeline-result-count"></span>
                         </div>
+                        <div class="control-group settlement-progress-group">
+                            <label class="control-label">Settlement Progress Heatmap</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label"><input type="checkbox" id="settlement-progress-heatmap" /><span
+                                        class="toggle-switch"></span>Show</label>
+                                <select id="settlement-progress-source" class="control-select-sm" aria-label="Progress heatmap source">
+                                    <option value="deepstate">DeepState</option>
+                                    <option value="ria">RIA</option>
+                                </select>
+                            </div>
+                            <select id="settlement-progress-metric" class="control-select">
+                                <option value="completed">Median capture duration</option>
+                                <option value="ongoing">Median ongoing duration</option>
+                            </select>
+                            <div class="control-row settlement-progress-settings">
+                                <label>Hex km <input id="settlement-progress-hex-size" type="number" min="10" max="80" step="5" value="30" class="control-input-sm" /></label>
+                                <label>Min fights <input id="settlement-progress-min-samples" type="number" min="1" max="20" step="1" value="2" class="control-input-sm" /></label>
+                            </div>
+                            <div id="settlement-progress-summary" class="settlement-progress-summary" style="display:none;"></div>
+                        </div>
                         <div class="control-row" style="flex-direction:column;align-items:flex-start;gap:2px;">
                             <label class="small-label">Min Pop (boundaries/names): <span id="settlement-label-pop-value">20,000</span></label>
                             <input type="range" id="settlement-label-pop-slider" min="10000" max="500000" step="5000" value="20000"
@@ -1388,8 +1408,8 @@ Situation report:
     <script src="js/hex-tiles.js?577"></script>
     <script src="js/geometry-utils.js?577"></script>
     <script src="js/data-store.js?577"></script>
-    <script src="js/map-layers.js?579"></script>
-    <script src="js/settlements.js?583"></script>
+    <script src="js/map-layers.js?584"></script>
+    <script src="js/settlements.js?584"></script>
     <script src="js/line-features.js?577"></script>
     <script src="js/draw.js?577"></script>
     <script src="js/image-mesh.js?577"></script>
@@ -1399,10 +1419,10 @@ Situation report:
     <script src="js/overpass.js?577"></script>
     <script src="js/infiltration.js?577"></script>
     <script src="js/stream.js?577"></script>
-    <script src="js/ui-bindings.js?580"></script>
+    <script src="js/ui-bindings.js?584"></script>
     <script src="js/map-uml-engine.js?577"></script>
     <script src="js/poster.js?577"></script>
-    <script src="js/app.js?580"></script>
+    <script src="js/app.js?584"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

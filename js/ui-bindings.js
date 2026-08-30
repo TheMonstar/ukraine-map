@@ -3638,6 +3638,13 @@ class UiBindings {
             radio.addEventListener('change', () => dashboard.renderSettlementTimeline());
         });
 
+        const renderSettlementProgress = () => dashboard.renderSettlementProgressHeatmap();
+        dashboard.bindUI('settlement-progress-heatmap', 'change', renderSettlementProgress);
+        dashboard.bindUI('settlement-progress-source', 'change', renderSettlementProgress);
+        dashboard.bindUI('settlement-progress-metric', 'change', renderSettlementProgress);
+        dashboard.bindUI('settlement-progress-hex-size', 'change', renderSettlementProgress);
+        dashboard.bindUI('settlement-progress-min-samples', 'change', renderSettlementProgress);
+
         dashboard.bindUI('settlement-label-pop-slider', 'input', () => {
             const val = parseInt(dashboard.getEl('settlement-label-pop-slider')?.value) || 20000;
             const display = dashboard.getEl('settlement-label-pop-value');

@@ -191,6 +191,7 @@ class AttackMapDashboard {
         this.settlementPopupBoundariesLayer = L.layerGroup();
         this.settlementNamesLayer = L.layerGroup();
         this.settlementTimelineLayer = L.layerGroup();
+        this.settlementProgressHeatLayer = L.layerGroup();
         this.filteredSettlements = [];
         this.currentPredefinedRegion = null;
         this.settlementBoundariesCache = new Map(); // Cache for API responses
@@ -403,6 +404,12 @@ class AttackMapDashboard {
             'show-settlement-timeline',
             'settlement-timeline-status-controls',
             'settlement-timeline-result-count',
+            'settlement-progress-heatmap',
+            'settlement-progress-source',
+            'settlement-progress-metric',
+            'settlement-progress-hex-size',
+            'settlement-progress-min-samples',
+            'settlement-progress-summary',
             'settlements-border',
             'search-in-regions',
             'settlement-search',
@@ -5067,6 +5074,9 @@ class AttackMapDashboard {
         if (this.settlementTimelineRefreshDebounce) clearTimeout(this.settlementTimelineRefreshDebounce);
         this.settlementTimelineRefreshDebounce = setTimeout(() => {
             if (this.getEl('show-settlement-timeline')?.value) this.renderSettlementTimeline();
+            if (!this.isPlaying && this.isChecked('settlement-progress-heatmap')) {
+                this.renderSettlementProgressHeatmap();
+            }
         }, 800);
     }
 
@@ -6612,6 +6622,11 @@ class AttackMapDashboard {
     /** Render the selected settlement timeline source and stage. */
     renderSettlementTimeline() {
         return this.settlements.renderSettlementTimeline();
+    }
+
+    /** Render settlement fight-duration aggregation as map hexes. */
+    renderSettlementProgressHeatmap() {
+        return this.settlements.renderSettlementProgressHeatmap();
     }
 
     /**

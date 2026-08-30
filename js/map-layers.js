@@ -125,6 +125,7 @@ class MapLayers {
         dashboard.owlEventsLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.losLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.forestLayer = null;
+        dashboard.settlementProgressHeatLayer.addTo(dashboard.map);
         dashboard.settlementsLayer.addTo(dashboard.map);
         dashboard.settlementBordersLayer.addTo(dashboard.map);
         dashboard.settlementBufferLayer.addTo(dashboard.map);

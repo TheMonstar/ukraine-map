@@ -7,6 +7,7 @@ class Settlements {
         this.timelineDataCache = new Map();
         this.timelineResolvedDataCache = new Map();
         this.timelineRenderVersion = 0;
+        this.progressHeatRenderVersion = 0;
     }
 
     toggleSettlementsDisplay() {
@@ -1221,6 +1222,158 @@ class Settlements {
                 dashboard.setText('settlement-timeline-result-count', 'Unavailable');
                 if (dashboard.isChecked('show-settlement-names')) this.renderSettlementNames();
                 alert(`Failed to load the ${source === 'ria' ? 'RIA' : 'DeepState'} settlement timeline.`);
+            }
+        }
+    }
+
+    _progressHeatColor(days) {
+        if (days <= 14) return '#fff7bc';
+        if (days <= 30) return '#fec44f';
+        if (days <= 60) return '#fe9929';
+        if (days <= 90) return '#ec7014';
+        if (days <= 180) return '#cc4c02';
+        return '#7f0000';
+    }
+
+    _median(values) {
+        if (!values.length) return null;
+        const sorted = values.slice().sort((left, right) => left - right);
+        const middle = Math.floor(sorted.length / 2);
+        return sorted.length % 2
+            ? sorted[middle]
+            : (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+
+    _progressHeatSamples(episodes, metric, startDate, endDate) {
+        return episodes.flatMap(episode => {
+            if (!this._isTimelineDate(episode.contestedFrom)) return [];
+
+            let duration = null;
+            if (metric === 'completed') {
+                if (!this._isTimelineDate(episode.capturedAt) ||
+                    episode.capturedAt < startDate || episode.capturedAt > endDate) return [];
+                duration = Number.isFinite(episode.durationDays)
+                    ? episode.durationDays
+                    : this._timelineDurationDays(episode.contestedFrom, episode.capturedAt);
+            } else {
+                // Reconstruct the state at the selected range end. This includes a
+                // fight whose eventual transition is after that date, and lets long
+                // fights begin before the selected range without being discarded.
+                if (episode.contestedFrom > endDate ||
+                    (this._isTimelineDate(episode.contestedTo) && episode.contestedTo <= endDate)) return [];
+                duration = this._timelineDurationDays(episode.contestedFrom, endDate);
+            }
+            if (!Number.isFinite(duration) || duration < 0) return [];
+
+            return [{
+                coordinates: episode.coordinates,
+                duration,
+                settlementId: episode.settlementId,
+                name: episode.nameEn || episode.name || 'Unknown settlement'
+            }];
+        });
+    }
+
+    async renderSettlementProgressHeatmap() {
+        const dashboard = this.dashboard;
+        const layer = dashboard.settlementProgressHeatLayer;
+        const summary = dashboard.getEl('settlement-progress-summary');
+        const renderVersion = ++this.progressHeatRenderVersion;
+        layer.clearLayers();
+
+        if (!dashboard.isChecked('settlement-progress-heatmap')) {
+            if (summary) summary.style.display = 'none';
+            return;
+        }
+
+        const source = dashboard.getEl('settlement-progress-source')?.value || 'deepstate';
+        const metric = dashboard.getEl('settlement-progress-metric')?.value || 'completed';
+        const hexInput = dashboard.getEl('settlement-progress-hex-size');
+        const minInput = dashboard.getEl('settlement-progress-min-samples');
+        const hexSize = Math.min(80, Math.max(10, parseInt(hexInput?.value, 10) || 30));
+        const minSamples = Math.min(20, Math.max(1, parseInt(minInput?.value, 10) || 2));
+        if (hexInput) hexInput.value = hexSize;
+        if (minInput) minInput.value = minSamples;
+
+        const rangeStart = dashboard.startDate || dashboard.minDate;
+        const rangeEnd = dashboard.endDate || dashboard.maxDate;
+        if (!rangeStart || !rangeEnd) return;
+        const startDate = MapLayers.isoDate(rangeStart);
+        const endDate = MapLayers.isoDate(rangeEnd);
+        if (summary) {
+            summary.style.display = 'block';
+            summary.textContent = 'Loading settlement fights…';
+        }
+
+        try {
+            const episodes = await this.loadSettlementTimeline(source);
+            if (renderVersion !== this.progressHeatRenderVersion ||
+                !dashboard.isChecked('settlement-progress-heatmap')) return;
+
+            const samples = this._progressHeatSamples(episodes, metric, startDate, endDate);
+            const grid = turf.hexGrid([22, 44, 41.5, 53], hexSize, { units: 'kilometers' });
+            const renderedFeatures = [];
+
+            grid.features.forEach(hex => {
+                const bounds = turf.bbox(hex);
+                const bucket = samples.filter(sample => {
+                    const [lng, lat] = sample.coordinates;
+                    if (lng < bounds[0] || lng > bounds[2] || lat < bounds[1] || lat > bounds[3]) return false;
+                    return turf.booleanPointInPolygon(turf.point(sample.coordinates), hex);
+                });
+                if (bucket.length < minSamples) return;
+
+                const durations = bucket.map(sample => sample.duration);
+                const median = this._median(durations);
+                hex.properties = {
+                    median,
+                    fights: bucket.length,
+                    settlements: new Set(bucket.map(sample => sample.settlementId)).size,
+                    minimum: Math.min(...durations),
+                    maximum: Math.max(...durations)
+                };
+                renderedFeatures.push(hex);
+            });
+
+            const sourceLabel = source === 'ria' ? 'RIA' : 'DeepState';
+            const metricLabel = metric === 'completed' ? 'Completed captures' : 'Ongoing fights';
+            L.geoJSON(turf.featureCollection(renderedFeatures), {
+                style: feature => ({
+                    color: '#713f12',
+                    weight: 0.8,
+                    opacity: 0.7,
+                    fillColor: this._progressHeatColor(feature.properties.median),
+                    fillOpacity: 0.62
+                }),
+                onEachFeature: (feature, hexLayer) => {
+                    const props = feature.properties;
+                    const median = Number.isInteger(props.median) ? props.median : props.median.toFixed(1);
+                    const tooltip = `<div class="settlement-progress-heat-tooltip">` +
+                        `<strong>${this._escapeTimelineHtml(sourceLabel)} · ${this._escapeTimelineHtml(metricLabel)}</strong>` +
+                        `<div>Median: <b>${median} days</b></div>` +
+                        `<div>${props.fights} fight${props.fights === 1 ? '' : 's'} · ` +
+                            `${props.settlements} settlement${props.settlements === 1 ? '' : 's'}</div>` +
+                        `<small>Range ${props.minimum}–${props.maximum} days</small></div>`;
+                    hexLayer.bindTooltip(tooltip, { sticky: true, className: 'settlement-progress-heat-tooltip-shell' });
+                }
+            }).addTo(layer);
+
+            if (summary) {
+                if (!renderedFeatures.length) {
+                    summary.textContent = `No cells have at least ${minSamples} qualifying fights.`;
+                } else {
+                    summary.innerHTML = `<div>${renderedFeatures.length.toLocaleString()} cells · ` +
+                        `${samples.length.toLocaleString()} qualifying fights</div>` +
+                        `<div class="settlement-progress-gradient" aria-hidden="true"></div>` +
+                        `<div class="settlement-progress-scale"><span>≤14d faster</span><span>&gt;180d slower</span></div>`;
+                }
+            }
+        } catch (error) {
+            console.error(`Failed to render ${source} settlement progress heatmap:`, error);
+            layer.clearLayers();
+            if (renderVersion === this.progressHeatRenderVersion && summary) {
+                summary.style.display = 'block';
+                summary.textContent = 'Settlement progress heatmap unavailable.';
             }
         }
     }
