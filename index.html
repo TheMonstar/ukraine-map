@@ -78,7 +78,7 @@
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-    <link rel="stylesheet" href="css/main.css" />
+    <link rel="stylesheet" href="css/main.css?583" />
 </head>
 
 <body>
@@ -1133,10 +1133,23 @@
                                     class="toggle-switch"></span>Boundaries</label>
                             <label class="toggle-label"><input type="checkbox" id="show-settlement-names" /><span
                                     class="toggle-switch"></span>Names</label>
+                            <select id="show-settlement-timeline" class="control-select-sm settlement-timeline-select"
+                                aria-label="Settlement timeline source" title="Settlement timeline source">
+                                <option value="">None</option>
+                                <option value="deepstate">DeepState</option>
+                                <option value="ria">RIA</option>
+                            </select>
                             <input type="color" id="settlement-boundary-color" value="#000000"
                                 title="Boundary color"
                                 style="width:28px;height:24px;padding:0;border:1px solid #555;cursor:pointer;border-radius:3px;vertical-align:middle;" />
                             <button id="clear-manual-layers" class="btn btn-sm" title="Clear manual titles and boundaries" style="margin-left:auto;">Clear</button>
+                        </div>
+                        <div id="settlement-timeline-status-controls" class="timeline-status-controls" style="display:none;">
+                            <span class="small-label">Timeline:</span>
+                            <label><input type="radio" name="settlement-timeline-status" value="infiltrated" checked /> Infiltrated</label>
+                            <label><input type="radio" name="settlement-timeline-status" value="contested" /> Contested</label>
+                            <label><input type="radio" name="settlement-timeline-status" value="captured" /> Captured</label>
+                            <span id="settlement-timeline-result-count" class="timeline-result-count"></span>
                         </div>
                         <div class="control-row" style="flex-direction:column;align-items:flex-start;gap:2px;">
                             <label class="small-label">Min Pop (boundaries/names): <span id="settlement-label-pop-value">20,000</span></label>
@@ -1328,7 +1341,7 @@ Situation report:
         <div class="status-item">Total: <span id="total-gains">0</span> km²</div>
         <div class="status-item">Captured: <span id="total-captured">0</span> km²</div>
         <div class="status-item">Grayed: <span id="total-grayed">0</span> km²</div>
-        <div class="status-item">Settlements: <span id="settlements-in-diff">0</span></div>
+        <div class="status-item">Diff settlements: <span id="settlements-in-diff">0</span></div>
         <div class="status-item">Selected: <span id="selected-area">0</span> km²</div>
         <div class="status-item">Frontline: <span id="frontline-length">0</span> km</div>
         <div class="status-item hide-mobile">Pop (selected): <span id="selected-population">0</span></div>
@@ -1375,8 +1388,8 @@ Situation report:
     <script src="js/hex-tiles.js?577"></script>
     <script src="js/geometry-utils.js?577"></script>
     <script src="js/data-store.js?577"></script>
-    <script src="js/map-layers.js?577"></script>
-    <script src="js/settlements.js?577"></script>
+    <script src="js/map-layers.js?579"></script>
+    <script src="js/settlements.js?583"></script>
     <script src="js/line-features.js?577"></script>
     <script src="js/draw.js?577"></script>
     <script src="js/image-mesh.js?577"></script>
@@ -1386,10 +1399,10 @@ Situation report:
     <script src="js/overpass.js?577"></script>
     <script src="js/infiltration.js?577"></script>
     <script src="js/stream.js?577"></script>
-    <script src="js/ui-bindings.js?577"></script>
+    <script src="js/ui-bindings.js?580"></script>
     <script src="js/map-uml-engine.js?577"></script>
     <script src="js/poster.js?577"></script>
-    <script src="js/app.js?577"></script>
+    <script src="js/app.js?580"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

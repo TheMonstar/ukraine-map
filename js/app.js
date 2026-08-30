@@ -190,6 +190,7 @@ class AttackMapDashboard {
         this.settlementLocalBoundariesLayer = L.layerGroup();
         this.settlementPopupBoundariesLayer = L.layerGroup();
         this.settlementNamesLayer = L.layerGroup();
+        this.settlementTimelineLayer = L.layerGroup();
         this.filteredSettlements = [];
         this.currentPredefinedRegion = null;
         this.settlementBoundariesCache = new Map(); // Cache for API responses
@@ -399,6 +400,9 @@ class AttackMapDashboard {
             'refresh-optimization',
             'show-settlements',
             'filter-settlements-radius',
+            'show-settlement-timeline',
+            'settlement-timeline-status-controls',
+            'settlement-timeline-result-count',
             'settlements-border',
             'search-in-regions',
             'settlement-search',
@@ -5051,9 +5055,19 @@ class AttackMapDashboard {
             // under 800 ms they were reset faster than they could fire, so these
             // layers sat frozen on stale dates for the whole run while the timer
             // churn bought nothing. Refresh once when playback stops instead.
-            if (this.isPlaying) return;
+            if (this.isPlaying) {
+                this.scheduleSettlementTimelineRefresh();
+                return;
+            }
             this.scheduleDateDependentRefreshes();
         });
+    }
+
+    scheduleSettlementTimelineRefresh() {
+        if (this.settlementTimelineRefreshDebounce) clearTimeout(this.settlementTimelineRefreshDebounce);
+        this.settlementTimelineRefreshDebounce = setTimeout(() => {
+            if (this.getEl('show-settlement-timeline')?.value) this.renderSettlementTimeline();
+        }, 800);
     }
 
     /**
@@ -5105,6 +5119,7 @@ class AttackMapDashboard {
         this.overlayDiffRefreshDebounce = setTimeout(() => {
             if (this.isChecked('diff-highlight') && this.updateOverlayDiffTotals) this.updateOverlayDiffTotals();
         }, 800);
+        this.scheduleSettlementTimelineRefresh();
     }
 
     initDiffSlices() {
@@ -6594,11 +6609,9 @@ class AttackMapDashboard {
         return this.settlements.filterSettlementsByRadius();
     }
 
-    /**
-     * Toggle settlement history display
-     */
-    toggleSettlementHistory() {
-        return this.settlements.toggleSettlementHistory();
+    /** Render the selected settlement timeline source and stage. */
+    renderSettlementTimeline() {
+        return this.settlements.renderSettlementTimeline();
     }
 
     /**

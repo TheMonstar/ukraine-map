@@ -439,6 +439,33 @@ body {
     margin-bottom: 6px;
 }
 
+.settlement-timeline-select {
+    width: 96px;
+}
+
+.timeline-status-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px 10px;
+    margin: -1px 0 7px;
+    font-size: 11px;
+}
+
+.timeline-status-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+}
+
+.timeline-result-count {
+    margin-left: auto;
+    color: var(--sidebar-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
 .control-row {
     display: flex;
     gap: 6px;
@@ -938,6 +965,149 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
 .settlement-label.tier-town    { font-size: 13px; }
 .settlement-label.tier-village { font-size: 11px; font-weight: 600; }
 
+.settlement-timeline-map-label {
+    transform: translate(-50%, 8px);
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.15;
+}
+
+.settlement-timeline-label-dates {
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.leaflet-tooltip.settlement-timeline-tooltip-shell {
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.24);
+}
+
+.leaflet-tooltip.settlement-timeline-tooltip-shell::before {
+    display: none;
+}
+
+.settlement-timeline-tooltip {
+    min-width: 230px;
+    max-width: 310px;
+    overflow: hidden;
+    border: 1px solid #dbe3ec;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.98);
+    color: #172033;
+    font: 12px/1.35 var(--font);
+}
+
+.timeline-tooltip-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 10px 7px;
+    border-bottom: 1px solid #e8edf3;
+}
+
+.timeline-tooltip-header strong {
+    font-size: 13px;
+}
+
+.timeline-tooltip-local-name,
+.timeline-tooltip-population {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.timeline-tooltip-population {
+    padding: 5px 10px 0;
+}
+
+.timeline-source-badge {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.35px;
+}
+
+.timeline-source-badge.deepstate { background: #2563eb; }
+.timeline-source-badge.ria { background: #7c3aed; }
+
+.timeline-tooltip-fight {
+    padding: 7px 10px 9px;
+}
+
+.timeline-tooltip-fight-separator {
+    border-top: 1px solid #e8edf3;
+}
+
+.timeline-tooltip-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 23px;
+}
+
+.timeline-tooltip-row > span {
+    color: #64748b;
+}
+
+.timeline-tooltip-row > strong {
+    text-align: right;
+}
+
+.timeline-state-badge {
+    display: inline-flex;
+    align-items: flex-end;
+    flex-direction: column;
+    position: relative;
+    padding-left: 11px;
+    color: #172033;
+}
+
+.timeline-state-badge::before {
+    content: '';
+    display: inline-block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 7px;
+    height: 7px;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: #94a3b8;
+}
+
+.timeline-state-badge.captured::before { background: #ef4444; }
+.timeline-state-badge.contested::before { background: #f59e0b; }
+.timeline-state-badge.controlled::before { background: #22c55e; }
+
+.timeline-state-badge small {
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 500;
+}
+
+.timeline-tooltip-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 5px;
+}
+
+.timeline-tooltip-meta span {
+    padding: 2px 6px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 9px;
+}
+
 /* ---- OWL Event Markers ---- */
 /* Neither RU nor UA claimed the event — keep the category glyph, drop the side colour */
 .owl-actor-unknown {
@@ -1198,6 +1368,25 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     font-size: 11px;
     color: #64748b;
     margin-bottom: 2px;
+}
+
+.settlement-timeline-popup {
+    max-height: 220px;
+    overflow-y: auto;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #ddd;
+    font-size: 11px;
+}
+
+.settlement-timeline-popup-event {
+    margin-top: 5px;
+    padding-left: 7px;
+    border-left: 3px solid #ffc107;
+}
+
+.settlement-timeline-popup-event small {
+    color: #64748b;
 }
 
 /* ---- Slider Labels ---- */

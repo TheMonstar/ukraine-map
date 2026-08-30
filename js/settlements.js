@@ -4,6 +4,9 @@ class Settlements {
         this.filterCache = { key: null, settlements: null };
         this.popupBoundaryLayers = new Map();
         this.popupTitleLayers = new Map();
+        this.timelineDataCache = new Map();
+        this.timelineResolvedDataCache = new Map();
+        this.timelineRenderVersion = 0;
     }
 
     toggleSettlementsDisplay() {
@@ -125,6 +128,7 @@ class Settlements {
                 <div class="settlement-info">Category: ${style.label}</div>
                 ${props.population ? `<div class="settlement-info">Population: ${population.toLocaleString()}</div>` : ''}
                 <div class="settlement-info">Coordinates: ${coords[1].toFixed(6)}, ${coords[0].toFixed(6)}</div>
+                ${this._settlementTimelinePopupHtml(settlement)}
                 <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd;">
                     <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-bottom:4px;">
                         <input type="checkbox" ${this.popupTitleLayers.has(osmId) ? 'checked' : ''}
@@ -597,10 +601,19 @@ class Settlements {
 
     toggleSettlementNames() {
         if (this.dashboard.isChecked('show-settlement-names')) {
-            this.renderSettlementNames();
+            if (this.dashboard.getEl('show-settlement-timeline')?.value) {
+                this.dashboard.settlementNamesLayer.clearLayers();
+                this.popupTitleLayers.clear();
+                this.renderSettlementTimeline();
+            } else {
+                this.renderSettlementNames();
+            }
         } else {
             this.dashboard.settlementNamesLayer.clearLayers();
             this.popupTitleLayers.clear();
+            if (this.dashboard.getEl('show-settlement-timeline')?.value) {
+                this.renderSettlementTimeline();
+            }
         }
     }
 
@@ -812,177 +825,406 @@ class Settlements {
         resultsContainer.style.display = 'block';
     }
 
-    async loadSettlementHistory() {
-        if (this.dashboard.settlementHistoryData) {
-            return this.dashboard.settlementHistoryData;
+    _isTimelineDate(value) {
+        return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+            Number.isFinite(Date.parse(`${value}T00:00:00Z`));
+    }
+
+    _normalizeDeepStateTimeline(data) {
+        if (!data || !Array.isArray(data.settlements)) {
+            throw new Error('DeepState timeline has an invalid settlements array');
         }
 
-        try {
-            const response = await fetch('data/settlement-status-timeline.json');
-            const data = await response.json();
-            this.dashboard.settlementHistoryData = data;
-            console.log(`Loaded settlement history: ${data.settlements.length} settlements with events`);
-            return data;
-        } catch (error) {
-            console.error('Failed to load settlement history:', error);
-            return null;
-        }
-    }
+        const episodes = [];
+        data.settlements.forEach((settlement, settlementIndex) => {
+            const coordinates = settlement?.coordinates;
+            if (!Array.isArray(coordinates) || coordinates.length < 2 ||
+                !coordinates.every(Number.isFinite) || !Array.isArray(settlement.events)) return;
 
-    getStatusColor(status) {
-        const colors = {
-            controlled: '#4CAF50',    // Green
-            contested: '#FFC107',     // Amber
-            occupied: '#F44336',      // Red
-            liberated: '#2196F3'      // Blue
-        };
-        return colors[status] || '#9E9E9E';
-    }
+            const events = settlement.events
+                .filter(event => this._isTimelineDate(event?.date) && typeof event.status === 'string')
+                .slice()
+                .sort((left, right) => left.date.localeCompare(right.date));
+            const capturedDates = new Set();
+            const settlementId = `deepstate:${settlement.settlementId || settlementIndex}`;
+            const localName = settlement.name_uk || settlement.name || '';
+            const englishName = settlement.name_en || settlement.name || '';
+            const currentStateSince = events[events.length - 1]?.date || null;
 
-    calculateBattleDuration(settlement) {
-        if (!settlement.events || settlement.events.length === 0) return null;
-
-        const events = settlement.events;
-
-        // Find first contested/occupied event
-        const firstBattleEvent = events.find(e =>
-            e.status === 'contested' || e.status === 'occupied'
-        );
-
-        if (!firstBattleEvent) return null;
-
-        // Find last liberated event or use current status
-        const lastLiberatedEvent = [...events].reverse().find(e => e.status === 'liberated');
-
-        let startDate = new Date(firstBattleEvent.date);
-        let endDate;
-        let isOngoing = false;
-
-        if (lastLiberatedEvent) {
-            endDate = new Date(lastLiberatedEvent.date);
-        } else if (settlement.currentStatus === 'occupied' || settlement.currentStatus === 'contested') {
-            endDate = new Date(); // Ongoing
-            isOngoing = true;
-        } else {
-            // Find last occupied/contested event
-            const lastBattleEvent = [...events].reverse().find(e =>
-                e.status === 'contested' || e.status === 'occupied'
-            );
-            endDate = lastBattleEvent ? new Date(lastBattleEvent.date) : startDate;
-        }
-
-        const durationMs = endDate - startDate;
-        const durationDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
-
-        return { durationDays, isOngoing, startDate, endDate };
-    }
-
-    formatDuration(durationDays) {
-        if (durationDays === 0) return '< 1 day';
-        if (durationDays === 1) return '1 day';
-        if (durationDays < 30) return `${durationDays} days`;
-
-        const months = Math.floor(durationDays / 30);
-        const days = durationDays % 30;
-
-        if (months === 1 && days === 0) return '1 month';
-        if (months === 1) return `1 month ${days} days`;
-        if (days === 0) return `${months} months`;
-        return `${months} months ${days} days`;
-    }
-
-    async toggleSettlementHistory() {
-        const dashboard = this.dashboard;
-
-        if (dashboard.isChecked('settlement-history')) {
-            const historyData = await this.loadSettlementHistory();
-
-            if (!historyData) {
-                alert('Failed to load settlement history data');
-                const checkbox = dashboard.getEl('settlement-history');
-                if (checkbox) checkbox.checked = false;
-                return;
-            }
-
-            // Create layer if it doesn't exist
-            if (!dashboard.settlementHistoryLayer) {
-                dashboard.settlementHistoryLayer = L.layerGroup().addTo(dashboard.map);
-            }
-
-            dashboard.settlementHistoryLayer.clearLayers();
-
-            // Check if radius filter is active
-            const showBattleDuration = dashboard.isChecked('filter-settlements-radius');
-
-            // Render each settlement with history
-            historyData.settlements.forEach(settlement => {
-                if (!settlement.coordinates) return;
-
-                const [lng, lat] = settlement.coordinates;
-                const currentStatus = settlement.currentStatus;
-
-                // Create marker with color based on current status
-                const marker = L.circleMarker([lat, lng], {
-                    radius: 6,
-                    fillColor: this.getStatusColor(currentStatus),
-                    color: '#000',
-                    weight: 1,
-                    opacity: 1,
-                    fillOpacity: 0.8
+            events.forEach((event, index) => {
+                if (event.status !== 'contested' && event.status !== 'infiltration') return;
+                const next = events[index + 1] || null;
+                const capturedAt = next?.status === 'occupied' ? next.date : null;
+                if (capturedAt) capturedDates.add(capturedAt);
+                episodes.push({
+                    id: `deepstate:${settlementIndex}:${event.date}`,
+                    settlementId,
+                    sourceSettlementId: settlement.settlementId || null,
+                    source: 'DeepState',
+                    name: localName,
+                    nameEn: englishName,
+                    population: null,
+                    coordinates: coordinates.slice(0, 2),
+                    infiltratedAt: event.date,
+                    contestedFrom: event.date,
+                    contestedTo: next?.date || null,
+                    capturedAt,
+                    currentState: settlement.currentStatus || next?.status || 'contested',
+                    currentStateSince,
+                    endState: next?.status || settlement.currentStatus || 'contested',
+                    startPercent: Number.isFinite(event.occupiedPercent) ? event.occupiedPercent : null,
+                    endPercent: Number.isFinite(next?.occupiedPercent) ? next.occupiedPercent : null
                 });
-
-                // Build tooltip with timeline
-                let tooltipContent = `<strong>${settlement.name}</strong><br/>`;
-                tooltipContent += `<strong>Current:</strong> ${currentStatus}<br/>`;
-                tooltipContent += `<strong>Events:</strong> ${settlement.events.length}<br/>`;
-
-                // Add battle duration if radius filter is active
-                if (showBattleDuration) {
-                    const duration = this.calculateBattleDuration(settlement);
-                    if (duration) {
-                        tooltipContent += `<strong>Battle Duration:</strong> ${this.formatDuration(duration.durationDays)}`;
-                        if (duration.isOngoing) {
-                            tooltipContent += ` <span style="color: #F44336;">(ongoing)</span>`;
-                        }
-                        tooltipContent += `<br/>`;
-                    }
-                }
-
-                tooltipContent += `<br/><strong>Timeline:</strong><br/>`;
-
-                settlement.events.forEach((event) => {
-                    const color = this.getStatusColor(event.status);
-                    tooltipContent += `<div style="margin: 2px 0;">`;
-                    tooltipContent += `<span style="color: ${color}; font-weight: bold;">●</span> `;
-                    tooltipContent += `${event.date}: ${event.previousStatus} → ${event.status}`;
-                    if (event.occupiedPercent !== undefined && event.occupiedPercent > 0) {
-                        tooltipContent += ` (${event.occupiedPercent}%)`;
-                    }
-                    tooltipContent += `</div>`;
-                });
-
-                if (settlement.wasOccupied) {
-                    tooltipContent += `<br/><em style="color: #F44336;">Was occupied</em>`;
-                }
-
-                marker.bindTooltip(tooltipContent, {
-                    permanent: false,
-                    direction: 'top',
-                    offset: [0, -10]
-                });
-
-                marker.addTo(dashboard.settlementHistoryLayer);
             });
 
-            console.log(`Displayed ${historyData.settlements.length} settlements with history`);
+            // A settlement may jump straight from controlled to occupied without a
+            // contested transition. Preserve that capture as a standalone episode.
+            events.forEach((event, index) => {
+                if (event.status !== 'occupied' || capturedDates.has(event.date)) return;
+                episodes.push({
+                    id: `deepstate:${settlementIndex}:capture:${event.date}`,
+                    settlementId,
+                    sourceSettlementId: settlement.settlementId || null,
+                    source: 'DeepState',
+                    name: localName,
+                    nameEn: englishName,
+                    population: null,
+                    coordinates: coordinates.slice(0, 2),
+                    infiltratedAt: null,
+                    contestedFrom: null,
+                    contestedTo: null,
+                    capturedAt: event.date,
+                    currentState: settlement.currentStatus || 'occupied',
+                    currentStateSince,
+                    endState: 'occupied',
+                    startPercent: null,
+                    endPercent: Number.isFinite(event.occupiedPercent) ? event.occupiedPercent : null,
+                    previousStatus: events[index - 1]?.status || event.previousStatus || null
+                });
+            });
+        });
+        return episodes;
+    }
 
-        } else {
-            // Hide layer
-            if (dashboard.settlementHistoryLayer) {
-                dashboard.settlementHistoryLayer.clearLayers();
+    _normalizeRiaTimeline(data) {
+        if (!data || data.type !== 'FeatureCollection' || !Array.isArray(data.features)) {
+            throw new Error('RIA timeline is not a valid FeatureCollection');
+        }
+
+        return data.features.flatMap((feature, index) => {
+            const coordinates = feature?.geometry?.type === 'Point' ? feature.geometry.coordinates : null;
+            const props = feature?.properties || {};
+            if (!Array.isArray(coordinates) || coordinates.length < 2 ||
+                !coordinates.every(Number.isFinite) || !this._isTimelineDate(props.started)) return [];
+
+            return [{
+                id: `ria:${props.settlement_id || index}:${props.started}`,
+                settlementId: `ria:${props.settlement_id || index}`,
+                sourceSettlementId: props.settlement_id || null,
+                source: 'RIA',
+                name: props.name || '',
+                nameEn: props.name_en || '',
+                population: Number.isFinite(props.population) ? props.population : null,
+                coordinates: coordinates.slice(0, 2),
+                infiltratedAt: props.started,
+                contestedFrom: props.started,
+                contestedTo: this._isTimelineDate(props.ended) ? props.ended : null,
+                capturedAt: this._isTimelineDate(props.ended) ? props.ended : null,
+                currentState: this._isTimelineDate(props.ended) ? 'occupied' : 'contested',
+                currentStateSince: this._isTimelineDate(props.ended) ? props.ended : props.started,
+                endState: this._isTimelineDate(props.ended) ? 'occupied' : 'contested',
+                startPercent: Number.isFinite(props.start_coverage_percent) ? props.start_coverage_percent : null,
+                endPercent: Number.isFinite(props.end_coverage_percent) ? props.end_coverage_percent : null,
+                durationDays: Number.isFinite(props.duration_days) ? props.duration_days : null
+            }];
+        });
+    }
+
+    loadSettlementTimeline(source) {
+        if (this.timelineDataCache.has(source)) return this.timelineDataCache.get(source);
+
+        const config = {
+            deepstate: {
+                url: `${APP_STATIC_URL}/settlement-status-timeline.json`,
+                normalize: data => this._normalizeDeepStateTimeline(data)
+            },
+            ria: {
+                url: `${APP_STATIC_URL}/ria-settlement-fights.geojson`,
+                normalize: data => this._normalizeRiaTimeline(data)
+            }
+        }[source];
+        if (!config) return Promise.reject(new Error(`Unknown settlement timeline source: ${source}`));
+
+        const request = fetch(config.url)
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                const normalized = config.normalize(data);
+                this.timelineResolvedDataCache.set(source, normalized);
+                return normalized;
+            })
+            .catch(error => {
+                this.timelineDataCache.delete(source);
+                this.timelineResolvedDataCache.delete(source);
+                throw error;
+            });
+        this.timelineDataCache.set(source, request);
+        return request;
+    }
+
+    _escapeTimelineHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = String(value ?? '');
+        return div.innerHTML;
+    }
+
+    _timelineDurationDays(from, to) {
+        if (!this._isTimelineDate(from)) return null;
+        const end = this._isTimelineDate(to) ? to : new Date().toISOString().slice(0, 10);
+        return Math.max(0, Math.round(
+            (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000
+        ));
+    }
+
+    _timelineEpisodesForSettlement(settlement, source) {
+        const episodes = this.timelineResolvedDataCache.get(source);
+        if (!episodes) return null;
+
+        const props = settlement?.properties || {};
+        const osmId = props.osm_id == null ? '' : String(props.osm_id);
+        const osmType = String(props.osm_type || '').toLowerCase();
+        const candidates = new Set([osmId]);
+        if (osmId && osmType) {
+            candidates.add(`${osmType}_${osmId}`);
+            candidates.add(`${osmType.endsWith('s') ? osmType : `${osmType}s`}_${osmId}`);
+        }
+
+        let matches = osmId
+            ? episodes.filter(episode => candidates.has(String(episode.sourceSettlementId || '')))
+            : [];
+        if (matches.length) return matches;
+
+        const coordinates = settlement?.geometry?.coordinates;
+        if (!Array.isArray(coordinates) || coordinates.length < 2) return [];
+        matches = episodes.filter(episode =>
+            Math.abs(episode.coordinates[0] - coordinates[0]) <= 0.0001 &&
+            Math.abs(episode.coordinates[1] - coordinates[1]) <= 0.0001
+        );
+        return matches;
+    }
+
+    _settlementTimelinePopupHtml(settlement) {
+        const source = this.dashboard.getEl('show-settlement-timeline')?.value || '';
+        if (!source) return '';
+
+        const episodes = this._timelineEpisodesForSettlement(settlement, source);
+        if (episodes === null) {
+            return `<div class="settlement-timeline-popup"><strong>Timeline</strong><div>Loading…</div></div>`;
+        }
+        if (!episodes.length) return '';
+
+        const sorted = episodes.slice().sort((left, right) => {
+            const leftDate = left.contestedFrom || left.capturedAt || '';
+            const rightDate = right.contestedFrom || right.capturedAt || '';
+            return leftDate.localeCompare(rightDate);
+        });
+        const rows = sorted.map(episode => {
+            const parts = [];
+            if (episode.infiltratedAt) parts.push(`Infiltrated ${episode.infiltratedAt}`);
+            if (episode.contestedFrom) {
+                const duration = Number.isFinite(episode.durationDays)
+                    ? episode.durationDays
+                    : this._timelineDurationDays(episode.contestedFrom, episode.contestedTo);
+                let contested = `Contested ${episode.contestedFrom} → ${episode.contestedTo || 'Ongoing'}`;
+                if (duration !== null) contested += ` (${duration} day${duration === 1 ? '' : 's'})`;
+                parts.push(contested);
+            }
+            if (episode.capturedAt) parts.push(`Captured ${episode.capturedAt}`);
+
+            const percentages = [];
+            if (episode.startPercent !== null) percentages.push(`start ${episode.startPercent}%`);
+            if (episode.endPercent !== null) percentages.push(`end ${episode.endPercent}%`);
+            return `<div class="settlement-timeline-popup-event">` +
+                `${parts.map(part => `<div>${this._escapeTimelineHtml(part)}</div>`).join('')}` +
+                `${percentages.length ? `<small>${this._escapeTimelineHtml(percentages.join(', '))}</small>` : ''}` +
+                `</div>`;
+        }).join('');
+        const sourceLabel = source === 'ria' ? 'RIA' : 'DeepState';
+
+        return `<div class="settlement-timeline-popup">` +
+            `<strong>${sourceLabel} timeline</strong>${rows}</div>`;
+    }
+
+    _timelineTooltip(group, status) {
+        const first = group.episodes[0];
+        const name = this._escapeTimelineHtml(first.nameEn || first.name || 'Unknown settlement');
+        const localName = first.name && first.name !== first.nameEn
+            ? `<div class="timeline-tooltip-local-name">${this._escapeTimelineHtml(first.name)}</div>` : '';
+        const population = Number.isFinite(first.population)
+            ? `<span>${first.population.toLocaleString()} people</span>` : '';
+        const sourceClass = first.source === 'RIA' ? 'ria' : 'deepstate';
+        const rows = group.episodes.map((episode, index) => {
+            const started = episode.contestedFrom || episode.infiltratedAt || episode.capturedAt;
+            const startedLabel = episode.contestedFrom ? 'Contested started' : 'Captured';
+            const state = episode.currentState;
+            const stateLabel = this._timelineStateLabel(state);
+            const stateClass = this._timelineStateClass(state);
+            const stateSince = episode.currentStateSince;
+            const duration = episode.contestedFrom
+                ? (Number.isFinite(episode.durationDays)
+                    ? episode.durationDays
+                    : this._timelineDurationDays(episode.contestedFrom, episode.contestedTo))
+                : null;
+            const coverage = [];
+            if (episode.startPercent !== null) coverage.push(`${episode.startPercent}% start`);
+            if (episode.endPercent !== null) coverage.push(`${episode.endPercent}% end`);
+
+            return `<div class="timeline-tooltip-fight${index ? ' timeline-tooltip-fight-separator' : ''}">` +
+                `<div class="timeline-tooltip-row"><span>${startedLabel}</span><strong>${this._escapeTimelineHtml(started || 'Unknown')}</strong></div>` +
+                `<div class="timeline-tooltip-row"><span>Current state</span>` +
+                    `<strong class="timeline-state-badge ${stateClass}">${this._escapeTimelineHtml(stateLabel)}` +
+                    `${stateSince ? `<small>since ${this._escapeTimelineHtml(stateSince)}</small>` : ''}</strong></div>` +
+                `${duration !== null || coverage.length ? `<div class="timeline-tooltip-meta">` +
+                    `${duration !== null ? `<span>${duration} day${duration === 1 ? '' : 's'}</span>` : ''}` +
+                    `${coverage.map(item => `<span>${this._escapeTimelineHtml(item)}</span>`).join('')}` +
+                    `</div>` : ''}` +
+                `</div>`;
+        }).join('');
+
+        return `<div class="settlement-timeline-tooltip">` +
+            `<div class="timeline-tooltip-header"><div><strong>${name}</strong>${localName}</div>` +
+            `<span class="timeline-source-badge ${sourceClass}">${this._escapeTimelineHtml(first.source)}</span></div>` +
+            `${population ? `<div class="timeline-tooltip-population">${population}</div>` : ''}${rows}</div>`;
+    }
+
+    _timelineStateLabel(state) {
+        return {
+            infiltration: 'Infiltrated',
+            contested: 'Contested',
+            occupied: 'Captured',
+            liberated: 'Liberated',
+            controlled: 'Controlled'
+        }[state] || 'Unknown';
+    }
+
+    _timelineStateClass(state) {
+        if (state === 'occupied') return 'captured';
+        if (state === 'infiltration' || state === 'contested') return 'contested';
+        if (state === 'liberated' || state === 'controlled') return 'controlled';
+        return 'unknown';
+    }
+
+    _timelineLabelIcon(group) {
+        const first = group.episodes[0];
+        const name = this._escapeTimelineHtml(first.nameEn || first.name || 'Unknown settlement');
+        const ranges = group.episodes.map(episode => {
+            const from = episode.contestedFrom || episode.infiltratedAt || episode.capturedAt;
+            if (!from) return '';
+            const to = episode.contestedTo || (episode.contestedFrom ? 'Ongoing' : episode.capturedAt);
+            return to && to !== from ? `${from} – ${to}` : from;
+        }).filter(Boolean);
+        const dates = [...new Set(ranges)]
+            .map(range => `<div class="settlement-timeline-label-dates">${this._escapeTimelineHtml(range)}</div>`)
+            .join('');
+
+        return L.divIcon({
+            className: '',
+            html: `<div class="settlement-label settlement-timeline-map-label"><div>${name}</div>${dates}</div>`,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+        });
+    }
+
+    async renderSettlementTimeline() {
+        const dashboard = this.dashboard;
+        const renderVersion = ++this.timelineRenderVersion;
+        const select = dashboard.getEl('show-settlement-timeline');
+        const source = select?.value || '';
+        dashboard.settlementTimelineLayer.clearLayers();
+        if (!source) return;
+
+        const status = document.querySelector('input[name="settlement-timeline-status"]:checked')?.value || 'infiltrated';
+        const dateField = {
+            infiltrated: 'infiltratedAt',
+            contested: 'contestedFrom',
+            captured: 'capturedAt'
+        }[status];
+        const rangeStart = dashboard.startDate || dashboard.minDate;
+        const rangeEnd = dashboard.endDate || dashboard.maxDate;
+        if (!rangeStart || !rangeEnd) return;
+        const startDate = MapLayers.isoDate(rangeStart);
+        const endDate = MapLayers.isoDate(rangeEnd);
+
+        try {
+            const episodes = await this.loadSettlementTimeline(source);
+            // The selection may have changed while the request was in flight.
+            if (renderVersion !== this.timelineRenderVersion || (select?.value || '') !== source) return;
+
+            const groups = new Map();
+            episodes.forEach(episode => {
+                const transitionDate = episode[dateField];
+                const matchesRange = status === 'contested'
+                    ? this._isTimelineDate(episode.contestedFrom) &&
+                        episode.contestedFrom <= endDate &&
+                        (!this._isTimelineDate(episode.contestedTo) || episode.contestedTo >= startDate)
+                    : this._isTimelineDate(transitionDate) && transitionDate >= startDate && transitionDate <= endDate;
+                if (!matchesRange) return;
+                const key = episode.settlementId || `${episode.coordinates.join(',')}:${episode.name}`;
+                if (!groups.has(key)) groups.set(key, { episodes: [] });
+                groups.get(key).episodes.push(episode);
+            });
+
+            const color = {
+                infiltrated: '#ff9800',
+                contested: '#ffc107',
+                captured: '#f44336'
+            }[status];
+            groups.forEach(group => {
+                group.episodes.sort((left, right) => left[dateField].localeCompare(right[dateField]));
+                const [lng, lat] = group.episodes[0].coordinates;
+                const marker = L.circleMarker([lat, lng], {
+                    radius: 6,
+                    fillColor: color,
+                    color: '#111827',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.85
+                });
+                marker.bindTooltip(() => this._timelineTooltip(group, status), {
+                    direction: 'top',
+                    offset: [0, -8],
+                    className: 'settlement-timeline-tooltip-shell'
+                });
+                marker.addTo(dashboard.settlementTimelineLayer);
+
+                if (dashboard.isChecked('show-settlement-names')) {
+                    L.marker([lat, lng], {
+                        icon: this._timelineLabelIcon(group),
+                        interactive: false
+                    }).addTo(dashboard.settlementTimelineLayer);
+                }
+            });
+            dashboard.setText(
+                'settlement-timeline-result-count',
+                `${groups.size.toLocaleString()} settlement${groups.size === 1 ? '' : 's'}`
+            );
+            console.log(`Displayed ${groups.size} ${source} settlement ${status} fights`);
+        } catch (error) {
+            console.error(`Failed to load ${source} settlement timeline:`, error);
+            dashboard.settlementTimelineLayer.clearLayers();
+            if (renderVersion === this.timelineRenderVersion && (select?.value || '') === source) {
+                select.value = '';
+                const controls = dashboard.getEl('settlement-timeline-status-controls');
+                if (controls) controls.style.display = 'none';
+                dashboard.setText('settlement-timeline-result-count', 'Unavailable');
+                if (dashboard.isChecked('show-settlement-names')) this.renderSettlementNames();
+                alert(`Failed to load the ${source === 'ria' ? 'RIA' : 'DeepState'} settlement timeline.`);
             }
         }
     }
+
     getBufferRadiusKm(population) {
         const pop = this.parsePopulation(population);
         if (pop >= 50000) return 7;

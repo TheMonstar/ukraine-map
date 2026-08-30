@@ -3611,6 +3611,33 @@ class UiBindings {
             dashboard.toggleSettlementNames();
         });
 
+        dashboard.bindUI('show-settlement-timeline', 'change', () => {
+            const source = dashboard.getEl('show-settlement-timeline')?.value || '';
+            const controls = dashboard.getEl('settlement-timeline-status-controls');
+            if (controls) controls.style.display = source ? 'flex' : 'none';
+
+            if (!source) {
+                dashboard.settlementTimelineLayer.clearLayers();
+                dashboard.setText('settlement-timeline-result-count', '');
+                if (dashboard.isChecked('show-settlement-names')) dashboard.renderSettlementNames();
+                return;
+            }
+
+            dashboard.settlementNamesLayer.clearLayers();
+            dashboard.settlements.popupTitleLayers.clear();
+            dashboard.setText('settlement-timeline-result-count', 'Loading…');
+
+            const infiltrated = document.querySelector(
+                'input[name="settlement-timeline-status"][value="infiltrated"]'
+            );
+            if (infiltrated) infiltrated.checked = true;
+            dashboard.renderSettlementTimeline();
+        });
+
+        document.querySelectorAll('input[name="settlement-timeline-status"]').forEach(radio => {
+            radio.addEventListener('change', () => dashboard.renderSettlementTimeline());
+        });
+
         dashboard.bindUI('settlement-label-pop-slider', 'input', () => {
             const val = parseInt(dashboard.getEl('settlement-label-pop-slider')?.value) || 20000;
             const display = dashboard.getEl('settlement-label-pop-value');
@@ -3629,10 +3656,6 @@ class UiBindings {
 
         dashboard.bindUI('settlement-buffers', 'change', () => {
             dashboard.toggleSettlementBuffers();
-        });
-
-        dashboard.bindUI('settlement-history', 'change', () => {
-            dashboard.toggleSettlementHistory();
         });
 
         dashboard.bindUI('search-in-regions', 'change', () => {

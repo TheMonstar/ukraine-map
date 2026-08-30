@@ -131,6 +131,7 @@ class MapLayers {
         dashboard.settlementLocalBoundariesLayer.addTo(dashboard.map);
         dashboard.settlementPopupBoundariesLayer.addTo(dashboard.map);
         dashboard.settlementNamesLayer.addTo(dashboard.map);
+        dashboard.settlementTimelineLayer.addTo(dashboard.map);
 
         dashboard.map.on('zoomend moveend', () => {
             if (dashboard.isChecked('settlements-border')) {
@@ -140,7 +141,8 @@ class MapLayers {
 
         // labels size by population tier, so re-render when the zoom changes
         dashboard.map.on('zoomend', () => {
-            if (dashboard.isChecked('show-settlement-names')) {
+            if (dashboard.isChecked('show-settlement-names') &&
+                !dashboard.getEl('show-settlement-timeline')?.value) {
                 dashboard.settlements.renderSettlementNames();
             }
             dashboard.rescaleSourceHeatmaps();
