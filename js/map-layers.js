@@ -1421,6 +1421,9 @@ class MapLayers {
         }
         if (normalizedKey === 'SURIYAK') {
             const ruFeatures = allFeatures.filter(feature => {
+                if (feature?.properties?.styleUrl === '#poly-0288D1-1-43-nodesc') {
+                    return false;
+                }
                 const label = feature?.properties?._src_name || feature?.properties?.name || '';
                 const mapping = suriyakLabel(label);
                 return mapping[0] === 'RU';
