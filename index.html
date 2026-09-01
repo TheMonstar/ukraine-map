@@ -78,7 +78,7 @@
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-    <link rel="stylesheet" href="css/main.css?584" />
+    <link rel="stylesheet" href="css/main.css?585" />
 </head>
 
 <body>
@@ -1273,6 +1273,28 @@
             </div>
             <div id="map"></div>
         </div>
+
+        <!-- Charts panel. Must come before its toggle button: the CSS uses
+             `.charts-panel.collapsed ~ .charts-toggle`, and `~` only matches
+             later siblings. -->
+        <aside class="charts-panel collapsed" id="charts-panel">
+            <div class="charts-head">
+                <h2>Charts</h2>
+                <div class="charts-status" id="charts-status"></div>
+            </div>
+            <div class="charts-scroll">
+                <div id="charts-body"></div>
+            </div>
+        </aside>
+
+        <!-- Charts Toggle -->
+        <button class="charts-toggle" id="charts-toggle" title="Toggle charts">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+                <rect x="2" y="10" width="4" height="8" rx="1" />
+                <rect x="8" y="6" width="4" height="12" rx="1" />
+                <rect x="14" y="2" width="4" height="16" rx="1" />
+            </svg>
+        </button>
     </div>
 
     <!-- MapUML Help Modal -->
@@ -1389,6 +1411,12 @@ Situation report:
     <input type="checkbox" id="regions-highlight" style="display:none;" />
     <input type="checkbox" id="show-line" style="display:none;" />
     <input type="checkbox" id="captured" style="display:none;" />
+    <!-- Charts panel state. The visible button routes through this checkbox so the
+         human path and the MCP map_set_layers path share one change handler. -->
+    <input type="checkbox" id="charts-panel-on" style="display:none;" />
+
+    <!-- Outside .charts-panel, which is overflow:hidden -->
+    <div id="charts-tooltip"></div>
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
@@ -1419,10 +1447,11 @@ Situation report:
     <script src="js/overpass.js?577"></script>
     <script src="js/infiltration.js?577"></script>
     <script src="js/stream.js?577"></script>
-    <script src="js/ui-bindings.js?584"></script>
+    <script src="js/charts.js?585"></script>
+    <script src="js/ui-bindings.js?585"></script>
     <script src="js/map-uml-engine.js?577"></script>
     <script src="js/poster.js?577"></script>
-    <script src="js/app.js?584"></script>
+    <script src="js/app.js?585"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

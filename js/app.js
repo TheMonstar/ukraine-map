@@ -286,6 +286,7 @@ class AttackMapDashboard {
         this.lineFeatures.init();
         this.mapUmlEngine = new MapUMLEngine(this);
         this.poster = new Poster(this);
+        this.charts = new Charts(this);
         this.terrainAnalysis = new TerrainAnalysis(this);
         this.infiltration = new Infiltration(this);
         this.uiBindings.init();
@@ -357,6 +358,7 @@ class AttackMapDashboard {
             'feature-ditches',
             'russia-overlay',
             'ukraine-overlay',
+            'charts-panel', 'charts-panel-on', 'charts-body', 'charts-status',
             'amk-overlay',
             'creamy-overlay',
             'owl-overlay',
@@ -1804,7 +1806,7 @@ class AttackMapDashboard {
         'forest-overlay', 'show-watermark',
         'show-settlements', 'show-regions', 'position-change',
         'hex-tiles', 'show-date-overlay', 'custom-kml-overlay', 'overpass-overlay', 'firms-overlay',
-        'event-heatmap', 'event-coverage'
+        'event-heatmap', 'event-coverage', 'charts-panel-on'
     ];
 
     /** Heat ramps for the source heatmaps — dark to bright so hot spots pop
@@ -1866,6 +1868,7 @@ class AttackMapDashboard {
             drawings: this.drawTool ? this.drawTool.shapes : [],
             mapUml: this.getEl('map-uml-input')?.value ?? '',
             poster: this.poster ? this.poster.serialize() : null,
+            charts: this.charts ? this.charts.serialize() : null,
             imageOverlays: this.imageOverlayLayers
                 .filter(rec => rec.url && !rec.url.startsWith('blob:'))
                 .map(rec => ({
@@ -1934,6 +1937,10 @@ class AttackMapDashboard {
         if (state.view) {
             this.map.setView([state.view.lat, state.view.lng], state.view.zoom);
         }
+
+        // before the toggle pass — 'charts-panel-on' lives in it and triggers the
+        // first render, which needs the restored card set already in place
+        if ('charts' in state && this.charts) this.charts.restore(state.charts);
 
         if (state.toggles) {
             for (const [id, checked] of Object.entries(state.toggles)) {
@@ -5057,6 +5064,10 @@ class AttackMapDashboard {
                 }
             }
             this.syncDiffSliceRange();
+            // Charts read dashboard.startDate/endDate and debounce themselves. Hooked
+            // inside this handler because initSlider() destroys and re-creates the
+            // slider, which would silently drop an externally attached listener.
+            this.charts?.onDateChange();
             // During playback every tick calls slider.set(), which re-fires this
             // handler and rearmed all ten timers below. At any playback speed
             // under 800 ms they were reset faster than they could fire, so these
@@ -5095,6 +5106,8 @@ class AttackMapDashboard {
         this.eventsRefreshDebounce = setTimeout(() => this.refreshEvents(), 800);
         if (this.ditchesRefreshDebounce) clearTimeout(this.ditchesRefreshDebounce);
         this.ditchesRefreshDebounce = setTimeout(() => this.refreshDitches(), 800);
+        if (this.chartsRefreshDebounce) clearTimeout(this.chartsRefreshDebounce);
+        this.chartsRefreshDebounce = setTimeout(() => this.charts?.refresh(), 800);
         // RIA overlay is one file per day — re-fetch when the selected date settles
         if (this.riaRefreshDebounce) clearTimeout(this.riaRefreshDebounce);
         this.riaRefreshDebounce = setTimeout(() => {

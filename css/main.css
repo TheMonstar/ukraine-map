@@ -1783,3 +1783,307 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     border-radius: 50%;
     flex-shrink: 0;
 }
+
+/* ================================================================
+   Charts panel — docked right column, an alternative read of the
+   same war the map shows. Mirrors the sidebar recipe (.sidebar:177,
+   .sidebar-toggle:263) so collapse behaves identically on both
+   sides. Appended at the end of the file on purpose: the mobile
+   override below must win on source order, and the existing
+   @media block at :1454 has base rules after it.
+   ================================================================ */
+:root {
+    --charts-width: 340px;
+    --chart-ru: #ef4444;
+    --chart-ua: #3b82f6;
+    --chart-prev: #94a3b8;
+    --chart-grid: #334155;
+    --chart-ink: #e2e8f0;
+    --chart-muted: #94a3b8;
+    --chart-warn: #f59e0b;
+}
+
+.charts-panel {
+    width: var(--charts-width);
+    background: var(--sidebar-bg);
+    color: var(--sidebar-text);
+    flex-shrink: 0;
+    overflow: hidden;
+    transition: width 0.3s ease, opacity 0.3s ease;
+    z-index: 500;
+    border-left: 1px solid var(--sidebar-border);
+    display: flex;
+    flex-direction: column;
+}
+
+.charts-panel.collapsed {
+    width: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.charts-head {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--sidebar-border);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.charts-head h2 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.02em;
+}
+
+.charts-status {
+    font-size: 11px;
+    color: var(--sidebar-muted);
+    text-align: right;
+    line-height: 1.3;
+}
+
+.charts-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 0 24px;
+    scrollbar-width: thin;
+    scrollbar-color: #475569 transparent;
+}
+
+.charts-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.charts-scroll::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 3px;
+}
+
+/* Cards. Deliberately NOT .accordion-* — initSidebar() (js/app.js:315)
+   binds every .accordion-header in the document and would throw on a
+   card that has no .accordion-body. */
+.charts-card {
+    border-bottom: 1px solid var(--sidebar-border);
+    padding: 0 0 10px;
+}
+
+.charts-card-header {
+    padding: 9px 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    user-select: none;
+}
+
+.charts-card-header:hover {
+    background: var(--sidebar-hover);
+}
+
+.charts-card-arrow {
+    font-size: 9px;
+    color: var(--sidebar-muted);
+    width: 10px;
+    flex-shrink: 0;
+}
+
+.charts-card-body {
+    padding: 2px 12px 0;
+}
+
+.charts-card-note {
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--sidebar-muted);
+    margin: 6px 2px 0;
+}
+
+.charts-card-note b {
+    color: var(--chart-warn);
+    font-weight: 600;
+}
+
+.charts-empty {
+    font-size: 11.5px;
+    color: var(--sidebar-muted);
+    padding: 6px 2px 8px;
+    line-height: 1.5;
+}
+
+.charts-card svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+}
+
+.charts-card svg text {
+    fill: var(--chart-ink);
+}
+
+.charts-card svg .c-tick,
+.charts-card svg .c-lbl {
+    fill: var(--chart-muted);
+    font-size: 9.5px;
+}
+
+.charts-card svg .c-val {
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.charts-card svg .c-grid {
+    stroke: var(--chart-grid);
+    stroke-width: 1;
+}
+
+.charts-card svg .c-ax {
+    stroke: #475569;
+    stroke-width: 1;
+}
+
+.charts-card svg .c-ru {
+    fill: var(--chart-ru);
+}
+
+.charts-card svg .c-ua {
+    fill: var(--chart-ua);
+}
+
+.charts-card svg .c-prev {
+    stroke: var(--chart-prev);
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+.charts-card svg .c-up {
+    fill: var(--chart-ru);
+}
+
+.charts-card svg .c-dn {
+    fill: var(--chart-ua);
+}
+
+.charts-card svg .c-fl {
+    fill: var(--chart-muted);
+}
+
+.charts-card svg .c-hit {
+    fill: transparent;
+    cursor: pointer;
+}
+
+.charts-card svg .c-break {
+    stroke: var(--chart-warn);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+}
+
+.charts-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 10px;
+    color: var(--sidebar-muted);
+    padding: 0 2px 4px;
+}
+
+.charts-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.charts-legend i {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.charts-legend i.tick {
+    width: 3px;
+    height: 11px;
+    border-radius: 1px;
+    background: var(--chart-prev);
+}
+
+/* Tooltip lives outside the panel: .charts-panel is overflow:hidden. */
+#charts-tooltip {
+    position: fixed;
+    z-index: 10000;
+    display: none;
+    pointer-events: none;
+    background: rgba(15, 23, 42, 0.96);
+    color: var(--sidebar-text);
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    font-size: 11px;
+    line-height: 1.4;
+    max-width: 240px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* ---- Charts Toggle ---- */
+.charts-toggle {
+    position: absolute;
+    bottom: 40px;
+    right: var(--charts-width);
+    z-index: 600;
+    background: var(--sidebar-bg);
+    color: var(--sidebar-text);
+    border: 1px solid var(--sidebar-border);
+    border-right: none;
+    border-radius: var(--radius) 0 0 var(--radius);
+    width: 28px;
+    height: 36px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: right 0.3s ease;
+}
+
+.charts-panel.collapsed~.charts-toggle {
+    right: 0;
+}
+
+@media (max-width: 768px) {
+
+    /* 280px sidebar + 340px panel on a 375px viewport leaves the map
+       negative width, so the panel becomes an overlay drawer instead. */
+    :root {
+        --charts-width: min(340px, 88vw);
+    }
+
+    .charts-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        height: 100%;
+        z-index: 900;
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .charts-panel.collapsed {
+        width: 0;
+    }
+
+    .charts-toggle {
+        right: 0;
+    }
+
+    .charts-panel:not(.collapsed)~.charts-toggle {
+        right: var(--charts-width);
+    }
+}

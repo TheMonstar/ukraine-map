@@ -35,6 +35,7 @@ class UiBindings {
             dashboard.calculateSettlementsInDiffArea(startDatePolygons, endDatePolygons);
             const sliceStatsEl = dashboard.getEl('slice-territory-stats');
             if (sliceStatsEl) sliceStatsEl.innerHTML = '';
+            dashboard.charts?.onTerritoryStats(null);
         };
 
         const polyCache = new Map();
@@ -163,6 +164,7 @@ class UiBindings {
             if (!dashboard.isChecked('diff-area')) {
                 dashboard.setText('settlements-in-diff', '0');
                 if (dashboard.casualtiesLayer) dashboard.casualtiesLayer.clearLayers();
+                dashboard.charts?.onTerritoryStats(null);
                 if (dashboard.selectedPolygons.length > 0) dashboard.calculateSelectedAreaStatistics();
                 return;
             }
@@ -289,6 +291,7 @@ class UiBindings {
                         dashboard.optimizePolygonsByColor(combinedResult) : combinedResult;
                     deepMap.renderMap(optimizedDiffResult);
 
+                    dashboard.charts?.onTerritoryStats(sliceTerritoryStats);
                     const statsEl = dashboard.getEl('slice-territory-stats');
                     if (statsEl && sliceTerritoryStats.length) {
                         const totalGains = sliceTerritoryStats.reduce((s, t) => s + t.gains, 0);
@@ -384,6 +387,7 @@ class UiBindings {
                 dashboard.currentDeepResult = endDatePolygons;
                 const sliceStatsEl = dashboard.getEl('slice-territory-stats');
                 if (sliceStatsEl) sliceStatsEl.innerHTML = '';
+                dashboard.charts?.onTerritoryStats(null);
                 const optimized = dashboard.isChecked('optimize-polygons') ?
                     dashboard.optimizePolygonsByColor(endDatePolygons) : endDatePolygons;
                 deepMap.renderMap(optimized);
@@ -950,6 +954,19 @@ class UiBindings {
         dashboard.bindUI('color-captured', 'change', updateCustomKmlColors);
         dashboard.bindUI('color-grey', 'change', updateCustomKmlColors);
         dashboard.bindUI('color-controlled', 'change', updateCustomKmlColors);
+
+        // Charts panel. The visible button routes through the hidden checkbox so the
+        // human path and the MCP map_set_layers path converge on one change handler.
+        dashboard.bindUI('charts-panel-on', 'change', (e) => {
+            dashboard.charts?.setOpen(e.target.checked);
+        });
+
+        dashboard.bindUI('charts-toggle', 'click', () => {
+            const cb = dashboard.getEl('charts-panel-on');
+            if (!cb) return;
+            cb.checked = !cb.checked;
+            cb.dispatchEvent(new Event('change'));
+        });
 
         // Overpass (OSM) bindings
         const overpassPreset = dashboard.getEl('overpass-preset');
