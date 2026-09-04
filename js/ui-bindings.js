@@ -684,6 +684,43 @@ class UiBindings {
         };
         dashboard.updateOverlayDiffTotals = updateOverlayDiffTotals;
 
+        /**
+         * DeepState gains/losses in km² for an arbitrary window, in the same
+         * { gains, losses, net } shape getManifestDiffAreaKm2 and getRiaDiffAreaKm2
+         * return — so the three sources can be put side by side. Goes through
+         * getPolygons, so it reuses the cache the map already filled rather than
+         * re-fetching. Both figures are Russian-relative, like everything else here.
+         */
+        dashboard.getDeepStateDiffKm2 = async (startDate, endDate) => {
+            const dropBase = (data) => dashboard.isChecked('diff-no-base')
+                ? { ...data, polygons: data.polygons.filter(p => p.properties?.fill !== '#bcaaa4') }
+                : data;
+            const deepMap = new DeepUtils(null);
+            const from = dropBase(await getPolygons(startDate));
+            const to = dropBase(await getPolygons(endDate));
+            const diff = deepMap.calculatePolygonDifference(from, to);
+            let gains = 0, losses = 0;
+            let gainsGeom = null, lossesGeom = null;
+            for (const polygon of diff.polygons) {
+                try {
+                    if (polygon.type === 'difference') {
+                        gains += turf.area(polygon.geojson) / 1e6;
+                        gainsGeom = safeUnion(gainsGeom, polygon.geojson);
+                    } else if (polygon.type === 'reverse-difference') {
+                        losses += turf.area(polygon.geojson) / 1e6;
+                        lossesGeom = safeUnion(lossesGeom, polygon.geojson);
+                    }
+                } catch (error) { /* an unmeasurable ring contributes nothing */ }
+            }
+            // geometry too, so the same result can be clipped per direction
+            return { gains, losses, net: gains - losses, gainsGeom, lossesGeom };
+        };
+
+        /** Clip a diff result against the six Russian groupings. */
+        dashboard.regionDiffRows = (gainsGeom, lossesGeom, names = RU_DIRECTIONS) =>
+            regionDiffRows(gainsGeom, lossesGeom, names);
+        dashboard.RU_DIRECTIONS = RU_DIRECTIONS;
+
         /** Overlay toggled: refresh its diff figures, or hand the stats panel back
          *  to DeepState once the last overlay is gone. */
         const refreshOverlayDiff = async () => {
@@ -925,6 +962,56 @@ class UiBindings {
             if (!file) return;
             await dashboard.layers.loadCustomKmlFile(file);
             e.target.value = ''; // allow re-loading the same file
+        });
+
+        // ── Duplicate a rendered layer into the editable custom layer ───────
+        const DUPLICATE_SOURCES = {
+            deepLayer: 'DeepStateMap',
+            suriyakOverlay: 'Suriyak',
+            riaOverlay: 'RIA',
+            extractedZoneLayer: 'Extracted Zones',
+        };
+
+        /** Rendered Leaflet group -> GeoJSON features, keeping the drawn colour. */
+        const layerToFeatures = (group) => {
+            const features = [];
+            const walk = (layer) => {
+                if (typeof layer.eachLayer === 'function') {
+                    layer.eachLayer(walk);
+                    return;
+                }
+                const geometry = layer.toGeoJSON?.()?.geometry;
+                if (!geometry) return;
+                const properties = { ...(layer.feature?.properties || {}) };
+                // getFeatureColor keys off name/description, which these layers
+                // do not carry — without the drawn colour a duplicate of the
+                // grey zone comes back red.
+                const drawn = layer.options?.fillColor || layer.options?.color;
+                if (drawn) properties._style = { fillColor: drawn };
+                features.push({ type: 'Feature', properties, geometry });
+            };
+            walk(group);
+            return features;
+        };
+
+        dashboard.bindUI('duplicate-layer', 'click', () => {
+            const key = dashboard.getEl('duplicate-layer-source')?.value;
+            const label = DUPLICATE_SOURCES[key] || key;
+            const group = dashboard[key];
+            if (!group) {
+                alert(`${label} is not loaded — enable that layer first.`);
+                return;
+            }
+            const features = layerToFeatures(group);
+            if (!features.length) {
+                alert(`${label} has nothing to duplicate.`);
+                return;
+            }
+            // Replacing an edited custom layer is otherwise unrecoverable
+            if (dashboard.customKmlData) pushEditUndo('custom');
+            // Straight down the file/URL load path: merge, index, status, render
+            dashboard.layers.processCustomKmlText(
+                JSON.stringify({ type: 'FeatureCollection', features }), true);
         });
 
         dashboard.bindUI('custom-kml-overlay', 'change', async () => {
@@ -1392,6 +1479,9 @@ class UiBindings {
                 dashboard.renderEventHeatmap();
             }
             dashboard.renderEventCoverageIndex();
+            // the charts panel carries an events card only while this layer is on;
+            // switching it off has to make the card go away too
+            dashboard.charts?.onOwlEvents();
         });
 
         dashboard.bindUI('event-heatmap', 'change', () => {
@@ -3854,6 +3944,10 @@ class UiBindings {
 
         /** Recompute merged polygon + re-render the custom overlay from customKmlData. */
         const refreshCustomLayer = () => {
+            // The viewport index is positional, and editing reorders/resizes the
+            // feature array — rebuild it or featuresInView reads stale slots.
+            dashboard.customKmlIndex =
+                MapLayers.buildFeatureIndex(dashboard.customKmlData?.features || []);
             const polys = [];
             (dashboard.customKmlData?.features || []).forEach(f => {
                 if (f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')) {

@@ -1858,6 +1858,10 @@ class MapLayers {
 
             // Function to determine color based on feature properties
             const getFeatureColor = (feature) => {
+                // A layer duplicated from the map carries the colour it was drawn with
+                const drawn = feature.properties?._style?.fillColor;
+                if (drawn) return drawn;
+
                 const name = (feature.properties?.name || '').toLowerCase();
                 const description = (feature.properties?.description || '').toLowerCase();
                 const combined = name + ' ' + description;

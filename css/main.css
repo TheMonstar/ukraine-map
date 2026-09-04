@@ -1837,6 +1837,37 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     font-weight: 600;
     margin: 0;
     letter-spacing: 0.02em;
+    flex-shrink: 0;
+}
+
+.charts-expand {
+    background: none;
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-sm);
+    color: var(--sidebar-muted);
+    width: 22px;
+    height: 20px;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+.charts-expand:hover {
+    color: var(--sidebar-text);
+    background: var(--sidebar-hover);
+}
+
+.charts-expand.on {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.charts-status {
+    flex: 1;
 }
 
 .charts-status {
@@ -1988,6 +2019,41 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     stroke-dasharray: 3 3;
 }
 
+/* Segmented tab strip inside a card (UA axes / RU groupings). */
+.charts-tabs {
+    display: flex;
+    gap: 0;
+    margin: 4px 2px 8px;
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    width: fit-content;
+}
+
+.charts-tabs button {
+    background: none;
+    border: none;
+    color: var(--sidebar-muted);
+    font-family: var(--font);
+    font-size: 11px;
+    padding: 4px 11px;
+    cursor: pointer;
+}
+
+.charts-tabs button + button {
+    border-left: 1px solid var(--sidebar-border);
+}
+
+.charts-tabs button:hover {
+    color: var(--sidebar-text);
+    background: var(--sidebar-hover);
+}
+
+.charts-tabs button.on {
+    background: var(--accent);
+    color: #fff;
+}
+
 .charts-legend {
     display: flex;
     flex-wrap: wrap;
@@ -2032,6 +2098,16 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     line-height: 1.4;
     max-width: 240px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* Expanded mode. The token sits on <body>, not .charts-panel, because
+   .charts-toggle is a sibling and reads the same value for its offset. */
+body.charts-wide {
+    --charts-width: min(680px, 52vw);
+}
+
+body.charts-wide .charts-card-body {
+    padding: 2px 16px 0;
 }
 
 /* ---- Charts Toggle ---- */
@@ -2085,5 +2161,15 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
 
     .charts-panel:not(.collapsed)~.charts-toggle {
         right: var(--charts-width);
+    }
+
+    /* No room to expand on a phone — the drawer is already the whole width, and
+       Charts._effectiveWide() keeps the charts rendering at the narrow viewBox. */
+    body.charts-wide {
+        --charts-width: min(340px, 88vw);
+    }
+
+    .charts-expand {
+        display: none;
     }
 }

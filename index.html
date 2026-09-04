@@ -78,7 +78,7 @@
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-    <link rel="stylesheet" href="css/main.css?585" />
+    <link rel="stylesheet" href="css/main.css?590" />
 </head>
 
 <body>
@@ -232,6 +232,14 @@
                             <input type="file" id="custom-kml-file" accept=".kml,.geojson,.json"
                                 style="display:none" />
                             <button id="load-custom-kml-file" class="btn btn-sm">Load from File</button>
+                            <label class="small-label">Or duplicate a map layer to edit it</label>
+                            <select id="duplicate-layer-source" class="control-select">
+                                <option value="deepLayer" selected>DeepStateMap</option>
+                                <option value="suriyakOverlay">Suriyak Overlay</option>
+                                <option value="riaOverlay">RIA Overlay</option>
+                                <option value="extractedZoneLayer">Extracted Zones</option>
+                            </select>
+                            <button id="duplicate-layer" class="btn btn-sm">Duplicate to Custom Layer</button>
                             <label class="toggle-label"><input type="checkbox" id="custom-kml-overlay" /><span
                                     class="toggle-switch"></span>Show</label>
                             <div id="custom-kml-status" class="stats-text" style="min-height:14px;"></div>
@@ -1280,6 +1288,12 @@
         <aside class="charts-panel collapsed" id="charts-panel">
             <div class="charts-head">
                 <h2>Charts</h2>
+                <button class="charts-expand" id="charts-expand" data-act="expand" title="Expand charts"
+                    aria-pressed="false">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M1 1h6v2H3v4H1V1zm14 0v6h-2V3H9V1h6zM1 9h2v4h4v2H1V9zm12 0h2v6H9v-2h4V9z" />
+                    </svg>
+                </button>
                 <div class="charts-status" id="charts-status"></div>
             </div>
             <div class="charts-scroll">
@@ -1447,11 +1461,11 @@ Situation report:
     <script src="js/overpass.js?577"></script>
     <script src="js/infiltration.js?577"></script>
     <script src="js/stream.js?577"></script>
-    <script src="js/charts.js?585"></script>
-    <script src="js/ui-bindings.js?585"></script>
+    <script src="js/charts.js?592"></script>
+    <script src="js/ui-bindings.js?591"></script>
     <script src="js/map-uml-engine.js?577"></script>
     <script src="js/poster.js?577"></script>
-    <script src="js/app.js?585"></script>
+    <script src="js/app.js?591"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();
