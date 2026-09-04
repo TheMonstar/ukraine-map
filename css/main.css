@@ -376,6 +376,78 @@ body {
     margin: 4px 0;
 }
 
+/* ---- RU Shadow reach bands ---- */
+.ru-shadow-add {
+    background: var(--sidebar-border);
+    color: var(--sidebar-text);
+    border: 1px solid #475569;
+    border-radius: var(--radius-sm);
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.ru-shadow-add:hover:not(:disabled) {
+    background: var(--sidebar-hover);
+    border-color: var(--accent);
+}
+
+.ru-shadow-add:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* .control-input-sm is sized for 2-3 digits; 3000 needs the extra room */
+#ru-shadow-max {
+    width: 58px;
+    flex: none;
+}
+
+/* Needs a min-width or the flex item refuses to shrink below the track width */
+.ru-shadow-slider {
+    flex: 1;
+    min-width: 60px;
+    height: 6px;
+    margin: 0 6px;
+}
+
+/* Bands flow left to right, unlike the space-between date labels */
+#ru-shadow-labels {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 4px 8px;
+}
+
+#ru-shadow-labels .band-swatch {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    margin-right: 3px;
+}
+
+#ru-shadow-slider .noUi-handle {
+    width: 10px;
+    height: 18px;
+    top: -7px;
+    right: -5px;
+    border-radius: 2px;
+    background: var(--sidebar-text);
+    border: 1px solid #475569;
+    box-shadow: 0 1px 3px rgba(26, 20, 20, 0.4);
+    cursor: ew-resize;
+}
+
+#ru-shadow-slider .noUi-handle::before,
+#ru-shadow-slider .noUi-handle::after {
+    display: none;
+}
+
 .region-multi {
     height: 100px;
 }

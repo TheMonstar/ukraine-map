@@ -158,6 +158,9 @@ class AttackMapDashboard {
         this.diffSliceCount = 0;
         this.diffSliceDates = [];
         this.diffSliceSlider = null;
+        // RU Shadow reach bands: handle positions in km, ascending
+        this.ruShadowValues = [500];
+        this.ruShadowSlider = null;
         this.positionsData = null;
         this.analyzeUnitsEnabled = false;
 
@@ -340,6 +343,12 @@ class AttackMapDashboard {
             'nasa-swipe-controls',
             'diff-area',
             'shadow-ua',
+            'ru-shadow',
+            'ru-shadow-controls',
+            'ru-shadow-slider',
+            'ru-shadow-max',
+            'ru-shadow-add',
+            'ru-shadow-labels',
             'clusterRadius',
             'optimize-polygons',
             'diff-highlight',
@@ -1813,7 +1822,7 @@ class AttackMapDashboard {
         'waterways-type-river', 'waterways-type-stream',
         'forest-overlay', 'show-watermark',
         'show-settlements', 'show-regions', 'position-change',
-        'hex-tiles', 'show-date-overlay', 'custom-kml-overlay', 'overpass-overlay', 'firms-overlay',
+        'hex-tiles', 'ru-shadow', 'show-date-overlay', 'custom-kml-overlay', 'overpass-overlay', 'firms-overlay',
         'event-heatmap', 'event-coverage', 'charts-panel-on'
     ];
 
@@ -5141,6 +5150,11 @@ class AttackMapDashboard {
         this.deepLayerRefreshDebounce = setTimeout(() => {
             if (this.isChecked('diff-area') && this.renderDeepLayer) this.renderDeepLayer();
         }, 800);
+        // Reach bands are measured from the front line on the selected date
+        if (this.ruShadowRefreshDebounce) clearTimeout(this.ruShadowRefreshDebounce);
+        this.ruShadowRefreshDebounce = setTimeout(() => {
+            if (this.isChecked('ru-shadow')) this.layers.renderRuShadow();
+        }, 800);
         // Coverage index reads GSUA direction counts, which follow the slider
         // even when the event feeds themselves are not re-fetched
         if (this.coverageRefreshDebounce) clearTimeout(this.coverageRefreshDebounce);
@@ -5286,6 +5300,108 @@ class AttackMapDashboard {
 
     getDiffSliceDates() {
         return this.diffSliceDates.slice().sort((a, b) => a - b);
+    }
+
+    // ── RU Shadow reach bands ───────────────────────────────
+
+    /** Band fills, innermost first. Same ramp as the diff slices. */
+    static RU_SHADOW_COLORS = ['#ff5252', '#ff9800', '#ffeb3b', '#8bc34a', '#03a9f4'];
+
+    static RU_SHADOW_MAX_BANDS = 5;
+
+    ruShadowMax() {
+        const raw = parseInt(this.getEl('ru-shadow-max')?.value, 10);
+        return Number.isFinite(raw) && raw > 0 ? raw : 3000;
+    }
+
+    /**
+     * (Re)create the multi-handle reach slider. noUiSlider cannot add or remove
+     * handles in place, so adding a band destroys and rebuilds — same approach
+     * as setDiffSliceCount(). The onChange callback is remembered across
+     * rebuilds, which a listener attached from outside would not survive.
+     */
+    buildRuShadowSlider(onChange) {
+        const el = this.getEl('ru-shadow-slider');
+        if (!el) {
+            return;
+        }
+        if (el.noUiSlider) {
+            el.noUiSlider.destroy();
+        }
+
+        const max = this.ruShadowMax();
+        this.ruShadowValues = this.ruShadowValues
+            .map(v => Math.max(0, Math.min(max, v)))
+            .sort((a, b) => a - b);
+
+        noUiSlider.create(el, {
+            start: this.ruShadowValues.slice(),
+            // One connected segment per band: 0→h1, h1→h2, … then nothing past the last handle
+            connect: [...this.ruShadowValues.map(() => true), false],
+            step: 10,
+            margin: 10,
+            range: { min: 0, max }
+        });
+
+        el.querySelectorAll('.noUi-connect').forEach((seg, i) => {
+            seg.style.background = AttackMapDashboard.RU_SHADOW_COLORS[i] || '#64748b';
+        });
+
+        this.ruShadowSlider = el.noUiSlider;
+        this.ruShadowSlider.on('update', (values) => {
+            this.ruShadowValues = values.map(v => parseFloat(v));
+            this.updateRuShadowLabels();
+        });
+        if (onChange) {
+            this._ruShadowOnChange = onChange;
+        }
+        // Redraw on release only — a 3000 km buffer must not run mid-drag
+        if (this._ruShadowOnChange) {
+            this.ruShadowSlider.on('change', this._ruShadowOnChange);
+        }
+        this.updateRuShadowLabels();
+    }
+
+    /** Colored swatches in the sidebar — the legend for the bands on the map. */
+    updateRuShadowLabels() {
+        const el = this.getEl('ru-shadow-labels');
+        if (!el) {
+            return;
+        }
+        el.innerHTML = this.ruShadowValues.map((value, i) => {
+            const from = i === 0 ? 0 : Math.round(this.ruShadowValues[i - 1]);
+            const color = AttackMapDashboard.RU_SHADOW_COLORS[i] || '#64748b';
+            return `<span><span class="band-swatch" style="background:${color}"></span>${from}–${Math.round(value)} km</span>`;
+        }).join('');
+
+        const addBtn = this.getEl('ru-shadow-add');
+        if (addBtn) {
+            const last = this.ruShadowValues[this.ruShadowValues.length - 1] || 0;
+            addBtn.disabled = this.ruShadowValues.length >= AttackMapDashboard.RU_SHADOW_MAX_BANDS || last <= 0;
+        }
+    }
+
+    /**
+     * Add a band beyond the outermost one. Spaced so that filling all five
+     * slots lands them evenly across the track — halving the remaining gap
+     * each time would crowd the outer bands into a sliver at the far end.
+     */
+    addRuShadowBand() {
+        const count = this.ruShadowValues.length;
+        const last = this.ruShadowValues[count - 1] || 0;
+        if (count >= AttackMapDashboard.RU_SHADOW_MAX_BANDS || last <= 0) {
+            return false;
+        }
+        const max = this.ruShadowMax();
+        const slotsLeft = AttackMapDashboard.RU_SHADOW_MAX_BANDS - count + 1;
+        const next = Math.min(max, Math.round((last + (max - last) / slotsLeft) / 10) * 10);
+        // margin:10 would reject a handle sitting on top of the previous one
+        if (next - last < 10) {
+            return false;
+        }
+        this.ruShadowValues.push(next);
+        this.buildRuShadowSlider();
+        return true;
     }
 
     scheduleUpdateMap(delay = 150) {

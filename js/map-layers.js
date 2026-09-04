@@ -124,6 +124,7 @@ class MapLayers {
         dashboard.riaEventsLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.owlEventsLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.losLayer = L.layerGroup().addTo(dashboard.map);
+        dashboard.ruShadowLayer = L.layerGroup().addTo(dashboard.map);
         dashboard.forestLayer = null;
         dashboard.settlementProgressHeatLayer.addTo(dashboard.map);
         dashboard.settlementsLayer.addTo(dashboard.map);
@@ -587,6 +588,226 @@ class MapLayers {
         } else if (dashboard.russiaOverlay) {
             dashboard.russiaOverlay.clearLayers();
             dashboard.russiaMergedPolygon = null;
+        }
+    }
+
+    /**
+     * turf's polygon-clipping throws "Unable to complete output ring" on
+     * near-degenerate input — the buffers here, built from a simplified front
+     * line, hit it regularly. Rounding the coordinates off clears it; same
+     * retry idea as safeUnion() in ui-bindings, one step coarser each try.
+     */
+    static clipRetry(op, a, b) {
+        try {
+            return turf[op](a, b);
+        } catch (error) {
+            for (const precision of [6, 4]) {
+                try {
+                    return turf[op](
+                        turf.cleanCoords(turf.truncate(a, { precision })),
+                        turf.cleanCoords(turf.truncate(b, { precision }))
+                    );
+                } catch (retryError) { /* try the next precision */ }
+            }
+            console.warn(`RU Shadow: ${op} failed`, error);
+            return null;
+        }
+    }
+
+    /**
+     * Drop polygons below minKm2. Differencing the UA border against the
+     * DeepState polygons leaves ~136 slivers strung along the front line where
+     * the two datasets disagree — topology noise, not geography. They are also
+     * what makes jsts buffering crawl: dropping the sub-10 km² fragments takes
+     * a 2500 km buffer from 3.3 s to 20 ms for a 0.4% change in buffered area.
+     */
+    static dropSlivers(geojson, minKm2) {
+        const polys = geojson.geometry.type === 'MultiPolygon'
+            ? geojson.geometry.coordinates
+            : [geojson.geometry.coordinates];
+        if (polys.length < 2) {
+            return geojson;
+        }
+        const kept = polys.filter(rings => turf.area(turf.polygon(rings)) / 1e6 >= minKm2);
+        if (!kept.length) {
+            return geojson;
+        }
+        return kept.length === 1 ? turf.polygon(kept[0]) : turf.multiPolygon(kept);
+    }
+
+    /**
+     * UA-held area for a date, and the RU-held union it was cut from. Cached
+     * because it costs a fetch, a union of ~57 polygons and a difference —
+     * none of which change while the user drags the slider.
+     */
+    async ruShadowSource(date, dateKey) {
+        if (this._ruShadowSourceKey === dateKey && this._ruShadowSource) {
+            return this._ruShadowSource;
+        }
+        const deep = new DeepUtils(null);
+        const data = await deep.addDeepMap(date);
+        const ruHeld = MapLayers.mergePolygons(deep.normalizePolygon(data.polygons));
+        const uaBorder = await deep.loadTheBorder('ua');
+        if (!uaBorder) {
+            return null;
+        }
+        const uaHeld = ruHeld ? turf.difference(uaBorder, ruHeld) : uaBorder;
+        if (!uaHeld) {
+            return null;
+        }
+        this._ruShadowSource = { ruHeld, uaHeld };
+        this._ruShadowSourceKey = dateKey;
+        return this._ruShadowSource;
+    }
+
+    /**
+     * Clip target for the reach bands: Russia proper plus every RU-held polygon
+     * in Ukraine, so the bands paint occupied territory as well as Russia.
+     *
+     * The raw RU border is a 218-polygon, 36k-point MultiPolygon — intersecting
+     * a 3000 km buffer against it untouched is what makes this slow, so it is
+     * simplified once and cached per date (the RU-held half moves with the date,
+     * the border does not).
+     */
+    async ruShadowMask(ruHeld, dateKey) {
+        const dashboard = this.dashboard;
+        if (dashboard._ruShadowMaskKey === dateKey && dashboard._ruShadowMask) {
+            return dashboard._ruShadowMask;
+        }
+
+        if (!this._ruBorderSimplified) {
+            const border = await new DeepUtils(null).loadTheBorder('ru');
+            if (!border) return null;
+            // ~2 km tolerance — invisible at the 100 km+ scale these bands live at
+            this._ruBorderSimplified = turf.simplify(border, { tolerance: 0.02, highQuality: false });
+        }
+
+        let mask = this._ruBorderSimplified;
+        if (ruHeld) {
+            try {
+                mask = turf.union(mask, ruHeld) || mask;
+            } catch (error) {
+                console.warn('RU Shadow: could not merge occupied territory into the mask', error);
+            }
+        }
+
+        dashboard._ruShadowMask = mask;
+        dashboard._ruShadowMaskKey = dateKey;
+        return mask;
+    }
+
+    /**
+     * Reach bands measured outward from the current UA-held area, clipped to
+     * Russian-controlled territory. Each slider handle is one band; band i
+     * spans from handle i-1 to handle i (the first spans from the front line).
+     */
+    async renderRuShadow() {
+        const dashboard = this.dashboard;
+        if (!dashboard.ruShadowLayer) {
+            return;
+        }
+        dashboard.ruShadowLayer.clearLayers();
+
+        const values = dashboard.ruShadowValues
+            .filter(v => v > 0)
+            .sort((a, b) => a - b);
+        if (!dashboard.isChecked('ru-shadow') || !values.length) {
+            return;
+        }
+
+        // Buffering takes seconds, so a second render can start and clear the
+        // group while the first is still awaiting — both would then add their
+        // bands and the fills would stack. Only the newest run may draw.
+        const generation = (this._ruShadowGeneration || 0) + 1;
+        this._ruShadowGeneration = generation;
+        const stale = () => this._ruShadowGeneration !== generation;
+
+        try {
+            const dateKey = MapLayers.isoDate(dashboard.endDate);
+            const source = await this.ruShadowSource(dashboard.endDate, dateKey);
+            if (!source) {
+                console.warn('RU Shadow: no UA-held area to measure from');
+                return;
+            }
+            const mask = await this.ruShadowMask(source.ruHeld, dateKey);
+            if (!mask) {
+                console.warn('RU Shadow: RU border unavailable');
+                return;
+            }
+            if (stale()) {
+                return;
+            }
+
+            // Origin of the measurement: everything Ukraine still holds, cleaned
+            // and simplified. Both thresholds scale with the shortest band — at
+            // 2000 km a 3 km pocket changes nothing, at 50 km it can matter.
+            const minKm = values[0];
+            const origin = turf.simplify(
+                MapLayers.dropSlivers(source.uaHeld, Math.min(10, (minKm / 50) ** 2)),
+                { tolerance: Math.min(0.05, Math.max(0.005, minKm / 20000)), highQuality: false }
+            );
+
+            // Dragging one handle leaves the other bands' distances untouched, so
+            // memoize per distance. The origin itself depends on the date and on
+            // minKm (both thresholds scale with it) — when that changes, start over.
+            const originKey = `${dateKey}:${minKm}`;
+            if (this._ruShadowBufferKey !== originKey) {
+                this._ruShadowBuffers = new Map();
+                this._ruShadowBufferKey = originKey;
+            }
+            const buffers = values.map(km => {
+                if (this._ruShadowBuffers.has(km)) {
+                    return this._ruShadowBuffers.get(km);
+                }
+                try {
+                    const buffer = turf.buffer(origin, km, { units: 'kilometers' });
+                    this._ruShadowBuffers.set(km, buffer);
+                    return buffer;
+                } catch (error) {
+                    console.warn(`RU Shadow: buffer failed at ${km} km`, error);
+                    return null;
+                }
+            });
+
+            // Clip the mask down to the outermost buffer once, so the per-band
+            // intersects run against a small shape instead of all of Russia.
+            const outermost = buffers.filter(Boolean).pop();
+            if (!outermost) {
+                return;
+            }
+            const clippedMask = MapLayers.clipRetry('intersect', mask, outermost);
+            if (!clippedMask || stale()) {
+                return;
+            }
+
+            values.forEach((km, i) => {
+                const buffer = buffers[i];
+                if (!buffer) return;
+                const from = i === 0 ? 0 : Math.round(values[i - 1]);
+
+                // clippedMask is already the mask cut to the outermost buffer, so
+                // re-intersecting the two would only feed polygon-clipping a pair
+                // of shapes sharing an entire edge — which is what makes it throw.
+                let band = buffer === outermost
+                    ? clippedMask
+                    : MapLayers.clipRetry('intersect', clippedMask, buffer);
+                if (band && i > 0 && buffers[i - 1]) {
+                    band = MapLayers.clipRetry('difference', band, buffers[i - 1]);
+                }
+                if (!band) {
+                    console.warn(`RU Shadow: band ${from}–${Math.round(km)} km could not be built`);
+                    return;
+                }
+
+                const color = AttackMapDashboard.RU_SHADOW_COLORS[i] || '#64748b';
+                L.geoJSON(band, {
+                    style: { color, fillColor: color, fillOpacity: 0.25, weight: 1 }
+                })
+                    .bindPopup(`<b>${from}–${Math.round(km)} km</b>`)
+                    .addTo(dashboard.ruShadowLayer);
+            });
+        } catch (error) {
+            console.error('RU Shadow render failed:', error);
         }
     }
 

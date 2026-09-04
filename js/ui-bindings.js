@@ -460,6 +460,33 @@ class UiBindings {
             if (dashboard.isChecked('shadow-ua')) renderDeepLayer();
         });
 
+        // --- RU Shadow reach bands ---
+        let ruShadowDebounce = null;
+        const scheduleRuShadow = () => {
+            clearTimeout(ruShadowDebounce);
+            ruShadowDebounce = setTimeout(() => dashboard.layers.renderRuShadow(), 500);
+        };
+
+        dashboard.bindUI('ru-shadow', 'change', () => {
+            const controls = dashboard.getEl('ru-shadow-controls');
+            const on = dashboard.isChecked('ru-shadow');
+            if (controls) controls.style.display = on ? 'block' : 'none';
+            if (on && !dashboard.ruShadowSlider) {
+                dashboard.buildRuShadowSlider(scheduleRuShadow);
+            }
+            scheduleRuShadow();
+        });
+
+        dashboard.bindUI('ru-shadow-add', 'click', () => {
+            if (dashboard.addRuShadowBand()) scheduleRuShadow();
+        });
+
+        dashboard.bindUI('ru-shadow-max', 'input', () => {
+            if (!dashboard.ruShadowSlider) return;
+            dashboard.buildRuShadowSlider();
+            scheduleRuShadow();
+        });
+
         const MAJOR_HIGHWAYS = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 
         dashboard.bindUI('motorlines-by-shadow-btn', 'click', async () => {
