@@ -481,6 +481,10 @@ class UiBindings {
             if (dashboard.addRuShadowBand()) scheduleRuShadow();
         });
 
+        dashboard.bindUI('ru-shadow-remove', 'click', () => {
+            if (dashboard.removeRuShadowBand()) scheduleRuShadow();
+        });
+
         dashboard.bindUI('ru-shadow-max', 'input', () => {
             if (!dashboard.ruShadowSlider) return;
             dashboard.buildRuShadowSlider();

@@ -301,12 +301,15 @@
                         </div>
                         <div id="ru-shadow-controls" class="sub-controls" style="display:none;">
                             <div class="control-row">
-                                <button id="ru-shadow-add" class="ru-shadow-add"
+                                <button id="ru-shadow-add" class="ru-shadow-btn"
                                     title="Add a reach layer">+</button>
-                                <div id="ru-shadow-slider" class="ru-shadow-slider"></div>
+                                <button id="ru-shadow-remove" class="ru-shadow-btn"
+                                    title="Remove the outermost reach layer">&minus;</button>
+                                <label class="small-label ru-shadow-max-label" for="ru-shadow-max">max km</label>
                                 <input type="number" id="ru-shadow-max" value="3000" min="50" max="3000" step="50"
                                     class="control-input-sm" title="Slider max (km)" />
                             </div>
+                            <div id="ru-shadow-slider" class="ru-shadow-slider"></div>
                             <div id="ru-shadow-labels" class="slider-labels"></div>
                         </div>
                         <div class="toggle-row">

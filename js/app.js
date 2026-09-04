@@ -348,6 +348,7 @@ class AttackMapDashboard {
             'ru-shadow-slider',
             'ru-shadow-max',
             'ru-shadow-add',
+            'ru-shadow-remove',
             'ru-shadow-labels',
             'clusterRadius',
             'optimize-polygons',
@@ -5379,6 +5380,10 @@ class AttackMapDashboard {
             const last = this.ruShadowValues[this.ruShadowValues.length - 1] || 0;
             addBtn.disabled = this.ruShadowValues.length >= AttackMapDashboard.RU_SHADOW_MAX_BANDS || last <= 0;
         }
+        const removeBtn = this.getEl('ru-shadow-remove');
+        if (removeBtn) {
+            removeBtn.disabled = this.ruShadowValues.length <= 1;
+        }
     }
 
     /**
@@ -5400,6 +5405,16 @@ class AttackMapDashboard {
             return false;
         }
         this.ruShadowValues.push(next);
+        this.buildRuShadowSlider();
+        return true;
+    }
+
+    /** Drop the outermost band. The last handle can't go — one band is the floor. */
+    removeRuShadowBand() {
+        if (this.ruShadowValues.length <= 1) {
+            return false;
+        }
+        this.ruShadowValues.pop();
         this.buildRuShadowSlider();
         return true;
     }
