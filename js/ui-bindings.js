@@ -760,6 +760,9 @@ class UiBindings {
             if (!anyEnabled && dashboard.isChecked('diff-highlight') && dashboard.isChecked('diff-area')) {
                 await renderDeepLayer();
             }
+            // The selection stats follow the active overlay, so they go stale
+            // whenever one is switched on or off.
+            if (dashboard.selectedPolygons.length > 0) dashboard.calculateSelectedAreaStatistics();
         };
 
         dashboard.bindUI('diff-highlight', 'change', async () => {
@@ -1047,6 +1050,7 @@ class UiBindings {
 
         dashboard.bindUI('custom-kml-overlay', 'change', async () => {
             await dashboard.layers.toggleCustomKmlOverlay(dashboard.isChecked('custom-kml-overlay'));
+            if (dashboard.selectedPolygons.length > 0) dashboard.calculateSelectedAreaStatistics();
         });
 
         // The event-proximity filter applies to every user-supplied layer:
@@ -3930,6 +3934,7 @@ class UiBindings {
                 dashboard.extractedZoneLayer = null;
                 dashboard.extractedMergedPolygon = null;
                 extractStatus('All zones erased');
+                if (dashboard.selectedPolygons.length > 0) dashboard.calculateSelectedAreaStatistics();
                 return;
             }
             dashboard.extractedZoneLayer = L.geoJSON(turf.featureCollection(features), {
@@ -3944,6 +3949,7 @@ class UiBindings {
             dashboard.extractedMergedPolygon = merged;
             const km2 = Math.round(turf.area(merged) / 1e6);
             extractStatus(`${features.length} zone${features.length > 1 ? 's' : ''}, ${km2.toLocaleString()} km²`);
+            if (dashboard.selectedPolygons.length > 0) dashboard.calculateSelectedAreaStatistics();
         };
         dashboard.setExtractedZones = setExtractedZones;
 
@@ -4046,6 +4052,7 @@ class UiBindings {
             dashboard.extractedMergedPolygon = null;
             dashboard.imageExtractor.pickedColor = null;
             extractStatus(null);
+            if (dashboard.selectedPolygons.length > 0) dashboard.calculateSelectedAreaStatistics();
         });
 
         dashboard.bindUI('export-extracted-zones', 'click', () => {

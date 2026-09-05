@@ -11,7 +11,8 @@
  * Freearea is a freehand lasso: drag a loop and the interior is filled/hatched.
  *
  * Flags: dash (any shape), fill + pattern (polygon), head + taper (freedraw / arc),
- * halo + bold (text). `icon` shapes are placed programmatically from images/events/.
+ * halo + bold (text). `icon` and `unit` shapes are placed programmatically, from
+ * images/events/ and images/{ua,ru}/ respectively.
  *
  * The canvas backing store is scaled by devicePixelRatio; all drawing code works
  * in CSS pixels.
@@ -479,7 +480,7 @@ class DrawingTool {
             const p = this._toPx(shape.p1);
             return Math.hypot(p.x - pt.x, p.y - pt.y) < threshold * 2;
         }
-        if (shape.type === 'icon') {
+        if (shape.type === 'icon' || shape.type === 'unit') {
             const p = this._toPx(shape.at);
             return Math.hypot(p.x - pt.x, p.y - pt.y) < Math.max(threshold, (shape.size || 28) / 2);
         }
@@ -571,6 +572,7 @@ class DrawingTool {
         else if (shape.type === 'arc')      this._drawArc(ctx, shape, preview);
         else if (shape.type === 'text')     this._drawText(ctx, shape, preview);
         else if (shape.type === 'icon')     this._drawIcon(ctx, shape);
+        else if (shape.type === 'unit')     this._drawUnit(ctx, shape);
 
         ctx.restore();
     }
@@ -580,19 +582,19 @@ class DrawingTool {
         const px = shape.points.map(ll => this._toPx(ll));
 
         if (shape.taper) {
-            this._strokeTapered(ctx, px, shape);
-        } else {
-            ctx.beginPath();
-            ctx.moveTo(px[0].x, px[0].y);
-            for (let i = 1; i < px.length; i++) ctx.lineTo(px[i].x, px[i].y);
-            ctx.stroke();
+            this._fillTaperedArrow(ctx, px, shape);   // shaft and head in one outline
+            return;
         }
+
+        ctx.beginPath();
+        ctx.moveTo(px[0].x, px[0].y);
+        for (let i = 1; i < px.length; i++) ctx.lineTo(px[i].x, px[i].y);
+        ctx.stroke();
 
         if (shape.head) {
             const tip = px[px.length - 1];
             const prev = this._headAnchor(px);
-            this._arrowHead(ctx, tip, Math.atan2(tip.y - prev.y, tip.x - prev.x),
-                            shape.thickness * (shape.taper ? 1.6 : 1), !!shape.taper);
+            this._arrowHead(ctx, tip, Math.atan2(tip.y - prev.y, tip.x - prev.x), shape.thickness);
         }
     }
 
@@ -612,35 +614,79 @@ class DrawingTool {
      * Wedge-shaped stroke: width ramps from thin at the origin to `thickness`
      * at the tip. Built as a filled polygon by offsetting along the path normal.
      */
-    _strokeTapered(ctx, px, shape) {
+    /**
+     * Tapered axis arrow drawn as ONE filled polygon: a shaft that widens toward the
+     * head, then barbs converging to the tip.
+     *
+     * The previous version stroked a wedge and then stamped a separate arrowhead on
+     * top. Because the head was sized off `thickness * 4` while the wedge only reached
+     * `thickness * 1.6`, the head came out ~4x wider than the shaft it capped, with a
+     * visible notch where the two met. Building the whole outline in one pass keeps
+     * the proportions tied together and removes the seam.
+     */
+    _fillTaperedArrow(ctx, px, shape) {
         if (px.length < 2) return;
-        const maxW = shape.thickness * 1.6;
-        const minW = Math.max(0.6, shape.thickness * 0.18);
 
-        // cumulative length, so the ramp follows arc length rather than point index
+        const W        = Math.max(2, shape.thickness * 1.9);  // shaft width at the head base
+        const tailHalf = W * 0.14;                             // near-point tail
+        const baseHalf = W * 0.5;
+        const withHead = !!shape.head;
+
         const cum = [0];
         for (let i = 1; i < px.length; i++) {
             cum.push(cum[i - 1] + Math.hypot(px[i].x - px[i - 1].x, px[i].y - px[i - 1].y));
         }
-        const total = cum[cum.length - 1] || 1;
+        const total = cum[cum.length - 1];
+        if (total < 1) return;
 
-        const left = [], right = [];
-        for (let i = 0; i < px.length; i++) {
-            const a = px[Math.max(0, i - 1)];
-            const b = px[Math.min(px.length - 1, i + 1)];
+        // Head length follows the width, but never eats more than 40% of a short
+        // arrow — otherwise a stubby axis renders as a triangle with no shaft.
+        const headLen  = withHead ? Math.min(W * 2.4, total * 0.4) : 0;
+        const barbHalf = W * 1.0;
+        const baseDist = total - headLen;
+
+        const at = (dist) => {
+            const t = Math.max(0, Math.min(total, dist));
+            let i = 1;
+            while (i < cum.length - 1 && cum[i] < t) i++;
+            const seg = cum[i] - cum[i - 1] || 1;
+            const f = (t - cum[i - 1]) / seg;
+            const a = px[i - 1], b = px[i];
             const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-            const nx = -(b.y - a.y) / len;
-            const ny =  (b.x - a.x) / len;
-            const w = (minW + (maxW - minW) * (cum[i] / total)) / 2;
-            left.push({ x: px[i].x + nx * w, y: px[i].y + ny * w });
-            right.push({ x: px[i].x - nx * w, y: px[i].y - ny * w });
+            return {
+                x: a.x + (b.x - a.x) * f,
+                y: a.y + (b.y - a.y) * f,
+                nx: -(b.y - a.y) / len,
+                ny:  (b.x - a.x) / len,
+            };
+        };
+
+        // shaft outline, sampled along its own length so the ramp is even
+        const steps = Math.max(8, Math.min(96, Math.round(baseDist / 4)));
+        const left = [], right = [];
+        for (let i = 0; i <= steps; i++) {
+            const dist = (baseDist * i) / steps;
+            const q = at(dist);
+            const h = tailHalf + (baseHalf - tailHalf) * (i / steps);
+            left.push({ x: q.x + q.nx * h, y: q.y + q.ny * h });
+            right.push({ x: q.x - q.nx * h, y: q.y - q.ny * h });
         }
 
         ctx.save();
         ctx.setLineDash([]);
+        ctx.lineJoin = 'round';
         ctx.beginPath();
         ctx.moveTo(left[0].x, left[0].y);
         for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
+
+        if (withHead) {
+            const b = at(baseDist);
+            const tip = px[px.length - 1];
+            ctx.lineTo(b.x + b.nx * barbHalf, b.y + b.ny * barbHalf);   // left barb
+            ctx.lineTo(tip.x, tip.y);                                    // point
+            ctx.lineTo(b.x - b.nx * barbHalf, b.y - b.ny * barbHalf);   // right barb
+        }
+
         for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
         ctx.closePath();
         ctx.fillStyle = shape.color;
@@ -775,14 +821,74 @@ class DrawingTool {
     /** Lazily loads and caches an icon, re-rendering once it decodes. */
     _icon(name) {
         if (!name || !/^[\w-]+$/.test(name)) return null;
-        if (this._imageCache.has(name)) return this._imageCache.get(name);
+        return this._image(`images/events/${name}.png`);
+    }
 
+    /** Unit insignia from images/ua|ru/icon-N.png — the same assets the daily layers use. */
+    _unitIcon(side, id) {
+        if (!/^(ua|ru)$/i.test(String(side)) || !/^\d+$/.test(String(id))) return null;
+        return this._image(`images/${String(side).toLowerCase()}/icon-${id}.png`);
+    }
+
+    /** Shared image cache; re-renders once a file decodes so it appears without a nudge. */
+    _image(src) {
+        if (this._imageCache.has(src)) return this._imageCache.get(src);
         const img = new Image();
         img.onload = () => this._render();
-        img.onerror = () => console.warn(`[draw] missing icon: images/events/${name}.png`);
-        img.src = `images/events/${name}.png`;
-        this._imageCache.set(name, img);
+        img.onerror = () => console.warn(`[draw] missing image: ${src}`);
+        img.src = src;
+        this._imageCache.set(src, img);
         return img;
+    }
+
+    /**
+     * Unit marker: insignia in a side-coloured box with a label beneath —
+     * matching the .unit-icon-marker styling the daily position layers use, so an
+     * added unit reads the same as a real one.
+     */
+    _drawUnit(ctx, shape) {
+        const p = this._toPx(shape.at);
+        const size = shape.size || 30;
+        const half = size / 2;
+        const color = shape.color || (String(shape.side).toLowerCase() === 'ua' ? '#0057B7' : '#D0021B');
+        const img = this._unitIcon(shape.side, shape.icon);
+
+        ctx.save();
+        ctx.setLineDash([]);
+
+        // plate: white backing so insignia stay legible over dark terrain
+        const r = 4;
+        ctx.beginPath();
+        ctx.moveTo(p.x - half + r, p.y - half);
+        ctx.arcTo(p.x + half, p.y - half, p.x + half, p.y + half, r);
+        ctx.arcTo(p.x + half, p.y + half, p.x - half, p.y + half, r);
+        ctx.arcTo(p.x - half, p.y + half, p.x - half, p.y - half, r);
+        ctx.arcTo(p.x - half, p.y - half, p.x + half, p.y - half, r);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.fill();
+
+        if (img && img.complete && img.naturalWidth) {
+            const pad = 2;
+            ctx.drawImage(img, p.x - half + pad, p.y - half + pad, size - pad * 2, size - pad * 2);
+        }
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        if (shape.label) {
+            const fontSize = shape.labelSize || 13;
+            ctx.font         = `700 ${fontSize}px Helvetica, Arial, sans-serif`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'top';
+            this._haloText(ctx, shape.label, p.x, p.y + half + 3, {
+                color: shape.labelColor || color,
+                halo: shape.halo ?? '#fff',
+                haloWidth: fontSize / 4,
+            });
+        }
+        ctx.restore();
     }
 
     /** White halo for dark text, dark halo for light text — so a white label stays visible. */
@@ -827,30 +933,19 @@ class DrawingTool {
     }
 
     /**
-     * Arrowhead at pixel point `tip`, pointing along `angle` (radians).
-     * `filled` draws a solid triangle — used for tapered axis arrows, where two
-     * thin strokes would look detached from the wedge they cap.
+     * Two-stroke arrowhead at pixel point `tip`, pointing along `angle` (radians).
+     * Tapered arrows don't use this — they build their head into the shaft outline
+     * in _fillTaperedArrow so the two can't drift out of proportion.
      */
-    _arrowHead(ctx, tip, angle, thickness, filled = false) {
+    _arrowHead(ctx, tip, angle, thickness) {
         const size = Math.max(12, thickness * 4);
-        const lx = tip.x - size * Math.cos(angle - Math.PI / 6);
-        const ly = tip.y - size * Math.sin(angle - Math.PI / 6);
-        const rx = tip.x - size * Math.cos(angle + Math.PI / 6);
-        const ry = tip.y - size * Math.sin(angle + Math.PI / 6);
-
         ctx.setLineDash([]); // always solid arrowhead
         ctx.beginPath();
-        if (filled) {
-            ctx.moveTo(tip.x, tip.y);
-            ctx.lineTo(lx, ly);
-            ctx.lineTo(rx, ry);
-            ctx.closePath();
-            ctx.fill();
-        } else {
-            ctx.moveTo(tip.x, tip.y); ctx.lineTo(lx, ly);
-            ctx.moveTo(tip.x, tip.y); ctx.lineTo(rx, ry);
-            ctx.stroke();
-        }
+        ctx.moveTo(tip.x, tip.y);
+        ctx.lineTo(tip.x - size * Math.cos(angle - Math.PI / 6), tip.y - size * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(tip.x, tip.y);
+        ctx.lineTo(tip.x - size * Math.cos(angle + Math.PI / 6), tip.y - size * Math.sin(angle + Math.PI / 6));
+        ctx.stroke();
     }
 
     _twoPhaseMetrics(shape) {
@@ -940,19 +1035,18 @@ class DrawingTool {
                 const a = a1 + (sweep * i) / steps;
                 pts.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
             }
-            this._strokeTapered(ctx, pts, shape);
+            this._fillTaperedArrow(ctx, pts, shape);   // shaft and head in one outline
         } else {
             ctx.beginPath();
             ctx.arc(cx, cy, r, a1, a2, anticlockwise);
             ctx.stroke();
         }
 
-        if (shape.head) {
+        if (shape.head && !shape.taper) {
             // tangent at p2, oriented along the direction of travel around the arc
             const tx = anticlockwise ?  Math.sin(a2) : -Math.sin(a2);
             const ty = anticlockwise ? -Math.cos(a2) :  Math.cos(a2);
-            this._arrowHead(ctx, p2, Math.atan2(ty, tx),
-                            shape.thickness * (shape.taper ? 1.6 : 1), !!shape.taper);
+            this._arrowHead(ctx, p2, Math.atan2(ty, tx), shape.thickness);
         }
 
         if (preview && !shape.p3) this._drawAxisGuide(ctx, p1, p2);

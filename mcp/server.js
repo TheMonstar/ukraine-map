@@ -223,7 +223,7 @@ const TOOLS = [
     // ── draw: primitives ─────────────────────────────────────────────────────
     {
         name: 'map_draw_shapes',
-        description: 'Escape hatch — push raw DrawingTool shapes. All coordinates are [lat, lng]. Types: freedraw{points}, polygon{points,fill,fillOpacity}, line{start,end}, arrow{start,end}, ellipse{p1,p2,p3}, rect{p1,p2,p3}, arc{p1,p2,p3,head,taper}, text{p1,p2,text,fontSize,halo,bold}, icon{at,icon,size,label}. freedraw also takes head/taper; polygon also takes pattern (hatch, crosshatch or dots). For ellipse/rect, p1→p2 is the major axis and p3 sets half-width; for arc, p1→p2 is the chord and p3 the bulge.',
+        description: 'Escape hatch — push raw DrawingTool shapes. All coordinates are [lat, lng]. Types: freedraw{points}, polygon{points,fill,fillOpacity}, line{start,end}, arrow{start,end}, ellipse{p1,p2,p3}, rect{p1,p2,p3}, arc{p1,p2,p3,head,taper}, text{p1,p2,text,fontSize,halo,bold}, icon{at,icon,size,label}, unit{at,side,icon,label,size}. freedraw also takes head/taper; polygon also takes pattern (hatch, crosshatch or dots). For ellipse/rect, p1→p2 is the major axis and p3 sets half-width; for arc, p1→p2 is the chord and p3 the bulge.',
         inputSchema: obj({ shapes: { type: 'array', items: { type: 'object' }, description: 'Array of shape objects.' } }, ['shapes']),
         handler: (a) => draw.drawShapes(a),
     },
@@ -372,6 +372,29 @@ const TOOLS = [
             label: { type: 'string' },
         }, ['from', 'to']),
         handler: (a) => draw.infiltrationRoute(a),
+    },
+
+    // ── units ────────────────────────────────────────────────────────────────
+    {
+        name: 'map_add_unit',
+        description: "Place a unit marker with its formation insignia \u2014 the same images/{ua,ru}/icon-N.png assets the daily-position layers use, drawn in the app's own bordered-plate style. Give `unit` (a formation name present in the loaded layer) to reuse that formation's real insignia, or `icon` to pick an id directly. Call map_list_unit_icons first to see what is available.",
+        inputSchema: obj({
+            at: { type: 'string', description: PLACE },
+            side: { type: 'string', enum: ['ua', 'ru'], description: 'Determines both the insignia folder and the border colour.' },
+            unit: { type: 'string', description: 'Formation name, e.g. "3 ОШБр". Matched against the loaded daily-position layer to reuse its insignia; also becomes the default label.' },
+            icon: { type: 'number', description: 'Insignia id (the N in icon-N.png). Overrides `unit` lookup.' },
+            label: { type: 'string', description: 'Caption under the marker. Defaults to the matched unit name.' },
+            size: { type: 'number', description: 'Plate size in pixels. Default 30.' },
+            label_size: { type: 'number' },
+            color: { type: 'string', description: 'Border colour override. Defaults to the side colour (UA #0057B7, RU #D0021B).' },
+        }, ['at', 'side']),
+        handler: (a) => draw.addUnit(a),
+    },
+    {
+        name: 'map_list_unit_icons',
+        description: 'Which unit insignia are available: `inUse` lists the ids present in the loaded daily-position layers, and `byUnit` maps real formation names to their insignia id. Turn on the daily positions layer first, or this returns empty.',
+        inputSchema: obj({ side: { type: 'string', enum: ['ua', 'ru'] } }),
+        handler: (a) => draw.unitIcons(a),
     },
 
     // ── persistence ──────────────────────────────────────────────────────────

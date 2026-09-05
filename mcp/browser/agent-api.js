@@ -159,7 +159,9 @@
                         const ll = l.getLatLng ? l.getLatLng() : null;
                         if (!f || !ll || !within([ll.lat, ll.lng])) return;
                         const p = f.properties || {};
+                        const m = String(p.styleUrl || '').match(/\d+/);
                         out.push({ side, name: p.Name || p.name || p.unit || p.designation || '(unnamed)',
+                                   icon: m ? Number(m[0]) : null,
                                    coords: [ll.lat, ll.lng] });
                     });
                 }
@@ -275,22 +277,28 @@
         },
 
         layerIds() {
-            return (d().constructor.SESSION_TOGGLE_IDS || []).map((id) => ({
-                id, on: !!d().getEl(id)?.checked,
-            }));
+            const session = new Set(d().constructor.SESSION_TOGGLE_IDS || []);
+            const out = [];
+            for (const el of document.querySelectorAll('input[type=checkbox][id]')) {
+                out.push({ id: el.id, on: el.checked, persisted: session.has(el.id) });
+            }
+            return out;
         },
 
         setLayers(map) {
             const db = d();
-            const known = new Set(d().constructor.SESSION_TOGGLE_IDS || []);
+            // SESSION_TOGGLE_IDS is the list of toggles that get *persisted*, not the
+            // list that may be *changed* — gating on it made real controls such as
+            // feature-positions-ua/ru unreachable. Any actual checkbox is fair game.
+            const session = new Set(d().constructor.SESSION_TOGGLE_IDS || []);
             const applied = [], unknown = [];
             for (const [id, want] of Object.entries(map)) {
                 const el = db.getEl(id);
-                if (!el || !known.has(id)) { unknown.push(id); continue; }
+                if (!el || el.type !== 'checkbox') { unknown.push(id); continue; }
                 if (el.checked !== !!want) { el.checked = !!want; el.dispatchEvent(new Event('change')); }
                 applied.push(id);
             }
-            return { applied, unknown, knownIds: [...known] };
+            return { applied, unknown, persisted: applied.filter((id) => session.has(id)) };
         },
 
         // ── draw ─────────────────────────────────────────────────────────────
@@ -386,6 +394,41 @@
                 out.push(rec);
             }
             return out;
+        },
+
+        /**
+         * Unit insignia available to map_add_unit. `inUse` are the ids actually
+         * present in the loaded daily-position layers (collected as "ua:57" strings
+         * by the layer loader), which is the set worth choosing from; `byUnit` maps
+         * real unit names to their insignia so an added unit can match its formation.
+         */
+        unitIcons(side) {
+            const db = d();
+            const want = side ? String(side).toLowerCase() : null;
+            const inUse = { ua: [], ru: [] };
+            for (const key of db._dailyIconIds || []) {
+                const [s2, id] = String(key).split(':');
+                if (inUse[s2]) inUse[s2].push(Number(id));
+            }
+            inUse.ua.sort((a, b) => a - b);
+            inUse.ru.sort((a, b) => a - b);
+
+            const byUnit = [];
+            for (const [s2, layer] of [['ua', db.dailyLayerUA], ['ru', db.dailyLayerRU]]) {
+                if (!layer || (want && want !== s2)) continue;
+                layer.eachLayer((l) => {
+                    const p = l.feature?.properties || {};
+                    const m = String(p.styleUrl || '').match(/\d+/);
+                    const name = p.Name || p.name;
+                    if (name && m) byUnit.push({ side: s2, name: String(name).trim(), icon: Number(m[0]) });
+                });
+            }
+            return {
+                inUse: want ? { [want]: inUse[want] } : inUse,
+                byUnit,
+                note: byUnit.length ? undefined
+                    : 'no unit layer loaded — turn on the daily positions layer to see which insignia real formations use',
+            };
         },
 
         // ── terrain ──────────────────────────────────────────────────────────

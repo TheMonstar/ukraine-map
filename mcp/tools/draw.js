@@ -387,6 +387,48 @@ export async function elevation({ places, points }) {
     return coords.map((c, i) => ({ coords: c, elevation_m: metres[i] }));
 }
 
+// ── units ────────────────────────────────────────────────────────────────────
+
+/** Insignia catalogue: which ids exist in the loaded layers, and which unit uses which. */
+export const unitIcons = ({ side } = {}) => session.call('unitIcons', side);
+
+/**
+ * Place a unit marker with its formation insignia. If `unit` names a formation that
+ * is in the loaded daily-position layer, its real insignia is reused, so an added
+ * unit is visually consistent with the observed ones.
+ */
+export async function addUnit({ at, side, unit, icon, label, size = 30, color, label_size }) {
+    const s = String(side || '').toLowerCase();
+    if (s !== 'ua' && s !== 'ru') throw new Error("`side` must be 'ua' or 'ru'");
+
+    let iconId = icon;
+    let matched = null;
+    if (iconId == null && unit) {
+        const cat = await session.call('unitIcons', s);
+        const q = String(unit).toLowerCase();
+        matched = cat.byUnit.find((u) => u.side === s && u.name.toLowerCase() === q)
+               || cat.byUnit.find((u) => u.side === s && u.name.toLowerCase().includes(q));
+        if (matched) iconId = matched.icon;
+    }
+    if (iconId == null) {
+        const cat = await session.call('unitIcons', s);
+        const avail = (cat.inUse[s] || []).slice(0, 40);
+        throw new Error(
+            `no insignia chosen — pass \`icon\` (an id), or a \`unit\` name present in the loaded layer.` +
+            (avail.length ? ` Ids in use for ${s}: ${avail.join(', ')}` : ' No unit layer is loaded.')
+        );
+    }
+
+    const p = await resolve(at);
+    const res = await session.call('addShapes', [{
+        type: 'unit', at: p.coords, side: s, icon: iconId,
+        label: label ?? (matched ? matched.name : unit) ?? null,
+        size, color, labelSize: label_size,
+    }]);
+    return { ...res, at: p.name, coords: p.coords, side: s, icon: iconId,
+             matchedUnit: matched ? matched.name : null };
+}
+
 // ── planning graphics ────────────────────────────────────────────────────────
 
 /** Tactical icon from the app's own images/events/ set. */
@@ -457,6 +499,7 @@ const REQUIRED = {
     arc: ['p1', 'p2'],
     text: ['p1', 'p2', 'text'],
     icon: ['at', 'icon'],
+    unit: ['at', 'side', 'icon'],
 };
 
 const isLatLng = (v) =>

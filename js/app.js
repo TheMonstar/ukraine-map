@@ -1858,6 +1858,17 @@ class AttackMapDashboard {
         'Pokrovsk', 'Novopavlivka', 'Gulyaipole', 'Orikhiv', 'Prydniprovske', 'Kursk'
     ];
 
+    /** Territorial-control overlays the selection statistics can speak for, in
+     *  priority order. Each non-DeepState entry names the dashboard field its
+     *  toggle fills with the absolute RU-held union at the end date. */
+    static CONTROL_SOURCES = [
+        { key: 'deep', label: 'DeepState' },
+        { key: 'suriyak', label: 'Suriyak', toggle: 'suriyak-overlay', merged: 'suriyakMergedPolygon' },
+        { key: 'ria', label: 'RIA', toggle: 'ria-overlay', merged: 'riaMergedPolygon' },
+        { key: 'customKml', label: 'Custom KML', toggle: 'custom-kml-overlay', merged: 'customKmlMergedPolygon' },
+        { key: 'extracted', label: 'Extracted Zones', merged: 'extractedMergedPolygon' }
+    ];
+
     /**
      * Snapshot the current session (view, dates, layers, drawings, MapUML,
      * image overlays, custom KML) as a plain JSON-serializable object.
@@ -2653,11 +2664,23 @@ class AttackMapDashboard {
             'grayed-in-selection',
             'frontline-length',
             'capture-percentage',
-            'shadow-population'
+            'shadow-population',
+            'unoccupied-area',
+            'unoccupied-population'
         ];
         ids.forEach(id => {
             this.setText(id, '0');
         });
+        this.setStatusBarSource(null);
+    }
+
+    /** Name the overlay the selection figures came from, so a Suriyak number is
+     *  never read as a DeepState one. Tooltip only — the bar has no room. */
+    setStatusBarSource(label) {
+        const bar = document.querySelector('.status-bar');
+        if (!bar) return;
+        if (label) bar.setAttribute('title', `Territory stats source: ${label}`);
+        else bar.removeAttribute('title');
     }
 
     /**
@@ -2697,6 +2720,9 @@ class AttackMapDashboard {
             totalSelectedArea += area;
         });
 
+        // Whichever control overlay is active owns every territorial figure below
+        const source = this.getActiveControlSource();
+
         // Calculate population in selected areas
         if (this.settlementsData && this.settlementsData.features) {
             const excludeOccupied = this.isChecked('exclude-occupied');
@@ -2709,7 +2735,7 @@ class AttackMapDashboard {
                             const population = parseInt(settlement.properties.population) || 0;
 
                             // Check if settlement is in occupied territory
-                            const isOccupied = this.isInOccupiedTerritory(point);
+                            const isOccupied = this.isPointOccupied(point, source);
 
                             // Add to total population only if not excluding occupied territories, or if not occupied
                             if (!excludeOccupied || !isOccupied) {
@@ -2728,8 +2754,11 @@ class AttackMapDashboard {
         let grayedArea = 0;
         let highlightedArea = 0;
         let frontlineLength = 0;
+        // Only DeepState separates the grey zone from captured ground; for every
+        // other source a "0" there would read as a measured value.
+        const hasGreyZone = source?.key === 'deep';
 
-        if (this.isChecked('diff-area') && this.deepLayer.toGeoJSON().features.length > 0) {
+        if (source?.key === 'deep') {
             const deepUtils = new DeepUtils(this.deepLayer);
 
             // Get current end date polygons
@@ -2821,13 +2850,58 @@ class AttackMapDashboard {
                     });
                 });
             }
+        } else if (source) {
+            // Every non-DeepState source is a single merged RU-held union, so
+            // captured area is a plain intersection and there is no grey zone.
+            const merged = this[source.merged];
+            let controlRings = [];
+            try {
+                controlRings = GeometryUtils.toTurfPolygons(merged.geometry || merged)
+                    .flatMap(polygon => polygon.geometry.coordinates);
+            } catch (error) {
+                console.warn(`Error reading ${source.label} control rings:`, error);
+            }
+
+            const gainsGeom = this.isChecked('diff-highlight')
+                ? await this.getControlSourceGains(source)
+                : null;
+
+            selectedGeoJSONs.forEach(selectedPolygon => {
+                try {
+                    const intersection = turf.intersect(selectedPolygon, merged);
+                    if (intersection) capturedArea += turf.area(intersection) / 1000000;
+                } catch (error) {
+                    console.warn(`Error intersecting selection with ${source.label}:`, error);
+                }
+
+                // Ring by ring — getLineSegmentsInBox reads geometry.coordinates
+                // as a flat coordinate list, so a MultiLineString would break it.
+                controlRings.forEach(ring => {
+                    try {
+                        const segments = this.getLineSegmentsInBox(turf.lineString(ring), selectedPolygon);
+                        segments.forEach(segment => {
+                            frontlineLength += turf.length(segment, { units: 'kilometers' });
+                        });
+                    } catch (error) {
+                        console.warn(`Error calculating ${source.label} frontline length:`, error);
+                    }
+                });
+
+                if (!gainsGeom) return;
+                try {
+                    const intersection = turf.intersect(selectedPolygon, gainsGeom);
+                    if (intersection) highlightedArea += turf.area(intersection) / 1000000;
+                } catch (error) {
+                    console.warn(`Error intersecting selection with ${source.label} gains:`, error);
+                }
+            });
         }
 
         // Yield again before the heaviest part of the calculation (app.js:1532) to keep loaders spinning smoothly
         await new Promise(resolve => setTimeout(resolve, 50));
 
         // Calculate population in captured territories and shadow zones
-        if (this.settlementsData && this.settlementsData.features && this.deepLayer.toGeoJSON().features.length > 0) {
+        if (this.settlementsData && this.settlementsData.features && source) {
             let settlementsInSelection = 0;
             let settlementsInOccupiedTerritory = 0;
 
@@ -2844,7 +2918,7 @@ class AttackMapDashboard {
                                 const population = parseInt(settlement.properties.population) || 0;
 
                                 // Check if in occupied territory (any colored territory)
-                                if (this.isInOccupiedTerritory(point)) {
+                                if (this.isPointOccupied(point, source)) {
                                     settlementsInOccupiedTerritory++;
                                     capturedPopulation += population;
                                 }
@@ -2868,7 +2942,7 @@ class AttackMapDashboard {
             console.log('Population calculation skipped:', {
                 settlementsData: !!this.settlementsData,
                 features: this.settlementsData?.features?.length || 0,
-                deepLayerFeatures: this.deepLayer.toGeoJSON().features.length
+                controlSource: source?.label || 'none'
             });
         }
 
@@ -2878,9 +2952,10 @@ class AttackMapDashboard {
         this.setText('captured-in-selection', capturedArea.toFixed(2));
         this.setText('captured-population', capturedPopulation.toLocaleString());
         this.setText('highlighted-in-selection', highlightedArea.toFixed(2));
-        this.setText('grayed-in-selection', grayedArea.toFixed(2));
+        this.setText('grayed-in-selection', hasGreyZone ? grayedArea.toFixed(2) : '—');
         this.setText('frontline-length', frontlineLength.toFixed(2));
         this.setText('shadow-population', shadowZonePopulation.toLocaleString());
+        this.setStatusBarSource(source?.label || null);
 
         // Automatically calculate Unoccupied stats based on area/population differences
         const totalUnoccupiedArea = Math.max(0, totalSelectedArea - capturedArea);
@@ -2966,6 +3041,71 @@ class AttackMapDashboard {
         } catch (error) {
             console.error('Error calculating settlements in diff area:', error);
             this.setText('settlements-in-diff', 'Error');
+        }
+    }
+
+    /**
+     * The overlay the selection statistics speak for: DeepState whenever it is
+     * actually drawn, otherwise the first enabled overlay that has a merged
+     * control polygon. Returns null when no control source is on.
+     */
+    getActiveControlSource() {
+        for (const source of AttackMapDashboard.CONTROL_SOURCES) {
+            if (source.key === 'deep') {
+                if (this.isChecked('diff-area') && this.deepLayer?.toGeoJSON().features.length > 0) {
+                    return source;
+                }
+                continue;
+            }
+            // Extracted zones have no checkbox — the merged polygon is the switch.
+            if (source.toggle && !this.isChecked(source.toggle)) continue;
+            if (this[source.merged]) return source;
+        }
+        return null;
+    }
+
+    /**
+     * RU gains geometry for a non-DeepState source over the current date range,
+     * or null when the source has no dated history (custom KML, extracted zones).
+     * Both backing calls are network-bound, so results are memoised per date pair.
+     */
+    async getControlSourceGains(source) {
+        const start = this.startDate;
+        const end = this.endDate;
+        if (!start || !end) return null;
+
+        const key = `${source.key}:${start.toLocaleDateString('en-CA')}:${end.toLocaleDateString('en-CA')}`;
+        if (!this._controlGainsCache) this._controlGainsCache = new Map();
+        if (this._controlGainsCache.has(key)) return this._controlGainsCache.get(key);
+
+        let gainsGeom = null;
+        try {
+            if (source.key === 'ria') {
+                gainsGeom = (await this.layers.getRiaDiffAreaKm2(start, end)).gainsGeom;
+            } else if (source.key === 'suriyak') {
+                gainsGeom = (await this.layers.getManifestDiffAreaKm2('suriyak', start, end)).gainsGeom;
+            }
+        } catch (error) {
+            console.warn(`Error loading ${source.label} gains geometry:`, error);
+        }
+
+        this._controlGainsCache.set(key, gainsGeom);
+        return gainsGeom;
+    }
+
+    /**
+     * Point-in-control-territory for the given source. DeepState keeps its own
+     * per-feature path; every other source is a single merged union.
+     */
+    isPointOccupied(point, source) {
+        if (!source) return false;
+        if (source.key === 'deep') return this.isInOccupiedTerritory(point);
+        const merged = this[source.merged];
+        if (!merged) return false;
+        try {
+            return turf.booleanPointInPolygon(point, merged);
+        } catch (error) {
+            return false;
         }
     }
 
