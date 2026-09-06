@@ -49,11 +49,14 @@ class Charts {
 
     static CARDS = [
         { id: 'axis', title: 'Axis pressure', open: true },
+        { id: 'migration', title: 'Pressure migration', open: false },
         { id: 'tempo', title: 'Daily tempo', open: true },
         { id: 'ledger', title: 'Territory ledger', open: false },
         { id: 'region', title: 'Km² by direction', open: false },
+        { id: 'efficiency', title: 'Ground efficiency', open: false },
         { id: 'price', title: 'Price of ground', open: true },
         { id: 'gsua', title: 'General Staff, by month', open: false },
+        { id: 'air', title: 'Air campaign', open: false },
         { id: 'usf', title: 'Drone force', open: false },
         // Only while the geolocated-events layer is on — the card charts exactly the
         // array that layer already fetched, so it has nothing to show otherwise.
@@ -130,8 +133,10 @@ class Charts {
         this._debounce = null;
         this._applyingRange = false;
         this._bound = false;
+        this._mobileMedia = null;
         this._loaded = false;
         this._wide = false;
+        this._windowRevision = 0;       // discards slow geometry from an obsolete date window
         this.renderCount = 0;           // instrumentation for the reactivity check
     }
 
@@ -181,6 +186,12 @@ class Charts {
         panel.addEventListener('pointermove', (e) => this._onHover(e));
         panel.addEventListener('pointerleave', () => this._hideTip());
         panel.addEventListener('pointerdown', (e) => this._onBrushStart(e));
+        this._mobileMedia = window.matchMedia('(max-width: 768px)');
+        this._mobileMedia.addEventListener('change', () => {
+            if (!this.isOpen()) return;
+            this._settleMapSize();
+            this.refresh({ force: true });
+        });
         this._bound = true;
     }
 
@@ -382,8 +393,21 @@ class Charts {
 
     // ---------------------------------------------------------------- reactivity
 
+    _invalidateWindowComputations() {
+        this._windowRevision++;
+        this._territory = null;
+        this._sources = null;
+        this._sourcesBusy = false;
+        this._regions = null;
+        this._regionGeom = null;
+        this._regionsBusy = false;
+        this.setStatus('');
+    }
+
     onDateChange() {
-        if (!this.isOpen() || this._applyingRange) return;
+        if (this._applyingRange) return;
+        this._invalidateWindowComputations();
+        if (!this.isOpen()) return;
         clearTimeout(this._debounce);
         this._debounce = setTimeout(() => this.refresh(), 120);
     }
@@ -444,12 +468,14 @@ class Charts {
         const html = Charts.CARDS.filter(c => !c.when || c.when(this.dashboard)).map((card) => {
             const open = this._openCards.has(card.id);
             const inner = open ? this._card(card.id, win) : '';
+            const bodyId = `charts-card-${card.id}-body`;
             return `<div class="charts-card">
-                <div class="charts-card-header" data-act="card" data-card="${card.id}">
+                <button type="button" class="charts-card-header" data-act="card" data-card="${card.id}"
+                    aria-expanded="${open}" aria-controls="${bodyId}">
                     <span class="charts-card-arrow">${open ? '&#9660;' : '&#9654;'}</span>
                     ${Charts.esc(card.title)}
-                </div>
-                ${open ? `<div class="charts-card-body">${inner}</div>` : ''}
+                </button>
+                ${open ? `<div class="charts-card-body" id="${bodyId}">${inner}</div>` : ''}
             </div>`;
         }).join('');
         body.innerHTML = html;
@@ -464,11 +490,14 @@ class Charts {
         try {
             switch (id) {
                 case 'axis': return this._chartAxis(win);
+                case 'migration': return this._chartMigration(win);
                 case 'tempo': return this._chartTempo(win);
                 case 'ledger': return this._chartLedger();
                 case 'region': return this._chartRegions();
+                case 'efficiency': return this._chartEfficiency(win);
                 case 'price': return this._chartPrice(win);
                 case 'gsua': return this._chartGsua(win);
+                case 'air': return this._chartAir();
                 case 'usf': return this._chartUsf();
                 case 'events': return this._chartEvents();
                 default: return '';
@@ -591,6 +620,75 @@ class Charts {
         return `<div class="charts-legend">${legend}</div>${s}
             <p class="charts-card-note">${Charts.fmt(win.ru)} Russian assaults across
             ${per.length} periods: ${totals}. Segment colours match the diff slices on the map.</p>`;
+    }
+
+    /**
+     * Pressure migration. Daily rows are folded into a bounded number of adjacent
+     * reporting-day buckets so the complete selected window remains visible at any
+     * width. Colour encodes each axis's share of that bucket's Russian assaults;
+     * Daily tempo already carries the absolute theatre-wide volume.
+     */
+    _chartMigration(win) {
+        const days = win.daily;
+        if (days.length < 2) {
+            return '<p class="charts-empty">Needs at least two General Staff days.</p>';
+        }
+
+        const maxBuckets = this._effectiveWide() ? 32 : 16;
+        const bucketSize = Math.max(1, Math.ceil(days.length / maxBuckets));
+        const buckets = [];
+        for (let i = 0; i < days.length; i += bucketSize) {
+            const part = days.slice(i, i + bucketSize);
+            const axes = {};
+            Charts.AXES.forEach(a => { axes[a] = 0; });
+            let ru = 0;
+            part.forEach((day) => {
+                ru += day.ru;
+                Charts.AXES.forEach(a => { axes[a] += day.axes[a]; });
+            });
+            buckets.push({ from: part[0].date, to: part[part.length - 1].date, days: part.length, ru, axes });
+        }
+
+        const rows = Charts.AXES.map(name => ({ name, total: win.axes[name] || 0 }))
+            .sort((a, b) => b.total - a.total);
+        const W = this._w(), L = 74, R = 4, T = 4, B = 18;
+        const rh = this._effectiveWide() ? 20 : 17;
+        const h = T + rows.length * rh + B;
+        const cw = (W - L - R) / buckets.length;
+        // A fixed saturation point keeps the same shade meaningful across windows.
+        // An axis holding 35% of a bucket's assaults is already a dominant front.
+        const opacityFor = share => share <= 0 ? 0.035 : 0.12 + Math.min(1, share / 0.35) * 0.88;
+
+        let s = `<svg viewBox="0 0 ${W} ${h}" role="img" aria-label="Russian assault pressure by axis and period">`;
+        rows.forEach((row, ri) => {
+            const y = T + ri * rh;
+            s += `<g data-act="axis" data-axis="${Charts.esc(row.name)}" style="cursor:pointer">`;
+            s += `<text x="${L - 6}" y="${y + 11}" text-anchor="end" class="c-lbl">${Charts.esc(row.name)}</text>`;
+            buckets.forEach((bucket, bi) => {
+                const value = bucket.axes[row.name] || 0;
+                const share = bucket.ru ? value / bucket.ru : 0;
+                const perDay = bucket.days ? value / bucket.days : 0;
+                const range = bucket.from === bucket.to ? bucket.from : `${bucket.from} → ${bucket.to}`;
+                const tip = `${row.name} · ${range}: ${Charts.fmt(value)} assaults, `
+                    + `${Charts.fmt(perDay, 1)}/day, ${(share * 100).toFixed(1)}% of Russian assaults`;
+                s += `<rect x="${(L + bi * cw + 0.6).toFixed(1)}" y="${(y + 2).toFixed(1)}"`
+                    + ` width="${Math.max(0.8, cw - 1.2).toFixed(1)}" height="${rh - 3}" rx="1"`
+                    + ` fill="var(--chart-ru)" opacity="${opacityFor(share).toFixed(2)}"`
+                    + ` data-tip="${Charts.esc(tip)}"/>`;
+            });
+            s += '</g>';
+        });
+        const first = buckets[0], last = buckets[buckets.length - 1];
+        s += `<text x="${L}" y="${h - 3}" class="c-tick">${Charts.esc(first.from.slice(5))}</text>`;
+        s += `<text x="${W - R}" y="${h - 3}" text-anchor="end" class="c-tick">${Charts.esc(last.to.slice(5))}</text>`;
+        s += '</svg>';
+
+        const bucketLabel = buckets.length === 1 ? 'period' : 'periods';
+        return `<div class="charts-heat-legend"><span>lower share</span><i></i><span>35%+</span></div>${s}
+            <p class="charts-card-note">${buckets.length} ${bucketLabel}, up to ${bucketSize}
+            reported day${bucketSize === 1 ? '' : 's'} each. Colour shows where Russian assault
+            pressure was concentrated, independent of the overall daily tempo. Click an axis to
+            move the map there.</p>`;
     }
 
     _previousWindow(win) {
@@ -783,6 +881,7 @@ class Charts {
             return;
         }
         const from = db.startDate, to = db.endDate;
+        const revision = this._windowRevision;
         this._regionsBusy = true;
         this.setStatus(`Clipping ${sourceName} by direction…`);
         this.refresh({ force: true });
@@ -792,6 +891,7 @@ class Charts {
                 : sourceName === 'RIA'
                     ? await db.layers.getRiaDiffAreaKm2(from, to)
                     : await db.getDeepStateDiffKm2(from, to);
+            if (revision !== this._windowRevision) return;
             // Keep the geometry: switching tab is then six or twelve intersects
             // rather than another fetch and union.
             this._regionGeom = {
@@ -803,11 +903,13 @@ class Charts {
             this._clipRegions();
             this.setStatus('');
         } catch (error) {
+            if (revision !== this._windowRevision) return;
             console.error('Charts: direction breakdown failed', error);
             this.setStatus('Direction breakdown failed', true);
             this._regions = null;
             this._regionGeom = null;
         } finally {
+            if (revision !== this._windowRevision) return;
             this._regionsBusy = false;
             this.refresh({ force: true });
         }
@@ -908,6 +1010,102 @@ class Charts {
     }
 
     /**
+     * Territorial movement per 100 Russian assaults. The numerator comes from the
+     * same cached geometry as the direction card; the denominator is the selected
+     * General Staff window. It is descriptive, not a claim that every mapped patch
+     * was caused by a recorded assault.
+     */
+    _chartEfficiency(win) {
+        const geom = this._regionGeom;
+        const busy = this._regionsBusy;
+        const picker = ['DeepState', 'Suriyak', 'RIA'].map(name =>
+            `<button class="btn btn-sm" data-act="compute-regions" data-source="${name}"
+              ${busy ? 'disabled' : ''}>${busy ? 'Working…' : name}</button>`
+        ).join(' ');
+
+        if (!geom) {
+            return `<p class="charts-empty">Net territorial movement per 100 reported Russian
+                assaults, clipped to the General Staff axes. Pick a mapping source:</p>
+                <p class="btn-row">${picker}</p>`;
+        }
+        if (!win.days) {
+            return `<p class="charts-empty">No General Staff days in this range.</p>
+                <p class="btn-row">${picker}</p>`;
+        }
+
+        const clipped = this.dashboard.regionDiffRows(geom.gainsGeom, geom.lossesGeom, Charts.AXES);
+        const byName = new Map(clipped.map(row => [row.name, row]));
+        const cache = this.dashboard.regionPolygonCache;
+        const names = Charts.AXES.filter(name => cache?.has?.(name) || byName.has(name));
+        const rows = names.map((name) => {
+            const area = byName.get(name) || { gains: 0, losses: 0, net: 0 };
+            const assaults = win.axes[name] || 0;
+            return {
+                name, assaults,
+                gains: area.gains || 0,
+                losses: area.losses || 0,
+                net: area.net || 0,
+                per100: assaults ? (area.net || 0) / assaults * 100 : null
+            };
+        }).sort((a, b) => {
+            if (a.per100 === null) return 1;
+            if (b.per100 === null) return -1;
+            return b.per100 - a.per100;
+        });
+
+        if (!rows.length) {
+            return `<p class="charts-empty">No General Staff axis polygons were available for
+                this comparison.</p><p class="btn-row">${picker}</p>`;
+        }
+
+        const values = rows.map(r => Math.abs(r.per100 || 0));
+        const maxAbs = Math.max(0.1, ...values);
+        const W = this._w(), L = 74, R = 58, T = 16;
+        const rh = this._effectiveWide() ? 24 : 19;
+        const h = T + rows.length * rh + 5;
+        const mid = L + (W - L - R) * 0.5;
+        const sc = Math.min(mid - L, W - R - mid) / maxAbs;
+        let s = `<svg viewBox="0 0 ${W} ${h}" role="img" aria-label="Net territory per 100 Russian assaults by axis">`;
+        s += `<text x="${mid}" y="10" text-anchor="middle" class="c-tick">Russian loss / 100 | gain / 100</text>`;
+        s += `<line x1="${mid}" y1="${T}" x2="${mid}" y2="${h - 4}" class="c-ax"/>`;
+        rows.forEach((row, i) => {
+            const y = T + i * rh;
+            const value = row.per100;
+            const width = value === null ? 0 : Math.abs(value) * sc;
+            const x = value !== null && value < 0 ? mid - width : mid;
+            const gross = row.gains + row.losses;
+            const rate = value === null ? 'n/a' : `${Charts.signed(value, 2)} km² per 100 assaults`;
+            const tip = `${row.name}: ${Charts.fmt(row.assaults)} assaults; Russia took ${row.gains.toFixed(1)} km², `
+                + `lost ${row.losses.toFixed(1)} km²; gross ${gross.toFixed(1)}, net ${Charts.signed(row.net, 1)}; ${rate}`;
+            s += `<g data-act="axis" data-axis="${Charts.esc(row.name)}" data-tip="${Charts.esc(tip)}" style="cursor:pointer">`;
+            s += `<rect x="0" y="${y}" width="${W}" height="${rh - 2}" class="c-hit"/>`;
+            s += `<text x="${L - 6}" y="${y + 12}" text-anchor="end" class="c-lbl">${Charts.esc(row.name)}</text>`;
+            if (width > 0.15) {
+                s += `<rect x="${x.toFixed(1)}" y="${y + 3}" width="${width.toFixed(1)}" height="11" rx="2"`
+                    + ` class="${value >= 0 ? 'c-ru' : 'c-ua'}"/>`;
+            }
+            s += `<text x="${W - 4}" y="${y + 12}" text-anchor="end" class="c-val ${value > 0 ? 'c-up' : value < 0 ? 'c-dn' : 'c-fl'}">`
+                + `${value === null ? '—' : Charts.signed(value, 2)}</text>`;
+            s += '</g>';
+        });
+        s += '</svg>';
+
+        const covered = rows.reduce((sum, row) => sum + row.gains + row.losses, 0);
+        const total = (geom.total.gains || 0) + (geom.total.losses || 0);
+        const outside = total > 0 ? Math.max(0, 100 - covered / total * 100) : 0;
+        return `<div class="charts-legend">
+                <span><i style="background:var(--chart-ru)"></i>Russian net gain</span>
+                <span><i style="background:var(--chart-ua)"></i>Russian net loss</span>
+            </div>${s}
+            <p class="charts-card-note">${Charts.esc(geom.source)}, ${Charts.esc(geom.window)}.
+            This compares co-located reports; it does not attribute every territorial change to
+            an assault. Axes with few assaults can swing sharply.${outside > 1
+                ? ` ${outside.toFixed(0)}% of gross movement fell outside these axes.` : ''}
+            Click a row to move the map there.</p>
+            <p class="btn-row">${picker}</p>`;
+    }
+
+    /**
      * DeepState against Suriyak against RIA over the selected window. Deliberately
      * behind a button: each source is a per-day KML/GeoJSON fetch and a turf union,
      * far too heavy to fire off a slider drag. All three return the same
@@ -917,6 +1115,7 @@ class Charts {
         if (this._sourcesBusy) return;
         const db = this.dashboard;
         const from = db.startDate, to = db.endDate;
+        const revision = this._windowRevision;
         const label = `${Charts.iso(from)} → ${Charts.iso(to)}`;
         this._sourcesBusy = true;
         this.setStatus('Comparing sources…');
@@ -933,6 +1132,7 @@ class Charts {
         await add('DeepState', () => db.getDeepStateDiffKm2?.(from, to));
         await add('Suriyak', () => db.layers.getManifestDiffAreaKm2('suriyak', from, to));
         await add('RIA', () => db.layers.getRiaDiffAreaKm2(from, to));
+        if (revision !== this._windowRevision) return;
         this._sources = { window: label, rows };
         this._sourcesBusy = false;
         this.setStatus('');
@@ -1008,6 +1208,24 @@ class Charts {
         return this._months;
     }
 
+    /** Tier 2 months with only a trailing partial calendar month removed. */
+    _tier2CompleteMonths(section) {
+        const source = this.tier2?.[section];
+        if (!source) return [];
+        const months = (this.tier2.months || Object.keys(source))
+            .filter(month => source[month])
+            .slice()
+            .sort();
+        const last = months[months.length - 1];
+        if (last) {
+            const [year, month] = last.split('-').map(Number);
+            const calendarDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+            const reportedDays = source[last]?.days;
+            if (Number.isFinite(reportedDays) && reportedDays < calendarDays) months.pop();
+        }
+        return months;
+    }
+
     /**
      * The six-month arc is what says whether a month is a turn or noise. Not
      * windowed by the slider: the app opens on a 3-month range, which would leave
@@ -1020,7 +1238,7 @@ class Charts {
         const eng = this.tier2?.gsua || null;
 
         let out = Charts.monthBars(months.map(r => ({
-            label: r.m.slice(5), value: r.ru,
+            month: r.m, label: r.m.slice(5), value: r.ru,
             tip: `${r.m}: ${Charts.fmt(r.ru)} Russian assaults over ${r.days} days`
         })), 'Russian assaults', this._w(), this._mh());
 
@@ -1030,7 +1248,7 @@ class Charts {
                 .filter(r => Number.isFinite(r.e?.perDay));
             if (rows.length) {
                 out += Charts.monthBars(rows.map(r => ({
-                    label: r.m.slice(5), value: r.e.perDay,
+                    month: r.m, label: r.m.slice(5), value: r.e.perDay,
                     tip: `${r.m}: ${Charts.fmt(r.e.perDay, 1)} engagements per reported day `
                         + `(${Charts.fmt(r.e.total)} over ${r.e.days} days)`
                 })), 'Combat engagements per reported day', this._w(), this._mh());
@@ -1038,13 +1256,13 @@ class Charts {
         }
 
         out += Charts.monthBars(months.map(r => ({
-            label: r.m.slice(5), value: r.losses,
+            month: r.m, label: r.m.slice(5), value: r.losses,
             tip: `${r.m}: ${Charts.fmt(r.losses)} claimed Russian losses`
         })), 'Claimed Russian losses', this._w(), this._mh());
 
         const price = months.filter(r => r.ru > 0);
         out += Charts.monthBars(price.map(r => ({
-            label: r.m.slice(5), value: r.losses / r.ru,
+            month: r.m, label: r.m.slice(5), value: r.losses / r.ru,
             tip: `${r.m}: ${(r.losses / r.ru).toFixed(2)} claimed losses per assault`
         })), 'Losses per assault', this._w(), this._mh(), 1);
 
@@ -1054,6 +1272,68 @@ class Charts {
         return out + `<p class="charts-card-note">Engagements render per reported day, never as
             monthly totals — coverage moves between months.${part}${eng ? '' :
                 ' Engagements need the extended series, which is not published with this build.'}</p>`;
+    }
+
+    /** Monthly Russian air pressure and reported Ukrainian defensive effect. */
+    _chartAir() {
+        const gsua = this.tier2?.gsua;
+        if (!gsua) {
+            return `<p class="charts-empty">The air-campaign series is part of the extended
+                dataset, which is not published with this build.</p>`;
+        }
+
+        const complete = this._tier2CompleteMonths('gsua');
+        const tail = this._monthTail();
+        const cabs = complete.filter(month => Number.isFinite(gsua[month]?.ruCabs?.perDay)).slice(-tail);
+        const drones = complete.filter((month) => {
+            const row = gsua[month];
+            return (row?.aerialAttacks?.total || 0) > 0 || (row?.neutralized?.total || 0) > 0;
+        }).slice(-tail);
+        const missiles = complete.filter((month) => {
+            const row = gsua[month];
+            return (row?.missileTotal?.total || 0) > 0 || (row?.missileIntercept?.total || 0) > 0;
+        }).slice(-tail);
+
+        if (!cabs.length && !drones.length && !missiles.length) {
+            return '<p class="charts-empty">No complete air-campaign months are available.</p>';
+        }
+
+        let out = '';
+        if (cabs.length) {
+            out += Charts.monthBars(cabs.map((month) => {
+                const value = gsua[month].ruCabs;
+                return {
+                    month, label: month.slice(5), value: value.perDay,
+                    tip: `${month}: ${Charts.fmt(value.perDay, 1)} Russian glide bombs per reported day `
+                        + `(${Charts.fmt(value.total)} over ${value.days} days)`
+                };
+            }), 'Russian glide bombs per reported day', this._w(), this._mh(), 1);
+        }
+
+        const pair = (months, title, firstKey, secondKey, secondLabel) => {
+            if (!months.length) return '';
+            const items = months.map((month) => {
+                const first = gsua[month][firstKey]?.total || 0;
+                const second = gsua[month][secondKey]?.total || 0;
+                const share = first ? second / first * 100 : 0;
+                return {
+                    month, label: month.slice(5), first, second,
+                    tip: `${month}: ${Charts.fmt(first)} launched, ${Charts.fmt(second)} ${secondLabel} (${share.toFixed(0)}%)`
+                };
+            });
+            return `<div class="charts-legend charts-pair-legend">
+                    <span><i style="background:var(--chart-ru)"></i>launched</span>
+                    <span><i style="background:var(--chart-ua)"></i>${Charts.esc(secondLabel)}</span>
+                </div>${Charts.pairedMonthBars(items, title, this._w(), this._mh())}`;
+        };
+
+        out += pair(drones, 'Long-range drones per month', 'aerialAttacks', 'neutralized', 'neutralized');
+        out += pair(missiles, 'Missiles per month', 'missileTotal', 'missileIntercept', 'intercepted');
+
+        return out + `<p class="charts-card-note">Complete months only; this card follows the
+            full-series trend rather than the selected map window. Missile blanks on no-raid
+            nights are event-driven, so monthly totals remain comparable. All defensive-effect
+            figures are reported claims, not independently verified outcomes.</p>`;
     }
 
     _chartUsf() {
@@ -1066,7 +1346,7 @@ class Charts {
         if (!months.length) return '<p class="charts-empty">No drone-force data.</p>';
         const panel = (pick, title, dp = 0) => Charts.monthBars(months.map(m => {
             const u = t2.usf[m];
-            return { label: m.slice(5), value: pick(u), tip: `${m}: ${Charts.fmt(pick(u), dp)}` };
+            return { month: m, label: m.slice(5), value: pick(u), tip: `${m}: ${Charts.fmt(pick(u), dp)}` };
         }), title, this._w(), this._mh(), dp);
         return panel(u => u.strikeSorties, 'Strike sorties')
             + panel(u => u.totalPersonnelCasualties, 'Claimed personnel casualties')
@@ -1202,9 +1482,20 @@ class Charts {
         return step * exp;
     }
 
+    /** Two-line month tick: month number plus a compact year at the first bar/January. */
+    static monthTick(item, index, x, H) {
+        const month = item.month || '';
+        const label = item.label || month.slice(5);
+        const showYear = !!month && (index === 0 || month.endsWith('-01'));
+        return `<text x="${x.toFixed(1)}" y="${H - 12}" text-anchor="middle" class="c-tick">${Charts.esc(label)}</text>`
+            + (showYear
+                ? `<text x="${x.toFixed(1)}" y="${H - 3}" text-anchor="middle" class="c-year">’${Charts.esc(month.slice(2, 4))}</text>`
+                : '');
+    }
+
     /** Small monthly bar panel, last bar emphasised only when it is the series high. */
     static monthBars(items, title, W = 320, H = 92, dp = 0) {
-        const L = 4, R = 4, T = 24, B = 14;
+        const L = 4, R = 4, T = 24, B = 24;
         const mx = Math.max(1, ...items.map(i => i.value));
         const bw = (W - L - R) / items.length;
         let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${Charts.esc(title)}">`;
@@ -1218,10 +1509,41 @@ class Charts {
             s += `<rect x="${bx.toFixed(1)}" y="${T}" width="${(bw - 3).toFixed(1)}" height="${H - T - B}" class="c-hit"/>`;
             s += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${(bw - 3).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5"
                    fill="${isMax ? 'var(--chart-warn)' : '#64748b'}"/>`;
-            s += `<text x="${(bx + (bw - 3) / 2).toFixed(1)}" y="${H - 4}" text-anchor="middle" class="c-tick">${Charts.esc(it.label)}</text>`;
+            s += Charts.monthTick(it, i, bx + (bw - 3) / 2, H);
             s += `</g>`;
         });
         s += `<text x="${W - R}" y="11" text-anchor="end" class="c-val">${Charts.fmt(items[items.length - 1].value, dp)}</text>`;
+        s += `<line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" class="c-ax"/>`;
+        s += '</svg>';
+        return s;
+    }
+
+    /** Side-by-side monthly bars for attack volume and reported defensive effect. */
+    static pairedMonthBars(items, title, W = 320, H = 92) {
+        const L = 4, R = 4, T = 24, B = 24;
+        const mx = Math.max(1, ...items.flatMap(item => [item.first, item.second]));
+        const bw = (W - L - R) / items.length;
+        const available = Math.max(1.6, bw - 3);
+        const gap = Math.min(1, available * 0.12);
+        const half = Math.max(0.7, (available - gap) / 2);
+        let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${Charts.esc(title)}">`;
+        s += `<text x="${L}" y="11" class="c-lbl">${Charts.esc(title)}</text>`;
+        items.forEach((item, i) => {
+            const bx = L + i * bw + 1.5;
+            const firstH = (H - T - B) * (item.first / mx);
+            const secondH = (H - T - B) * (item.second / mx);
+            const center = bx + available / 2;
+            s += `<g data-tip="${Charts.esc(item.tip)}">`;
+            s += `<rect x="${bx.toFixed(1)}" y="${T}" width="${available.toFixed(1)}" height="${H - T - B}" class="c-hit"/>`;
+            s += `<rect x="${bx.toFixed(1)}" y="${(H - B - firstH).toFixed(1)}" width="${half.toFixed(1)}"`
+                + ` height="${firstH.toFixed(1)}" rx="1" class="c-ru"/>`;
+            s += `<rect x="${(bx + half + gap).toFixed(1)}" y="${(H - B - secondH).toFixed(1)}" width="${half.toFixed(1)}"`
+                + ` height="${secondH.toFixed(1)}" rx="1" class="c-ua"/>`;
+            s += Charts.monthTick(item, i, center, H);
+            s += '</g>';
+        });
+        const latest = items[items.length - 1];
+        s += `<text x="${W - R}" y="11" text-anchor="end" class="c-val">${Charts.fmt(latest.first)} / ${Charts.fmt(latest.second)}</text>`;
         s += `<line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" class="c-ax"/>`;
         s += '</svg>';
         return s;
@@ -1250,6 +1572,7 @@ class Charts {
         const start = new Date(startISO);
         const end = new Date(endISO);
         if (!(start instanceof Date) || isNaN(start) || isNaN(end)) return;
+        this._invalidateWindowComputations();
         this._applyingRange = true;
         try {
             if (start >= db.minDate && end <= db.maxDate) {

@@ -1988,10 +1988,21 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     font-size: 12px;
     font-weight: 600;
     user-select: none;
+    width: 100%;
+    border: 0;
+    background: none;
+    color: inherit;
+    font-family: var(--font);
+    text-align: left;
 }
 
 .charts-card-header:hover {
     background: var(--sidebar-hover);
+}
+
+.charts-card-header:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
 }
 
 .charts-card-arrow {
@@ -2041,6 +2052,11 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
 .charts-card svg .c-lbl {
     fill: var(--chart-muted);
     font-size: 9.5px;
+}
+
+.charts-card svg .c-year {
+    fill: #64748b;
+    font-size: 7.5px;
 }
 
 .charts-card svg .c-val {
@@ -2157,6 +2173,28 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     height: 11px;
     border-radius: 1px;
     background: var(--chart-prev);
+}
+
+.charts-pair-legend {
+    margin-top: 7px;
+    padding-bottom: 0;
+}
+
+.charts-heat-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    padding: 0 3px 3px;
+    color: var(--chart-muted);
+    font-size: 9px;
+}
+
+.charts-heat-legend i {
+    width: 54px;
+    height: 7px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), var(--chart-ru));
 }
 
 /* Tooltip lives outside the panel: .charts-panel is overflow:hidden. */

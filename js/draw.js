@@ -848,10 +848,13 @@ class DrawingTool {
      */
     _drawUnit(ctx, shape) {
         const p = this._toPx(shape.at);
-        const size = shape.size || 30;
+        // explicit size wins; otherwise the echelon sets it, so a CAA outranks a
+        // division outranks a brigade on sight
+        const size = shape.size || DrawingTool.ECHELONS[shape.echelon]?.size || 30;
         const half = size / 2;
         const color = shape.color || (String(shape.side).toLowerCase() === 'ua' ? '#0057B7' : '#D0021B');
         const img = this._unitIcon(shape.side, shape.icon);
+        const ech = DrawingTool.ECHELONS[shape.echelon];
 
         ctx.save();
         ctx.setLineDash([]);
@@ -876,6 +879,19 @@ class DrawingTool {
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        // Echelon bar above the plate. Size alone is ambiguous at a glance — an army
+        // and a division differ by 14px — so the standard tick marks carry the meaning
+        // and the size gradation reinforces it.
+        if (ech && shape.echelonMark !== false) {
+            const fs = Math.max(9, size * 0.38);
+            ctx.font         = `700 ${fs}px Helvetica, Arial, sans-serif`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'bottom';
+            this._haloText(ctx, ech.symbol, p.x, p.y - half - 1, {
+                color, halo: '#fff', haloWidth: fs / 3.5,
+            });
+        }
 
         if (shape.label) {
             const fontSize = shape.labelSize || 13;
@@ -1141,5 +1157,27 @@ class DrawingTool {
         ctx.restore();
     }
 }
+
+/**
+ * Echelon ladder for `unit` shapes: plate size plus the standard NATO tick marks.
+ * Sizes are deliberately non-linear — the gap widens at the top so an army reads as
+ * clearly larger than a division, while the small echelons stay close enough that a
+ * cluster of companies does not turn into confetti.
+ */
+DrawingTool.ECHELONS = {
+    team:       { size: 17, symbol: '\u00d8'  },
+    squad:      { size: 19, symbol: '\u2022'  },
+    section:    { size: 21, symbol: '\u2022\u2022' },
+    platoon:    { size: 23, symbol: '\u2022\u2022\u2022' },
+    company:    { size: 25, symbol: 'I'       },
+    battalion:  { size: 28, symbol: 'II'      },
+    regiment:   { size: 31, symbol: 'III'     },
+    brigade:    { size: 35, symbol: 'X'       },
+    division:   { size: 41, symbol: 'XX'      },
+    corps:      { size: 48, symbol: 'XXX'     },
+    army:       { size: 56, symbol: 'XXXX'    },
+    front:      { size: 64, symbol: 'XXXXX'   },
+    theater:    { size: 72, symbol: 'XXXXXX'  },
+};
 
 window.DrawingTool = DrawingTool;

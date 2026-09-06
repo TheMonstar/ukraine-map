@@ -397,9 +397,51 @@ export const unitIcons = ({ side } = {}) => session.call('unitIcons', side);
  * is in the loaded daily-position layer, its real insignia is reused, so an added
  * unit is visually consistent with the observed ones.
  */
-export async function addUnit({ at, side, unit, icon, label, size = 30, color, label_size }) {
+/** Echelon ladder — must stay in step with DrawingTool.ECHELONS in js/draw.js. */
+export const ECHELONS = ['team', 'squad', 'section', 'platoon', 'company', 'battalion',
+                         'regiment', 'brigade', 'division', 'corps', 'army', 'front', 'theater'];
+
+// Common ways an echelon is written, including the Russian/Ukrainian formation types
+// that appear in the daily-position layer's unit names.
+const ECHELON_ALIASES = {
+    caa: 'army', 'combined arms army': 'army', ta: 'army', 'tank army': 'army', a: 'army',
+    ac: 'corps', 'army corps': 'corps', ak: 'corps',
+    div: 'division', md: 'division', mrd: 'division', td: 'division', vdd: 'division',
+    bde: 'brigade', bd: 'brigade', mrb: 'brigade', omsbr: 'brigade', obr: 'brigade',
+    regt: 'regiment', rgt: 'regiment', reg: 'regiment', mrr: 'regiment', pdp: 'regiment',
+    bn: 'battalion', btn: 'battalion', bat: 'battalion',
+    coy: 'company', co: 'company',
+    pl: 'platoon', plt: 'platoon',
+    'army group': 'front', armygroup: 'front', theatre: 'theater',
+};
+
+/** Best-effort echelon from a formation name, e.g. "1st Heavy Mechanized Brigade" -> brigade. */
+function echelonFromName(name) {
+    const n = String(name || '').toLowerCase();
+    // longest first so "army corps" beats "army"
+    for (const e of ['theater', 'theatre', 'army corps', 'army group', 'combined arms army',
+                     'division', 'brigade', 'regiment', 'battalion', 'company', 'platoon',
+                     'section', 'squad', 'corps', 'army']) {
+        if (n.includes(e)) return ECHELON_ALIASES[e] || e;
+    }
+    return null;
+}
+
+function normaliseEchelon(v) {
+    if (v == null) return null;
+    const k = String(v).toLowerCase().trim();
+    const e = ECHELON_ALIASES[k] || k;
+    if (!ECHELONS.includes(e)) {
+        throw new Error(`unknown echelon "${v}" — use one of: ${ECHELONS.join(', ')}`);
+    }
+    return e;
+}
+
+export async function addUnit({ at, side, unit, icon, label, size, color, label_size,
+                                echelon, echelon_mark = true }) {
     const s = String(side || '').toLowerCase();
     if (s !== 'ua' && s !== 'ru') throw new Error("`side` must be 'ua' or 'ru'");
+    let ech = normaliseEchelon(echelon);
 
     let iconId = icon;
     let matched = null;
@@ -419,14 +461,24 @@ export async function addUnit({ at, side, unit, icon, label, size = 30, color, l
         );
     }
 
+    // fall back to reading the echelon out of the formation name, so placing real
+    // units sizes them correctly without having to state it each time
+    let echelonSource = ech ? 'given' : null;
+    if (!ech) {
+        ech = echelonFromName(matched ? matched.name : unit);
+        if (ech) echelonSource = 'inferred from the unit name';
+    }
+
     const p = await resolve(at);
     const res = await session.call('addShapes', [{
         type: 'unit', at: p.coords, side: s, icon: iconId,
         label: label ?? (matched ? matched.name : unit) ?? null,
         size, color, labelSize: label_size,
+        echelon: ech, echelonMark: echelon_mark,
     }]);
     return { ...res, at: p.name, coords: p.coords, side: s, icon: iconId,
-             matchedUnit: matched ? matched.name : null };
+             matchedUnit: matched ? matched.name : null,
+             echelon: ech, echelonSource };
 }
 
 // ── planning graphics ────────────────────────────────────────────────────────
