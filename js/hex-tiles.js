@@ -74,16 +74,81 @@ class HexTiles {
         return null;
     }
 
-    async render(mapInstance, regionsData, cellSizeKm, occupiedPolygons, viewBbox) {
-        if (this.layer) {
-            mapInstance.removeLayer(this.layer);
-            this.layer = null;
-        }
+    static boxesOverlap(a, b) {
+        return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+    }
 
+    // A small bounding-box tree over exact boundary segments. It is conservative:
+    // a negative query proves there is no boundary (including holes) in the cell.
+    static boundaryTree(boxes) {
+        if (!boxes.length) return null;
+        const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+        for (const box of boxes) {
+            bounds[0] = Math.min(bounds[0], box[0]); bounds[1] = Math.min(bounds[1], box[1]);
+            bounds[2] = Math.max(bounds[2], box[2]); bounds[3] = Math.max(bounds[3], box[3]);
+        }
+        if (boxes.length <= 16) return { bounds, boxes };
+        const axis = bounds[2] - bounds[0] >= bounds[3] - bounds[1] ? 0 : 1;
+        boxes.sort((a, b) => (a[axis] + a[axis + 2]) - (b[axis] + b[axis + 2]));
+        const mid = Math.floor(boxes.length / 2);
+        return { bounds, left: HexTiles.boundaryTree(boxes.slice(0, mid)), right: HexTiles.boundaryTree(boxes.slice(mid)) };
+    }
+
+    static touchesBoundary(tree, bbox) {
+        if (!tree || !HexTiles.boxesOverlap(tree.bounds, bbox)) return false;
+        return tree.boxes ? tree.boxes.some(box => HexTiles.boxesOverlap(box, bbox))
+            : HexTiles.touchesBoundary(tree.left, bbox) || HexTiles.touchesBoundary(tree.right, bbox);
+    }
+
+    static prepareCoverage(geometry) {
+        const boxes = [];
+        turf.segmentEach(geometry, segment => boxes.push(turf.bbox(segment)));
+        return { geometry, bbox: turf.bbox(geometry), boundary: HexTiles.boundaryTree(boxes),
+            parts: turf.flatten(geometry).features.map(feature => ({ feature, bbox: turf.bbox(feature) })) };
+    }
+
+    static coverage(hex, bbox, area, prepared) {
+        if (!HexTiles.boxesOverlap(bbox, prepared.bbox)) return 0;
+        if (!HexTiles.touchesBoundary(prepared.boundary, bbox)) {
+            return turf.booleanPointInPolygon(turf.centroid(hex), prepared.geometry) ? 1 : 0;
+        }
+        // Only boundary cells need clipping. Disjoint MultiPolygon components
+        // outside the cell are excluded before Turf sees the geometry.
+        let covered = 0;
+        for (const part of prepared.parts) {
+            if (!HexTiles.boxesOverlap(bbox, part.bbox)) continue;
+            const intersection = turf.intersect(hex, part.feature);
+            if (intersection) covered += turf.area(intersection);
+        }
+        return Math.min(1, covered / area);
+    }
+
+    _prepareOccupation(polygons = []) {
+        const inputs = polygons.map(poly => ({ geometry: poly.geojson || poly.coordinates, color: poly.style?.fillColor || '#a52714' }));
+        const cached = this._occupation;
+        if (cached && inputs.length === cached.inputs.length && inputs.every((input, i) =>
+            input.geometry === cached.inputs[i].geometry && input.color === cached.inputs[i].color)) return cached;
+        const colors = new Map();
+        polygons.forEach((poly, i) => {
+            const geometry = this._polygonDataToGeojson(poly);
+            if (!geometry) return;
+            const color = inputs[i].color;
+            colors.set(color, colors.has(color) ? turf.union(colors.get(color), geometry) : geometry);
+        });
+        const occupied = [...colors.values()].reduce((union, geometry) => union ? turf.union(union, geometry) : geometry, null);
+        const coverage = occupied ? HexTiles.prepareCoverage(occupied) : null;
+        this._occupation = { inputs, styles: new WeakMap(), occupied: coverage,
+            colors: [...colors].map(([color, geometry]) => ({ color,
+                coverage: colors.size === 1 ? coverage : HexTiles.prepareCoverage(geometry) })) };
+        return this._occupation;
+    }
+
+    async render(mapInstance, regionsData, cellSizeKm, occupiedPolygons, viewBbox) {
+        const generation = this._generation = (this._generation || 0) + 1;
         this._cellSizeKm = cellSizeKm;
 
         const borderShape = await this.getBorderShape(regionsData);
-        if (!borderShape) return;
+        if (!borderShape || generation !== this._generation) return;
 
         const hexGrid = this._getHexGrid(borderShape, cellSizeKm);
 
@@ -95,90 +160,37 @@ class HexTiles {
             })
             : hexGrid.features;
 
-        // Build merged unions once per color — occupation zone is contiguous so this is cheap
-        let occupiedUnion = null;
-        const colorUnions = {};
-
-        if (occupiedPolygons && occupiedPolygons.length > 0) {
-            for (const poly of occupiedPolygons) {
-                const geojson = this._polygonDataToGeojson(poly);
-                if (!geojson) continue;
-                const color = poly.style?.fillColor || '#a52714';
-                try {
-                    occupiedUnion = occupiedUnion ? turf.union(occupiedUnion, geojson) : geojson;
-                    colorUnions[color] = colorUnions[color] ? turf.union(colorUnions[color], geojson) : geojson;
-                } catch (e) { }
-            }
-        }
-
-        // Simplify occupied union for faster PIP and intersect tests
-        if (occupiedUnion) {
-            try { occupiedUnion = turf.simplify(occupiedUnion, { tolerance: 0.01, highQuality: false }); } catch (e) { }
-            for (const color of Object.keys(colorUnions)) {
-                try { colorUnions[color] = turf.simplify(colorUnions[color], { tolerance: 0.01, highQuality: false }); } catch (e) { }
-            }
-        }
-
-        // Pre-compute bbox of occupied union for fast rejection
-        const occBbox = occupiedUnion ? turf.bbox(occupiedUnion) : null;
-
+        const prepared = this._prepareOccupation(occupiedPolygons || []);
         const styledFeatures = features.map(hex => {
-            let fillColor = 'transparent';
-            let fillOpacity = 0;
-
-            if (!occupiedUnion) {
-                fillColor = '#0057B7';
-                fillOpacity = 0.25;
-                return { ...hex, properties: { ...hex.properties, _hfill: fillColor, _hopacity: fillOpacity } };
+            const cached = prepared.styles.get(hex);
+            if (cached) return cached;
+            let fillColor = 'transparent', fillOpacity = 0;
+            if (!prepared.occupied) {
+                fillColor = '#0057B7'; fillOpacity = 0.25;
+            } else {
+                const bbox = turf.bbox(hex), area = turf.area(hex);
+                const ratio = HexTiles.coverage(hex, bbox, area, prepared.occupied);
+                if (ratio >= 0.85) {
+                    if (prepared.colors.length === 1) fillColor = prepared.colors[0].color;
+                    else {
+                        let largest = 0;
+                        for (const entry of prepared.colors) {
+                            const colorRatio = HexTiles.coverage(hex, bbox, area, entry.coverage);
+                            if (colorRatio > largest) { largest = colorRatio; fillColor = entry.color; }
+                            if (colorRatio === 1) break;
+                        }
+                    }
+                    fillOpacity = 0.55;
+                } else if (ratio >= 0.05) {
+                    fillColor = '#888888'; fillOpacity = 0.35;
+                }
             }
-
-            try {
-                const hexBbox = turf.bbox(hex);
-
-                // Fast bbox rejection — no overlap with occupied zone at all
-                if (hexBbox[0] > occBbox[2] || hexBbox[2] < occBbox[0] ||
-                    hexBbox[1] > occBbox[3] || hexBbox[3] < occBbox[1]) {
-                    return { ...hex, properties: { ...hex.properties, _hfill: fillColor, _hopacity: fillOpacity } };
-                }
-
-                const centroid = turf.centroid(hex);
-                const centroidInside = turf.booleanPointInPolygon(centroid, occupiedUnion);
-
-                if (centroidInside) {
-                    // Centroid inside → treat as fully occupied; skip expensive intersect
-                    for (const [color, union] of Object.entries(colorUnions)) {
-                        if (turf.booleanPointInPolygon(centroid, union)) {
-                            fillColor = color;
-                            fillOpacity = 0.55;
-                            break;
-                        }
-                    }
-                    if (fillOpacity === 0) { fillColor = '#a52714'; fillOpacity = 0.55; }
-                } else {
-                    // Centroid outside but bbox overlaps → boundary tile, do precise intersect
-                    const intersection = turf.intersect(hex, occupiedUnion);
-                    if (intersection) {
-                        const ratio = turf.area(intersection) / turf.area(hex);
-                        if (ratio >= 0.85) {
-                            for (const [color, union] of Object.entries(colorUnions)) {
-                                if (turf.booleanPointInPolygon(centroid, union)) {
-                                    fillColor = color;
-                                    fillOpacity = 0.55;
-                                    break;
-                                }
-                            }
-                            if (fillOpacity === 0) { fillColor = '#a52714'; fillOpacity = 0.55; }
-                        } else if (ratio >= 0.05) {
-                            fillColor = '#888888';
-                            fillOpacity = 0.35;
-                        }
-                    }
-                }
-            } catch (e) { }
-
-            return { ...hex, properties: { ...hex.properties, _hfill: fillColor, _hopacity: fillOpacity } };
+            const styled = { ...hex, properties: { ...hex.properties, _hfill: fillColor, _hopacity: fillOpacity } };
+            prepared.styles.set(hex, styled);
+            return styled;
         });
 
+        if (this.layer) mapInstance.removeLayer(this.layer);
         this.layer = L.geoJSON({ type: 'FeatureCollection', features: styledFeatures }, {
             style: f => ({
                 color: '#55555566',
@@ -196,6 +208,7 @@ class HexTiles {
     }
 
     remove(mapInstance) {
+        this._generation = (this._generation || 0) + 1;
         if (this.layer) {
             mapInstance.removeLayer(this.layer);
             this.layer = null;

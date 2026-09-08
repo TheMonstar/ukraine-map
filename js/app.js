@@ -2690,6 +2690,7 @@ class AttackMapDashboard {
      * Calculate statistics for selected area
      */
     async calculateSelectedAreaStatistics() {
+        TerritoryStatus.set(this, 'selection', '');
         this.charts?.onSelectionChange();
         if (this.selectedPolygons.length === 0) {
             this.resetAreaStatistics();
@@ -2799,20 +2800,20 @@ class AttackMapDashboard {
             const deepUtils = new DeepUtils(this.deepLayer);
 
             // Get current end date polygons
-            const endDatePolygons = await deepUtils.addDeepMap(this.endDate);
+            let endDatePolygons;
+            try {
+                endDatePolygons = await deepUtils.addDeepMap(this.endDate);
+            } catch (error) {
+                ids.forEach(id => this.setText(id, '—'));
+                TerritoryStatus.set(this, 'selection', `Selected-area territory unavailable: ${error.message}`);
+                return;
+            }
 
             // Calculate intersection with selected polygons
             selectedGeoJSONs.forEach(selectedPolygon => {
                 endDatePolygons.polygons.forEach(territoryPolygon => {
                     try {
-                        const territoryGeoJSON = {
-                            type: "Feature",
-                            geometry: {
-                                type: "Polygon",
-                                coordinates: [territoryPolygon.coordinates.map(coord => [coord[1], coord[0]])]
-                            },
-                            properties: territoryPolygon.properties
-                        };
+                        const territoryGeoJSON = TerritoryAnalysis.feature(territoryPolygon);
 
                         const intersection = turf.intersect(selectedPolygon, territoryGeoJSON);
                         if (intersection) {
@@ -2848,8 +2849,7 @@ class AttackMapDashboard {
                         if (stroke === "#a52714" || stroke === "#bcaaa4" || stroke === "#ff5252" || stroke === "#880e4f" ||
                             fill === "#a52714" || fill === "#bcaaa4" || fill === "#ff5252" || fill === "#880e4f") {
                             // Convert captured polygon to line (polygon boundary)
-                            const polygonCoords = territoryPolygon.coordinates.map(coord => [coord[1], coord[0]]);
-                            const polygonLine = turf.polygonToLine(turf.polygon([polygonCoords]));
+                            const polygonLine = turf.polygonToLine(TerritoryAnalysis.feature(territoryPolygon));
 
                             // Find line segments that intersect with the selected box
                             const lineSegments = this.getLineSegmentsInBox(polygonLine, selectedPolygon, selectionBbox);
@@ -3048,12 +3048,7 @@ class AttackMapDashboard {
             // Calculate difference: territories in endDate but not in startDate
             let diffArea = endUnion;
             if (startUnion) {
-                try {
-                    diffArea = turf.difference(endUnion, startUnion);
-                } catch (error) {
-                    console.warn('Error calculating diff, using end union:', error);
-                    diffArea = endUnion;
-                }
+                diffArea = turf.difference(endUnion, startUnion);
             }
 
             if (!diffArea) {
@@ -3513,7 +3508,11 @@ class AttackMapDashboard {
         const segments = [];
 
         try {
-            // Convert line to individual segments
+            // Turf polygonToLine returns MultiLineString for holes and a
+            // FeatureCollection for MultiPolygon. Flatten without joining rings.
+            if (line.type === 'FeatureCollection' || line.geometry?.type === 'MultiLineString') {
+                return turf.flatten(line).features.flatMap(part => this.getLineSegmentsInBox(part, selectedPolygon, selectionBbox));
+            }
             const coordinates = line.geometry.coordinates;
             // A segment outside the selection's bounding box cannot touch the
             // selection, and rejecting it here is the whole cost of this loop:
@@ -4271,7 +4270,7 @@ class AttackMapDashboard {
 
         this.filteredEventsData().forEach(e => {
             const marker = L.marker([e.lat, e.lon], { icon: eventIconFor(e.category) });
-            marker.bindPopup(`<strong>${e.name}</strong><br><em>${e.category}</em>`);
+            marker.bindPopup(`<strong>${HtmlUtils.escape(e.name)}</strong><br><em>${HtmlUtils.escape(e.category)}</em>`);
             marker.addTo(this.eventsLayer);
         });
         console.log(`Events markers: ${this.eventsLayer.getLayers().length}`);
@@ -4323,10 +4322,10 @@ class AttackMapDashboard {
             const icon = this.createColoredMarkerIcon('red', items.length);
             const marker = L.marker([first.lat, first.lng], { icon });
             const entries = items.map(item => {
-                const linkHtml = item.link ? `<br><a href="${item.link}" target="_blank">Source</a>` : '';
-                return `<strong>${item.fullName || item.name}</strong> <small>(${item.date})</small><br>${item.text || ''}${linkHtml}`;
+                const linkHtml = item.link ? `<br>${HtmlUtils.link(item.link)}` : '';
+                return `<strong>${HtmlUtils.escape(item.fullName || item.name)}</strong> <small>(${HtmlUtils.escape(item.date)})</small><br>${HtmlUtils.escape(item.text || '')}${linkHtml}`;
             }).join('<hr style="margin:6px 0;">');
-            marker.bindPopup(`<em>${first.area}</em><br>${entries}`);
+            marker.bindPopup(`<em>${HtmlUtils.escape(first.area)}</em><br>${entries}`);
             marker.addTo(this.modrLayer);
         });
     }
@@ -4463,10 +4462,10 @@ class AttackMapDashboard {
             const icon = this.createColoredMarkerIcon(this.riaEventCategoryColor(first.icon).name, items.length);
             const marker = L.marker([first.lat, first.lng], { icon });
             const entries = items.map(e => {
-                const linkHtml = e.link ? `<br><a href="${e.link}" target="_blank">Source</a>` : '';
-                return `<strong>${e.fullName || e.name}</strong> <small>(${e.date})</small><br>${e.text || ''}${linkHtml}`;
+                const linkHtml = e.link ? `<br>${HtmlUtils.link(e.link)}` : '';
+                return `<strong>${HtmlUtils.escape(e.fullName || e.name)}</strong> <small>(${HtmlUtils.escape(e.date)})</small><br>${HtmlUtils.escape(e.text || '')}${linkHtml}`;
             }).join('<hr style="margin:6px 0;">');
-            marker.bindPopup(`<em>${first.area}</em> — ${first.icon}<br>${entries}`);
+            marker.bindPopup(`<em>${HtmlUtils.escape(first.area)}</em> — ${HtmlUtils.escape(first.icon)}<br>${entries}`);
             marker.addTo(this.riaEventsLayer);
         });
         console.log(`RIA events markers: ${this.riaEventsLayer.getLayers().length}`);
@@ -5008,11 +5007,11 @@ class AttackMapDashboard {
 
         this.filteredOwlEventsData().forEach(e => {
             const marker = L.marker([e.lat, e.lng], { icon: owlIconFor(e) });
-            const links = (e.src || []).map((s, i) => `<a href="${s}" target="_blank">Source${e.src.length > 1 ? ` ${i + 1}` : ''}</a>`).join(' ');
+            const links = (e.src || []).map((s, i) => HtmlUtils.link(s, `Source${e.src.length > 1 ? ` ${i + 1}` : ''}`)).join(' ');
             marker.bindPopup(`
-                <strong>${e.event}</strong> <small>(${e.actor} → ${e.side}, ${e.date})</small><br>
-                ${e.desc || ''}<br>
-                <small>Weapon: ${e.weapon} · Target: ${e.target}${e.kind ? ` › ${e.kind}` : ''} · Outcome: ${e.outcome}</small><br>
+                <strong>${HtmlUtils.escape(e.event)}</strong> <small>(${HtmlUtils.escape(e.actor)} → ${HtmlUtils.escape(e.side)}, ${HtmlUtils.escape(e.date)})</small><br>
+                ${HtmlUtils.escape(e.desc || '')}<br>
+                <small>Weapon: ${HtmlUtils.escape(e.weapon)} · Target: ${HtmlUtils.escape(e.target)}${e.kind ? ` › ${HtmlUtils.escape(e.kind)}` : ''} · Outcome: ${HtmlUtils.escape(e.outcome)}</small><br>
                 ${links}
             `);
             marker.addTo(this.owlEventsLayer);
@@ -5315,86 +5314,62 @@ class AttackMapDashboard {
             // inside this handler because initSlider() destroys and re-creates the
             // slider, which would silently drop an externally attached listener.
             this.charts?.onDateChange();
-            // During playback every tick calls slider.set(), which re-fires this
-            // handler and rearmed all ten timers below. At any playback speed
-            // under 800 ms they were reset faster than they could fire, so these
-            // layers sat frozen on stale dates for the whole run while the timer
-            // churn bought nothing. Refresh once when playback stops instead.
-            if (this.isPlaying) {
-                this.scheduleSettlementTimelineRefresh();
-                return;
-            }
+            // Playback owns an awaited refresh for each frame. Manual dragging
+            // still debounces requests until the slider settles.
+            if (this.isPlaying) return;
             this.scheduleDateDependentRefreshes();
         });
     }
 
-    scheduleSettlementTimelineRefresh() {
-        if (this.settlementTimelineRefreshDebounce) clearTimeout(this.settlementTimelineRefreshDebounce);
-        this.settlementTimelineRefreshDebounce = setTimeout(() => {
-            if (this.getEl('show-settlement-timeline')?.value) this.renderSettlementTimeline();
-            if (!this.isPlaying && this.isChecked('settlement-progress-heatmap')) {
-                this.renderSettlementProgressHeatmap();
-            }
+    /** Manual slider changes debounce; playback calls the same work immediately. */
+    scheduleDateDependentRefreshes() {
+        clearTimeout(this.dateRefreshDebounce);
+        this.dateRefreshDebounce = setTimeout(() => {
+            this.dateRefreshDebounce = null;
+            this.refreshDateDependentLayers();
         }, 800);
     }
 
-    /**
-     * Re-fetch/redraw everything keyed to the selected date range, debounced so
-     * that dragging the slider issues one round of requests rather than one per
-     * intermediate value.
-     */
-    scheduleDateDependentRefreshes() {
-        if (this.dailyPositionsDebounce) clearTimeout(this.dailyPositionsDebounce);
-        this.dailyPositionsDebounce = setTimeout(() => {
-            if (this.updateDailyPositions) this.updateDailyPositions();
-            if (this.renderPositionChanges && this.isChecked('position-change')) this.renderPositionChanges();
-        }, 800);
-        if (this.eventsRefreshDebounce) clearTimeout(this.eventsRefreshDebounce);
-        this.eventsRefreshDebounce = setTimeout(() => this.refreshEvents(), 800);
-        if (this.ditchesRefreshDebounce) clearTimeout(this.ditchesRefreshDebounce);
-        this.ditchesRefreshDebounce = setTimeout(() => this.refreshDitches(), 800);
-        if (this.chartsRefreshDebounce) clearTimeout(this.chartsRefreshDebounce);
-        this.chartsRefreshDebounce = setTimeout(() => this.charts?.refresh(), 800);
-        // RIA overlay is one file per day — re-fetch when the selected date settles
-        if (this.riaRefreshDebounce) clearTimeout(this.riaRefreshDebounce);
-        this.riaRefreshDebounce = setTimeout(() => {
-            if (this.isChecked('ria-overlay')) this.layers.toggleRiaOverlay(true);
-        }, 800);
-        if (this.modrRefreshDebounce) clearTimeout(this.modrRefreshDebounce);
-        this.modrRefreshDebounce = setTimeout(() => {
-            if (this.isChecked('feature-modr')) this.refreshModr();
-        }, 800);
-        if (this.riaEventsRefreshDebounce) clearTimeout(this.riaEventsRefreshDebounce);
-        this.riaEventsRefreshDebounce = setTimeout(() => {
-            if (this.isChecked('feature-ria-events')) this.refreshRiaEvents();
-        }, 800);
-        if (this.owlEventsRefreshDebounce) clearTimeout(this.owlEventsRefreshDebounce);
-        this.owlEventsRefreshDebounce = setTimeout(() => {
-            if (this.isChecked('feature-owl-events')) this.refreshOwlEvents();
-        }, 800);
-        // DeepState territory/diff only re-renders on checkbox toggles otherwise —
-        // without this, dragging the date slider leaves the diff frozen on stale
-        // start/end dates while other date-tied layers keep following the slider
-        if (this.deepLayerRefreshDebounce) clearTimeout(this.deepLayerRefreshDebounce);
-        this.deepLayerRefreshDebounce = setTimeout(() => {
-            if (this.isChecked('diff-area') && this.renderDeepLayer) this.renderDeepLayer();
-        }, 800);
-        // Reach bands are measured from the front line on the selected date
-        if (this.ruShadowRefreshDebounce) clearTimeout(this.ruShadowRefreshDebounce);
-        this.ruShadowRefreshDebounce = setTimeout(() => {
-            if (this.isChecked('ru-shadow')) this.layers.renderRuShadow();
-        }, 800);
-        // Coverage index reads GSUA direction counts, which follow the slider
-        // even when the event feeds themselves are not re-fetched
-        if (this.coverageRefreshDebounce) clearTimeout(this.coverageRefreshDebounce);
-        this.coverageRefreshDebounce = setTimeout(() => {
-            if (this.isChecked('event-coverage')) this.renderEventCoverageIndex();
-        }, 800);
-        if (this.overlayDiffRefreshDebounce) clearTimeout(this.overlayDiffRefreshDebounce);
-        this.overlayDiffRefreshDebounce = setTimeout(() => {
-            if (this.isChecked('diff-highlight') && this.updateOverlayDiffTotals) this.updateOverlayDiffTotals();
-        }, 800);
-        this.scheduleSettlementTimelineRefresh();
+    refreshDateDependentLayers() {
+        clearTimeout(this.dateRefreshDebounce);
+        this.dateRefreshDebounce = null;
+        const refresh = async () => {
+            const jobs = [];
+            const run = (label, work) => jobs.push(Promise.resolve().then(work).catch(error => {
+                console.warn(`${label} refresh failed:`, error);
+            }));
+            run('Daily positions', () => this.updateDailyPositions?.());
+            if (this.isChecked('position-change')) run('Position changes', () => this.renderPositionChanges?.());
+            if (this.isChecked('feature-events')) run('Events', () => this.refreshEvents());
+            if (this.isChecked('feature-ditches')) run('Ditches', () => this.refreshDitches());
+            if (this.isChecked('feature-modr')) run('MoDR events', () => this.refreshModr());
+            if (this.isChecked('feature-ria-events')) run('RIA events', () => this.refreshRiaEvents());
+            if (this.isChecked('feature-owl-events')) run('OWL events', () => this.refreshOwlEvents());
+            if (this.isChecked('diff-area')) run('DeepState', () => this.renderDeepLayer?.());
+            if (this.isChecked('ru-shadow')) run('Reach bands', () => this.layers.renderRuShadow());
+            for (const [toggle, method] of [
+                ['amk-overlay', 'toggleAmkOverlay'], ['radov-overlay', 'toggleRadovOverlay'],
+                ['isw-overlay', 'toggleIswOverlay'], ['suriyak-overlay', 'toggleSuriyakOverlay'],
+                ['ria-overlay', 'toggleRiaOverlay'], ['creamy-overlay', 'toggleCreamyOverlay'],
+                ['firms-overlay', 'toggleFirmsOverlay']
+            ]) {
+                if (this.isChecked(toggle)) run(toggle, () => this.layers[method](true));
+            }
+            if (this.isChecked('hex-tiles')) run('Hex tiles', () => this.refreshHexTiles?.());
+            if (this.getEl('show-settlement-timeline')?.value) run('Settlement timeline', () => this.renderSettlementTimeline());
+            if (this.isChecked('settlement-progress-heatmap')) run('Settlement heatmap', () => this.renderSettlementProgressHeatmap());
+            await Promise.all(jobs);
+            // These summaries depend on the layers/feeds loaded above.
+            await Promise.allSettled([
+                Promise.resolve().then(() => this.charts?.refresh()),
+                Promise.resolve().then(() => { if (this.isChecked('event-coverage')) return this.renderEventCoverageIndex(); }),
+                Promise.resolve().then(() => { if (this.isChecked('diff-highlight')) return this.updateOverlayDiffTotals?.(); })
+            ]);
+        };
+        const pending = refresh();
+        this.dateRefreshPromise = pending;
+        pending.finally(() => { if (this.dateRefreshPromise === pending) this.dateRefreshPromise = null; });
+        return pending;
     }
 
     initDiffSlices() {
@@ -5737,29 +5712,37 @@ class AttackMapDashboard {
             playBtn.classList.add('playing');
         }
 
-        const stepSizeMs = 86400000;
-        this.animationInterval = setInterval(() => {
-            this.startDate = new Date(this.startDate.getTime() + stepSizeMs);
-            this.endDate = new Date(this.endDate.getTime() + stepSizeMs);
-
-            if (this.endDate > this.maxDate) {
-                this.stopAnimation();
+        clearTimeout(this.dateRefreshDebounce);
+        this.dateRefreshDebounce = null;
+        const generation = this.animationGeneration = (this.animationGeneration || 0) + 1;
+        const isCurrent = () => this.isPlaying && this.animationGeneration === generation;
+        const frame = async () => {
+            this.animationInterval = null;
+            // Let a manual refresh finish before starting a new playback frame.
+            if (this.dateRefreshPromise) await this.dateRefreshPromise;
+            if (!isCurrent()) return;
+            const nextStart = new Date(this.startDate.getTime() + 86400000);
+            const nextEnd = new Date(this.endDate.getTime() + 86400000);
+            if (nextEnd > this.maxDate) {
+                this.stopAnimation({ refresh: false });
                 return;
             }
-
-            this.updateSliderValues(this.startDate, this.endDate);
-        }, this.playbackSpeed);
+            this.startDate = nextStart;
+            this.endDate = nextEnd;
+            this.updateSliderValues(nextStart, nextEnd);
+            await this.refreshDateDependentLayers();
+            if (!isCurrent()) return;
+            if (this.endDate >= this.maxDate) this.stopAnimation({ refresh: false });
+            else this.animationInterval = setTimeout(frame, this.playbackSpeed);
+        };
+        this.animationInterval = setTimeout(frame, this.playbackSpeed);
     }
 
-    /**
-     * Stop animation
-     */
-    stopAnimation() {
-        if (this.animationInterval) {
-            clearInterval(this.animationInterval);
-            this.animationInterval = null;
-        }
-
+    /** Stop future steps; an in-flight frame may finish rendering its current date. */
+    stopAnimation({ refresh = true } = {}) {
+        clearTimeout(this.animationInterval);
+        this.animationInterval = null;
+        this.animationGeneration = (this.animationGeneration || 0) + 1;
         this.isPlaying = false;
         const playBtn = this.getEl('play-btn');
         if (playBtn) {
@@ -5767,10 +5750,7 @@ class AttackMapDashboard {
             playBtn.querySelector('.icon-pause').style.display = 'none';
             playBtn.classList.remove('playing');
         }
-
-        // The slider handler skips these while playing, so bring the date-tied
-        // layers back in sync with wherever playback landed.
-        this.scheduleDateDependentRefreshes();
+        if (refresh && !this.dateRefreshPromise) this.scheduleDateDependentRefreshes();
     }
 
     /**
@@ -7172,9 +7152,3 @@ class AttackMapDashboard {
         return this.settlements.handleSettlementSearch(searchTerm);
     }
 }
-
-// Initialize the dashboard when the page loads
-window.onload = () => {
-    window.dashboard = new AttackMapDashboard();
-    window.dashboard.init();
-};

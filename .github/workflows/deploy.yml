@@ -3,19 +3,37 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix tests
+      - run: node scripts/check.cjs
+      - run: npm ci --prefix mcp
+      - run: cd mcp && npx playwright install --with-deps chromium
+      - run: node scripts/browser-smoke.cjs
+
   deploy:
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    if: github.event_name != 'pull_request'
+    needs: validate
     runs-on: ubuntu-latest
     environment:
       name: github-pages

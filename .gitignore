@@ -8,3 +8,6 @@ tasks/
 exports/
 /tools/
 /reports/
+
+output/playwright/
+.playwright-cli/

@@ -76,6 +76,16 @@ class MapLayers {
         this.sourcesManifestPromise = null;
     }
 
+    beginOverlayRequest(key) {
+        this._overlayRequests ||= new Map();
+        const token = {};
+        this._overlayRequests.set(key, token);
+        const dated = ['amkOverlay', 'radovOverlay', 'iswOverlay', 'suriyakOverlay', 'riaOverlay', 'creamyOverlay'].includes(key);
+        const state = () => JSON.stringify([this.dashboard.startDate, this.dashboard.endDate, this.dashboard.isChecked?.('diff-highlight')]);
+        const requestedState = dated ? state() : null;
+        return () => this._overlayRequests.get(key) === token && (!dated || requestedState === state());
+    }
+
     initMap() {
         const dashboard = this.dashboard;
 
@@ -529,15 +539,19 @@ class MapLayers {
 
     async toggleRussiaOverlay(enabled) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('russiaOverlay');
         if (enabled) {
             try {
                 console.log('Loading Russia.geojson overlay...');
                 const response = await fetch('https://playframap.github.io/data/Russia.geojson');
+                if (!isCurrent()) return;
                 const russiaData = await response.json();
+                if (!isCurrent()) return;
 
                 if (!dashboard.russiaOverlay) {
                     dashboard.russiaOverlay = L.layerGroup().addTo(dashboard.map);
                 }
+                dashboard.russiaOverlay.clearLayers();
 
                 const polygonsToMerge = [];
                 russiaData.features.forEach(feature => {
@@ -551,6 +565,7 @@ class MapLayers {
                         try {
                             merged = turf.union(merged, polygonsToMerge[i]);
                         } catch (err) {
+                            if (!isCurrent()) return;
                             console.warn(`Warning: Could not merge polygon ${i}`);
                         }
                     }
@@ -571,7 +586,7 @@ class MapLayers {
                         if (feature.properties) {
                             let tooltipContent = '';
                             for (const [key, value] of Object.entries(feature.properties)) {
-                                tooltipContent += `<strong>${key}:</strong> ${value}<br>`;
+                                tooltipContent += `<strong>${HtmlUtils.escape(key)}:</strong> ${HtmlUtils.escape(value)}<br>`;
                             }
                             if (tooltipContent) {
                                 layer.bindTooltip(tooltipContent);
@@ -582,6 +597,7 @@ class MapLayers {
 
                 console.log('✓ Russia overlay loaded successfully');
             } catch (error) {
+                if (!isCurrent()) return;
                 console.error('Error loading Russia overlay:', error);
                 alert('Failed to load Russia overlay. Check console for details.');
             }
@@ -597,6 +613,7 @@ class MapLayers {
      * line, hit it regularly. Rounding the coordinates off clears it; same
      * retry idea as safeUnion() in ui-bindings, one step coarser each try.
      */
+
     static clipRetry(op, a, b) {
         try {
             return turf[op](a, b);
@@ -813,15 +830,19 @@ class MapLayers {
 
     async toggleUkraineOverlay(enabled) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('ukraineOverlay');
         if (enabled) {
             try {
                 console.log('Loading Ukraine.geojson overlay...');
                 const response = await fetch('https://playframap.github.io/data/Ukraine.geojson');
+                if (!isCurrent()) return;
                 const ukraineData = await response.json();
+                if (!isCurrent()) return;
 
                 if (!dashboard.ukraineOverlay) {
                     dashboard.ukraineOverlay = L.layerGroup().addTo(dashboard.map);
                 }
+                dashboard.ukraineOverlay.clearLayers();
 
                 const polygonsToMerge = [];
                 ukraineData.features.forEach(feature => {
@@ -835,6 +856,7 @@ class MapLayers {
                         try {
                             merged = turf.union(merged, polygonsToMerge[i]);
                         } catch (err) {
+                            if (!isCurrent()) return;
                             console.warn(`Warning: Could not merge polygon ${i}`);
                         }
                     }
@@ -855,7 +877,7 @@ class MapLayers {
                         if (feature.properties) {
                             let tooltipContent = '';
                             for (const [key, value] of Object.entries(feature.properties)) {
-                                tooltipContent += `<strong>${key}:</strong> ${value}<br>`;
+                                tooltipContent += `<strong>${HtmlUtils.escape(key)}:</strong> ${HtmlUtils.escape(value)}<br>`;
                             }
                             if (tooltipContent) {
                                 layer.bindTooltip(tooltipContent);
@@ -866,6 +888,7 @@ class MapLayers {
 
                 console.log('✓ Ukraine overlay loaded successfully');
             } catch (error) {
+                if (!isCurrent()) return;
                 console.error('Error loading Ukraine overlay:', error);
                 alert('Failed to load Ukraine overlay. Check console for details.');
             }
@@ -877,10 +900,13 @@ class MapLayers {
 
     async toggleAmkOverlay(enabled) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('amkOverlay');
         if (enabled) {
             try {
-                await this.toggleManifestKmlOverlay('AMK', 'amkOverlay', 'amkMergedPolygon');
+                await this.toggleManifestKmlOverlay('AMK', 'amkOverlay', 'amkMergedPolygon', isCurrent);
+                if (!isCurrent()) return;
             } catch (error) {
+                if (!isCurrent()) return;
                 console.error('Error loading AMK overlay:', error);
                 alert('Failed to load AMK overlay. Check console for details.');
             }
@@ -891,11 +917,14 @@ class MapLayers {
 
     async toggleOwlOverlay(enabled) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('owlOverlay');
         if (enabled) {
             try {
                 console.log('Loading owl.json overlay...');
                 const response = await fetch('owl.json');
+                if (!isCurrent()) return;
                 const owlData = await response.json();
+                if (!isCurrent()) return;
 
                 console.log(`Total features in owl.json: ${owlData.features.length}`);
 
@@ -930,6 +959,7 @@ class MapLayers {
                         try {
                             mergedPolygon = turf.union(mergedPolygon, polygonsToMerge[i]);
                         } catch (err) {
+                            if (!isCurrent()) return;
                             console.warn(`  Warning: Could not merge polygon ${i}: ${err.message}`);
                         }
                     }
@@ -941,6 +971,7 @@ class MapLayers {
                         const areaKm2 = (area / 1000000).toFixed(2);
                         console.log(`Total area: ${areaKm2} km²`);
                     } catch (error) {
+                        if (!isCurrent()) return;
                         console.log('Area calculation: N/A');
                     }
                 }
@@ -948,6 +979,7 @@ class MapLayers {
                 if (!dashboard.owlOverlay) {
                     dashboard.owlOverlay = L.layerGroup().addTo(dashboard.map);
                 }
+                dashboard.owlOverlay.clearLayers();
 
                 if (mergedPolygon) {
                     L.geoJSON(mergedPolygon, {
@@ -978,6 +1010,7 @@ class MapLayers {
                 }
 
             } catch (error) {
+                if (!isCurrent()) return;
                 console.error('Error loading OWL overlay:', error);
                 alert('Failed to load OWL overlay. Check console for details.');
             }
@@ -988,10 +1021,13 @@ class MapLayers {
 
     async toggleRadovOverlay(enabled) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('radovOverlay');
         if (enabled) {
             try {
-                await this.toggleManifestKmlOverlay('RADOV', 'radovOverlay', 'radovMergedPolygon');
+                await this.toggleManifestKmlOverlay('RADOV', 'radovOverlay', 'radovMergedPolygon', isCurrent);
+                if (!isCurrent()) return;
             } catch (error) {
+                if (!isCurrent()) return;
                 console.error('Error loading Radov overlay:', error);
                 alert(`Failed to load Radov overlay: ${error.message}`);
             }
@@ -1003,10 +1039,13 @@ class MapLayers {
 
     async toggleIswOverlay(enabled) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('iswOverlay');
         if (enabled) {
             try {
-                await this.toggleManifestKmlOverlay('ISW', 'iswOverlay', 'iswMergedPolygon');
+                await this.toggleManifestKmlOverlay('ISW', 'iswOverlay', 'iswMergedPolygon', isCurrent);
+                if (!isCurrent()) return;
             } catch (error) {
+                if (!isCurrent()) return;
                 console.error('Error loading ISW overlay:', error);
                 alert(`Failed to load ISW overlay: ${error.message}`);
             }
@@ -1018,10 +1057,13 @@ class MapLayers {
 
     async toggleSuriyakOverlay(enabled) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('suriyakOverlay');
         if (enabled) {
             try {
-                await this.toggleManifestKmlOverlay('suriyak', 'suriyakOverlay', 'suriyakMergedPolygon');
+                await this.toggleManifestKmlOverlay('suriyak', 'suriyakOverlay', 'suriyakMergedPolygon', isCurrent);
+                if (!isCurrent()) return;
             } catch (error) {
+                if (!isCurrent()) return;
                 console.error('Error loading Suriyak overlay:', error);
                 alert(`Failed to load Suriyak overlay: ${error.message}`);
             }
@@ -1037,6 +1079,7 @@ class MapLayers {
      * SVG), keyed by the currently selected end date. Same fetch-by-date
      * pattern as toggleCreamyOverlay, but the source is already GeoJSON.
      */
+
     static _riaDateStr(date) {
         const d = new Date(date);
         const y = d.getFullYear();
@@ -1057,15 +1100,15 @@ class MapLayers {
     async _loadRiaMerged(dateStr) {
         const geojson = await this._loadRiaZones(dateStr);
         const polys = [];
-        (geojson.features || []).forEach(f => {
+        if (!Array.isArray(geojson?.features)) throw new Error('Invalid RIA territory data');
+        geojson.features.forEach(f => {
             if (f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')) {
                 polys.push(...GeometryUtils.toTurfPolygons(f.geometry));
             }
         });
         let merged = polys[0] || null;
         for (let i = 1; i < polys.length; i++) {
-            try { merged = turf.union(merged, polys[i]); }
-            catch (e) { /* keep partial union */ }
+            merged = turf.union(merged, polys[i]);
         }
         return merged;
     }
@@ -1075,115 +1118,68 @@ class MapLayers {
      * net} shape as getManifestDiffAreaKm2 — used for the "Total" stats line.
      */
     async getRiaDiffAreaKm2(startDate, endDate) {
-        const result = { gains: 0, losses: 0, net: 0, gainsGeom: null, lossesGeom: null };
-        let startUnion = null, endUnion = null;
-        try { startUnion = await this._loadRiaMerged(MapLayers._riaDateStr(startDate)); }
-        catch (e) { console.warn('RIA diff: start load failed:', e); }
-        try { endUnion = await this._loadRiaMerged(MapLayers._riaDateStr(endDate)); }
-        catch (e) { console.warn('RIA diff: end load failed:', e); }
-
-        if (!startUnion && !endUnion) return result;
-
-        if (startUnion && endUnion) {
-            try {
-                const diff = turf.difference(endUnion, startUnion);
-                if (diff) { result.gains = turf.area(diff) / 1e6; result.gainsGeom = diff; }
-            } catch (e) { result.gains = turf.area(endUnion) / 1e6; result.gainsGeom = endUnion; }
-            try {
-                const reverseDiff = turf.difference(startUnion, endUnion);
-                if (reverseDiff) { result.losses = turf.area(reverseDiff) / 1e6; result.lossesGeom = reverseDiff; }
-            } catch (e) { /* ignore */ }
-        } else if (endUnion) {
-            result.gains = turf.area(endUnion) / 1e6;
-            result.gainsGeom = endUnion;
-        } else if (startUnion) {
-            result.losses = turf.area(startUnion) / 1e6;
-            result.lossesGeom = startUnion;
-        }
-
-        result.net = result.gains - result.losses;
-        return result;
+        const [before, after] = await Promise.all([
+            this._loadRiaMerged(MapLayers._riaDateStr(startDate)),
+            this._loadRiaMerged(MapLayers._riaDateStr(endDate))
+        ]);
+        return TerritoryAnalysis.summary(before, after);
     }
 
     async toggleRiaOverlay(enabled) {
         const dashboard = this.dashboard;
-        if (!dashboard.riaOverlay) {
-            dashboard.riaOverlay = L.layerGroup().addTo(dashboard.map);
-        }
-        dashboard.riaOverlay.clearLayers();
-        dashboard.riaMergedPolygon = null;
-        if (!enabled) return;
-
-        const endDate = dashboard.endDate || dashboard.maxDate || new Date();
-        const startDate = dashboard.startDate || dashboard.minDate;
-        const diffEnabled = dashboard.isChecked('diff-highlight');
-        const endStr = MapLayers._riaDateStr(endDate);
-
-        let endMerged;
-        try {
-            endMerged = await this._loadRiaMerged(endStr);
-            dashboard.riaMergedPolygon = endMerged;
-        } catch (error) {
-            console.warn(`RIA overlay: failed to load zones for ${endStr}:`, error);
-            const cb = dashboard.getEl('ria-overlay');
-            if (cb) cb.checked = false;
-            alert(`Failed to load RIA zones for ${endStr}: ${error.message}`);
+        const isCurrent = this.beginOverlayRequest('riaOverlay');
+        if (!enabled) {
+            dashboard.riaOverlay?.clearLayers();
+            dashboard.riaMergedPolygon = null;
+            TerritoryStatus.set(dashboard, 'ria', '');
             return;
         }
-
+        const endDate = dashboard.endDate || dashboard.maxDate || new Date();
+        const startDate = dashboard.startDate || dashboard.minDate;
+        const endStr = MapLayers._riaDateStr(endDate);
         const startStr = startDate ? MapLayers._riaDateStr(startDate) : null;
-
-        // Difference mode: color-distinguish gains (red) / losses (blue) between
-        // start and end dates, matching the Suriyak/AMK/ISW/Radov diff style.
-        if (diffEnabled && startStr && startStr !== endStr) {
-            let startMerged = null;
-            try {
-                startMerged = await this._loadRiaMerged(startStr);
-            } catch (e) {
-                console.warn('RIA: failed to load startDate layer:', e);
+        const compare = dashboard.isChecked('diff-highlight') && startStr && startStr !== endStr;
+        try {
+            const [endMerged, startMerged] = await Promise.all([
+                this._loadRiaMerged(endStr),
+                compare ? this._loadRiaMerged(startStr) : null
+            ]);
+            if (!isCurrent()) return;
+            const nextLayer = L.layerGroup();
+            if (compare) {
+                const data = feature => ({ polygons: feature ? [{ geojson: feature }] : [], statistics: {} });
+                const comparison = TerritoryAnalysis.difference(data(startMerged), data(endMerged));
+                for (const polygon of comparison.polygons) {
+                    const label = polygon.type === 'difference' ? 'Gains' : polygon.type === 'reverse-difference' ? 'Losses' : 'RIA start';
+                    const style = polygon.type === 'merged-start'
+                        ? { color: '#FF655C', fillColor: '#FF655C', weight: 1, fillOpacity: 0.2 }
+                        : polygon.style;
+                    L.geoJSON(polygon.geojson, { style })
+                        .bindTooltip(`${label}: ${(turf.area(polygon.geojson) / 1e6).toFixed(2)} km²`).addTo(nextLayer);
+                }
+            } else if (endMerged) {
+                L.geoJSON(endMerged, { style: { color: '#FF655C', weight: 2, fillColor: '#FF655C', fillOpacity: 0.35 } }).addTo(nextLayer);
             }
-
-            const startFeature = startMerged ? { type: 'Feature', properties: {}, geometry: startMerged.geometry || startMerged } : null;
-            const endFeature = endMerged ? { type: 'Feature', properties: {}, geometry: endMerged.geometry || endMerged } : null;
-
-            let gains = null, losses = null;
-            if (startFeature && endFeature) {
-                try { gains = turf.difference(endFeature, startFeature); }
-                catch (e) { gains = endFeature; }
-                try { losses = turf.difference(startFeature, endFeature); }
-                catch (e) { /* ignore */ }
-            } else if (endFeature) {
-                gains = endFeature;
-            } else if (startFeature) {
-                losses = startFeature;
-            }
-
-            if (startFeature) {
-                L.geoJSON(startFeature, {
-                    style: { color: '#FF655C', weight: 1, fillColor: '#FF655C', fillOpacity: 0.2 }
-                }).bindTooltip('RIA start').addTo(dashboard.riaOverlay);
-            }
-            if (gains) {
-                const gainsKm2 = turf.area(gains) / 1e6;
-                L.geoJSON(gains, {
-                    style: { color: 'red', weight: 2, fillColor: 'red', fillOpacity: 0.5 }
-                }).bindTooltip(`Gains: ${gainsKm2.toFixed(2)} km²`).addTo(dashboard.riaOverlay);
-            }
-            if (losses) {
-                const lossesKm2 = turf.area(losses) / 1e6;
-                L.geoJSON(losses, {
-                    style: { color: 'blue', weight: 2, fillColor: 'blue', fillOpacity: 0.5 }
-                }).bindTooltip(`Losses: ${lossesKm2.toFixed(2)} km²`).addTo(dashboard.riaOverlay);
-            }
-        } else if (endMerged) {
-            L.geoJSON({ type: 'Feature', properties: {}, geometry: endMerged.geometry || endMerged }, {
-                style: { color: '#FF655C', weight: 2, fillColor: '#FF655C', fillOpacity: 0.35 }
-            }).addTo(dashboard.riaOverlay);
+            if (!dashboard.riaOverlay) dashboard.riaOverlay = L.layerGroup().addTo(dashboard.map);
+            dashboard.riaOverlay.clearLayers();
+            nextLayer.eachLayer(layer => layer.addTo(dashboard.riaOverlay));
+            dashboard.riaMergedPolygon = endMerged;
+            TerritoryStatus.set(dashboard, 'ria', '');
+        } catch (error) {
+            if (!isCurrent()) return;
+            console.error('RIA overlay unavailable:', error);
+            const toggle = dashboard.getEl('ria-overlay');
+            if (toggle) toggle.checked = false;
+            dashboard.riaOverlay?.clearLayers();
+            dashboard.riaMergedPolygon = null;
+            TerritoryStatus.set(dashboard, 'ria', `RIA overlay unavailable: ${error.message}`);
+            dashboard.updateOverlayDiffTotals?.();
         }
     }
 
     async toggleCreamyOverlay(enabled) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('creamyOverlay');
         if (!dashboard.creamyOverlay) {
             dashboard.creamyOverlay = L.layerGroup().addTo(dashboard.map);
         }
@@ -1201,8 +1197,10 @@ class MapLayers {
         const loadKml = async (dateStr) => {
             const url = `${API_BASE_URL}/daily/${dateStr}/creamycaprice_${dateStr}.kml`;
             const resp = await fetch(url);
+            if (!isCurrent()) return;
             if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
             const text = await resp.text();
+            if (!isCurrent()) return;
             const kml = new DOMParser().parseFromString(text, 'text/xml');
             return toGeoJSON.kml(kml);
         };
@@ -1214,10 +1212,12 @@ class MapLayers {
         try {
             const endStr = fmt(endDate);
             const endGeoJSON = await loadKml(endStr);
+            if (!isCurrent()) return;
             L.geoJSON(endGeoJSON, {
                 style: () => ({ color: '#ff9800', weight: 2, opacity: 0.9, dashArray: null })
             }).addTo(dashboard.creamyOverlay);
         } catch (e) {
+            if (!isCurrent()) return;
             console.warn('Creamy: failed to load endDate layer:', e);
         }
 
@@ -1225,36 +1225,35 @@ class MapLayers {
             try {
                 const startStr = fmt(startDate);
                 const startGeoJSON = await loadKml(startStr);
+                if (!isCurrent()) return;
                 L.geoJSON(startGeoJSON, {
                     style: () => ({ color: '#ff9800', weight: 2, opacity: 0.6, dashArray: '6 4' })
                 }).addTo(dashboard.creamyOverlay);
             } catch (e) {
+                if (!isCurrent()) return;
                 console.warn('Creamy: failed to load startDate layer:', e);
             }
         }
     }
 
-    async toggleManifestKmlOverlay(sourceKey, overlayKey, mergedKey) {
+    async toggleManifestKmlOverlay(sourceKey, overlayKey, mergedKey, isCurrent = this.beginOverlayRequest(overlayKey)) {
         const dashboard = this.dashboard;
         const startDate = dashboard.startDate || new Date();
         const endDate = dashboard.endDate || startDate;
         const diffEnabled = dashboard.isChecked('diff-highlight');
 
         const endData = await this.loadManifestDataByDate(sourceKey, endDate);
+        if (!isCurrent()) return;
         if (!endData || !endData.features || endData.features.length === 0) {
             throw new Error(`No features found in ${sourceKey} KML data.`);
         }
 
         const startData = diffEnabled ? await this.loadManifestDataByDate(sourceKey, startDate) : null;
+        if (!isCurrent()) return;
 
-        if (!dashboard[overlayKey]) {
-            dashboard[overlayKey] = L.layerGroup().addTo(dashboard.map);
-        } else {
-            dashboard[overlayKey].clearLayers();
-        }
+        const nextLayer = L.layerGroup();
 
         const { ruUnion: endRuUnion, nonRuFeatures: endNonRu } = this.extractKmlFeatures(endData, sourceKey);
-        dashboard[mergedKey] = endRuUnion || null;
 
         const normalizedKey = (sourceKey || '').toUpperCase();
         const forceRed = normalizedKey === 'AMK';
@@ -1311,8 +1310,8 @@ class MapLayers {
                     difference = turf.difference(endFeature, startFeature);
                     console.log(`${sourceKey}: Calculated gains (red)`, difference ? 'exists' : 'null');
                 } catch (error) {
-                    console.warn(`${sourceKey} diff failed, using end union:`, error);
-                    difference = endFeature;
+                    console.warn(`${sourceKey} comparison unavailable:`, error);
+                    throw error;
                 }
 
                 // Calculate losses (start - end)
@@ -1320,7 +1319,7 @@ class MapLayers {
                     reverseDifference = turf.difference(startFeature, endFeature);
                     console.log(`${sourceKey}: Calculated losses (blue)`, reverseDifference ? 'exists' : 'null');
                 } catch (error) {
-                    console.warn(`${sourceKey} reverse diff failed:`, error);
+                    throw error;
                 }
             } else if (endRuUnion) {
                 difference = endFeature;
@@ -1343,7 +1342,7 @@ class MapLayers {
                     onEachFeature: function (_feature, layer) {
                         layer.bindTooltip('RU start');
                     }
-                }).addTo(dashboard[overlayKey]);
+                }).addTo(nextLayer);
             }
 
             // Render gains in red
@@ -1363,7 +1362,7 @@ class MapLayers {
                     onEachFeature: function (_feature, layer) {
                         layer.bindTooltip(`Gains: ${gainsArea.toFixed(2)} km²`);
                     }
-                }).addTo(dashboard[overlayKey]);
+                }).addTo(nextLayer);
             }
 
             // Render losses in blue
@@ -1383,22 +1382,22 @@ class MapLayers {
                     onEachFeature: function (_feature, layer) {
                         layer.bindTooltip(`Losses: ${lossesArea.toFixed(2)} km²`);
                     }
-                }).addTo(dashboard[overlayKey]);
+                }).addTo(nextLayer);
             }
-        } else if (dashboard[mergedKey]) {
+        } else if (endRuUnion) {
             L.geoJSON({
                 type: 'FeatureCollection',
                 features: [{
                     type: 'Feature',
                     properties: { name: 'RU merged' },
-                    geometry: dashboard[mergedKey].geometry || dashboard[mergedKey]
+                    geometry: endRuUnion.geometry || endRuUnion
                 }]
             }, {
                 style: styleFeature,
                 onEachFeature: function (_feature, layer) {
                     layer.bindTooltip('RU merged');
                 }
-            }).addTo(dashboard[overlayKey]);
+            }).addTo(nextLayer);
         }
 
         if (endNonRu.length && !forceRed) {
@@ -1410,79 +1409,27 @@ class MapLayers {
                 onEachFeature: function (feature, layer) {
                     const name = feature?.properties?.name;
                     if (name) {
-                        layer.bindTooltip(name);
+                        layer.bindTooltip(HtmlUtils.escape(name));
                     }
                 }
-            }).addTo(dashboard[overlayKey]);
+            }).addTo(nextLayer);
         }
 
+        if (!dashboard[overlayKey]) dashboard[overlayKey] = L.layerGroup().addTo(dashboard.map);
+        dashboard[overlayKey].clearLayers();
+        nextLayer.eachLayer(layer => layer.addTo(dashboard[overlayKey]));
+        dashboard[mergedKey] = endRuUnion || null;
         console.log(`✓ ${sourceKey} overlay loaded successfully`);
     }
 
     async getManifestDiffAreaKm2(sourceKey, startDate, endDate) {
-        const startData = await this.loadManifestDataByDate(sourceKey, startDate);
-        const endData = await this.loadManifestDataByDate(sourceKey, endDate);
-
-        const { ruUnion: startUnion } = this.extractKmlFeatures(startData, sourceKey);
-        const { ruUnion: endUnion } = this.extractKmlFeatures(endData, sourceKey);
-
-        const result = { gains: 0, losses: 0, net: 0, gainsGeom: null, lossesGeom: null };
-
-        if (!endUnion && !startUnion) {
-            return result;
-        }
-
-        const startFeature = startUnion ? {
-            type: 'Feature',
-            geometry: startUnion.geometry || startUnion,
-            properties: {}
-        } : null;
-
-        const endFeature = endUnion ? {
-            type: 'Feature',
-            geometry: endUnion.geometry || endUnion,
-            properties: {}
-        } : null;
-
-        // Calculate gains (end - start)
-        if (endFeature && startFeature) {
-            try {
-                const difference = turf.difference(endFeature, startFeature);
-                if (difference) {
-                    result.gains = turf.area(difference) / 1000000;
-                    result.gainsGeom = difference;
-                }
-            } catch (error) {
-                console.warn(`${sourceKey} gains calculation failed:`, error);
-                if (endFeature) {
-                    result.gains = turf.area(endFeature) / 1000000;
-                    result.gainsGeom = endFeature;
-                }
-            }
-        } else if (endFeature) {
-            result.gains = turf.area(endFeature) / 1000000;
-            result.gainsGeom = endFeature;
-        }
-
-        // Calculate losses (start - end)
-        if (startFeature && endFeature) {
-            try {
-                const reverseDifference = turf.difference(startFeature, endFeature);
-                if (reverseDifference) {
-                    result.losses = turf.area(reverseDifference) / 1000000;
-                    result.lossesGeom = reverseDifference;
-                }
-            } catch (error) {
-                console.warn(`${sourceKey} losses calculation failed:`, error);
-            }
-        } else if (startFeature) {
-            result.losses = turf.area(startFeature) / 1000000;
-            result.lossesGeom = startFeature;
-        }
-
-        result.net = result.gains - result.losses;
-
-        return result;
+        const [startData, endData] = await Promise.all([
+            this.loadManifestDataByDate(sourceKey, startDate),
+            this.loadManifestDataByDate(sourceKey, endDate)
+        ]);
+        const before = this.extractKmlFeatures(startData, sourceKey).ruUnion;
+        const after = this.extractKmlFeatures(endData, sourceKey).ruUnion;
+        return TerritoryAnalysis.summary(before, after);
     }
 
     async loadSourcesManifest() {
@@ -1611,6 +1558,7 @@ class MapLayers {
     }
 
     extractKmlFeatures(kmlData, sourceKey) {
+        if (!Array.isArray(kmlData?.features)) throw new Error(`Invalid ${sourceKey} territory data`);
         const normalizedKey = (sourceKey || '').toUpperCase();
         const allFeatures = kmlData.features || [];
         if (normalizedKey === 'AMK') {
@@ -1691,7 +1639,7 @@ class MapLayers {
             try {
                 merged = turf.union(merged, polygonsToMerge[i]);
             } catch (err) {
-                console.warn(`Warning: Could not merge KML polygon ${i}`);
+                throw new Error(`Unable to merge KML polygon ${i}: ${err.message}`, { cause: err });
             }
         }
 
@@ -1942,6 +1890,7 @@ class MapLayers {
 
     async loadCustomKml(url) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('customImport');
         try {
             console.log(`Loading custom layer from: ${url}`);
 
@@ -1949,13 +1898,16 @@ class MapLayers {
             dashboard.customKmlUrl = url;
 
             const response = await fetch(url);
+            if (!isCurrent()) return;
             if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
 
             const contentType = response.headers.get('content-type') || '';
             const text = await response.text();
+            if (!isCurrent()) return;
 
             this.processCustomKmlText(text, MapLayers.looksLikeGeoJson(url, text, contentType));
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Error loading custom KML:', error);
             alert(`Failed to load custom layer: ${error.message}`);
         }
@@ -1963,6 +1915,7 @@ class MapLayers {
 
     async loadCustomKmlFile(file) {
         const dashboard = this.dashboard;
+        const isCurrent = this.beginOverlayRequest('customImport');
         try {
             console.log(`Loading custom layer from file: ${file.name}`);
 
@@ -1970,9 +1923,11 @@ class MapLayers {
             dashboard.customKmlUrl = '';
 
             const text = await file.text();
+            if (!isCurrent()) return;
 
             this.processCustomKmlText(text, MapLayers.looksLikeGeoJson(file.name, text, file.type));
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Error loading custom KML file:', error);
             alert(`Failed to load custom layer file: ${error.message}`);
         }
@@ -2152,10 +2107,10 @@ class MapLayers {
                     if (feature.properties) {
                         let tooltipContent = '';
                         if (feature.properties.name) {
-                            tooltipContent += `<strong>Name:</strong> ${feature.properties.name}<br>`;
+                            tooltipContent += `<strong>Name:</strong> ${HtmlUtils.escape(feature.properties.name)}<br>`;
                         }
                         if (feature.properties.description) {
-                            tooltipContent += `<strong>Description:</strong> ${feature.properties.description}<br>`;
+                            tooltipContent += `<strong>Description:</strong> ${HtmlUtils.escape(feature.properties.description)}<br>`;
                         }
                         if (tooltipContent) {
                             layer.bindTooltip(tooltipContent);

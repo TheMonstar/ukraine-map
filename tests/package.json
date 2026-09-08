@@ -1,0 +1,7 @@
+{
+  "name": "ukraine-map-tests",
+  "private": true,
+  "devDependencies": {
+    "@turf/turf": "6.5.0"
+  }
+}

@@ -621,12 +621,19 @@
             const runs = [];
             for (const poly of data.polygons || []) {
                 if ((poly.properties?.fill || '').toLowerCase() !== '#a52714') continue;
-                let run = [];
-                for (const c of poly.coordinates) {
-                    if (inBox(c)) { run.push(c); }
-                    else if (run.length) { runs.push(run); run = []; }
+                const feature = utils.normalizePolygon([poly])[0];
+                const polygons = GeometryUtils.toTurfPolygons(feature.geometry);
+                for (const polygon of polygons) {
+                    for (const ring of polygon.geometry.coordinates) {
+                        let run = [];
+                        for (const [lng, lat] of ring) {
+                            const coordinate = [lat, lng];
+                            if (inBox(coordinate)) run.push(coordinate);
+                            else if (run.length) { runs.push(run); run = []; }
+                        }
+                        if (run.length) runs.push(run);
+                    }
                 }
-                if (run.length) runs.push(run);
             }
             return runs.filter((r) => r.length >= 4).sort((x, y) => y.length - x.length);
         },

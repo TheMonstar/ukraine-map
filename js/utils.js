@@ -2,79 +2,26 @@ class DeepUtils {
     constructor(deepLayer) {
         this.deepLayer = deepLayer;
     }
-    /**
-     * Calculate the area of a polygon given its vertices in [longitude, latitude] format
-     * Uses geodesic polygon area calculation for high accuracy
-     * @param {Array<Array<number>>} vertices - Array of [longitude, latitude] coordinate pairs
-     * @returns {object} The area of the polygon in square meters and square kilometers
-     */
-    calculateGeoPolygonArea(vertices) {
-        if (vertices.length < 3) {
-            return { squareMeters: 0, squareKilometers: 0 };
-        }
-
-        const earthRadius = 6378137.0; // WGS84 semi-major axis in meters
-
-        // Calculate spherical excess
-        let area = 0;
-        const n = vertices.length;
-
-        for (let i = 0; i < n; i++) {
-            const j = (i + 1) % n;
-            const [lat1, lon1] = vertices[i].map(this.toRadians);
-            const [lat2, lon2] = vertices[j].map(this.toRadians);
-
-            area += (lon2 - lon1) * Math.sin((lat1 + lat2) / 2);
-        }
-
-        area = Math.abs(area) * earthRadius * earthRadius;
-
+    static shadowOptions() {
+        const value = id => document.getElementById(id)?.value;
+        const depth = (id, fallback) => {
+            const input = value(id);
+            const number = input == null || input === '' ? fallback : Number(input);
+            if (!Number.isFinite(number) || number < 0) throw new Error('Shadow depth must be a non-negative number');
+            return number;
+        };
+        const defaultDepth = depth('clusterRadius', 20);
         return {
-            squareMeters: area,
-            squareKilometers: area / 1000000
+            enabled: !!document.getElementById('shadow-line')?.checked,
+            occupiedDepth: depth('shadow-depth-occupied', defaultDepth),
+            oppositeDepth: depth('shadow-depth-opposite', defaultDepth),
+            gradient: !!document.getElementById('shadow-gradient')?.checked
         };
     }
 
-    /**
-     * Convert degrees to radians
-     * @param {number} degrees - Angle in degrees
-     * @returns {number} Angle in radians
-     */
-    toRadians(degrees) {
-        return degrees * Math.PI / 180;
-    }
-
-    async addDeepMap(date = new Date()) {
+    async addDeepMap(date = new Date(), options = DeepUtils.shadowOptions()) {
         try {
-            const dateStr = date.toLocaleDateString('en-CA');
-            if (!this.constructor.cache) {
-                this.constructor.cache = new Map();
-            }
-
-            const MAX_CACHE_SIZE = 30; // Limit to ~18MB to prevent memory leaks
-
-            let data;
-            if (this.constructor.cache.has(dateStr)) {
-                // Return cached data and move to the end to mark as recently used
-                data = this.constructor.cache.get(dateStr);
-                this.constructor.cache.delete(dateStr);
-                this.constructor.cache.set(dateStr, data);
-            } else {
-                const response = await fetch(`https://flask-app-kibakefmpq-ew.a.run.app/geojson-by-date?date=${dateStr}`);
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
-                }
-
-                data = await response.json();
-                this.constructor.cache.set(dateStr, data);
-
-                // Enforce maximum cache size by removing the oldest entry
-                if (this.constructor.cache.size > MAX_CACHE_SIZE) {
-                    const oldestKey = this.constructor.cache.keys().next().value;
-                    this.constructor.cache.delete(oldestKey);
-                }
-            }
+            const data = await TerritoryData.load(date);
 
             //"#bcaaa4", "#a52714", "#ff5252"
             const dbg = {};
@@ -82,14 +29,14 @@ class DeepUtils {
             const filteredPolygons = [];
 
             data.features.filter(item =>
-                item.geometry.type === "Polygon" &&
+                ["Polygon", "MultiPolygon"].includes(item.geometry.type) &&
                 ["#bcaaa4", "#a52714", "#880e4f"].indexOf(item.properties.stroke) >= 0
             ).forEach(item => {
-                const coordinates = item.geometry.coordinates[0].map(coord => [coord[1], coord[0]]);
+                const squareMeters = turf.area(item);
 
                 // Create polygon data object instead of rendering directly
                 const polygonData = {
-                    coordinates: coordinates,
+                    geojson: item,
                     style: {
                         color: item.properties.stroke,
                         fillColor: item.properties.fill,
@@ -97,45 +44,29 @@ class DeepUtils {
                         weight: 0
                     },
                     properties: item.properties,
-                    area: this.calculateGeoPolygonArea(coordinates)
+                    area: { squareMeters, squareKilometers: squareMeters / 1e6 }
                 };
 
                 filteredPolygons.push(polygonData);
 
-                if (document.getElementById('shadow-line')?.checked && item.properties.fill === "#bcaaa4") {
-                    const tempPolygon = L.polygon(coordinates);
-                    const geojson = tempPolygon.toGeoJSON();
-
-                    // Get depth values, default to clusterRadius if not set
-                    const defaultDepth = parseFloat(document.getElementById('clusterRadius')?.value) || 20;
-                    const occupiedEl = document.getElementById('shadow-depth-occupied');
-                    const oppositeEl = document.getElementById('shadow-depth-opposite');
-                    const occupiedDepth = occupiedEl && occupiedEl.value !== '' ? parseFloat(occupiedEl.value) : defaultDepth;
-                    const oppositeDepth = oppositeEl && oppositeEl.value !== '' ? parseFloat(oppositeEl.value) : defaultDepth;
-
-                    // Store both buffer zones with their depths
-                    polis.push({
-                        geojson: geojson,
-                        occupiedDepth: occupiedDepth,
-                        oppositeDepth: oppositeDepth
-                    });
+                if (options.enabled && item.properties.fill === "#bcaaa4") {
+                    polis.push({ geojson: item, occupiedDepth: options.occupiedDepth, oppositeDepth: options.oppositeDepth });
                 }
 
                 if (dbg.hasOwnProperty(item.properties.fill)) {
-                    dbg[item.properties.fill] += parseFloat(polygonData.area.squareKilometers.toFixed(2));
+                    dbg[item.properties.fill] += polygonData.area.squareKilometers;
                 } else {
-                    dbg[item.properties.fill] = parseFloat(polygonData.area.squareKilometers.toFixed(2));
+                    dbg[item.properties.fill] = polygonData.area.squareKilometers;
                 }
             });
 
             // Handle shadow polygons if needed
             let shadowPolygon = null;
-            if (document.getElementById('shadow-line')?.checked && polis.length > 0) {
+            if (options.enabled && polis.length > 0) {
                 // Build merged occupied polygon from ALL filteredPolygons (all territories)
                 let mergedOccupied = null;
                 for (let polygon of filteredPolygons) {
-                    const tempPolygon = L.polygon(polygon.coordinates);
-                    const geojson = tempPolygon.toGeoJSON();
+                    const geojson = polygon.geojson;
                     if (!mergedOccupied) {
                         mergedOccupied = geojson;
                     } else {
@@ -164,11 +95,11 @@ class DeepUtils {
                 // Combine both shadow zones
                 let combinedShadow = occupiedShadow;
                 if (oppositeShadow) {
-                    combinedShadow = turf.union(occupiedShadow, oppositeShadow);
+                    combinedShadow = TerritoryAnalysis.union([occupiedShadow, oppositeShadow]);
                 }
 
                 // Create gradient rings with exponential decay (only if gradient toggle is on)
-                const gradientEnabled = document.getElementById('shadow-gradient')?.checked;
+                const gradientEnabled = options.gradient;
                 const gradientRings = [];
                 const numRings = 5;
 
@@ -207,7 +138,7 @@ class DeepUtils {
                     // Combine ring shadows
                     let ringCombinedShadow = ringOccupiedShadow;
                     if (ringOppositeShadow) {
-                        ringCombinedShadow = turf.union(ringOccupiedShadow, ringOppositeShadow);
+                        ringCombinedShadow = TerritoryAnalysis.union([ringOccupiedShadow, ringOppositeShadow]);
                     }
 
                     // Use reduced opacity for overlapping layers (opacity compounds visually)
@@ -244,15 +175,7 @@ class DeepUtils {
             };
 
         } catch (error) {
-            console.error('Fetch error:', error);
-            if (document.getElementById('output')) {
-                document.getElementById('output').textContent = 'Error fetching data: ' + error;
-            }
-            return {
-                polygons: [],
-                shadowPolygon: null,
-                statistics: {}
-            };
+            throw new Error(`Territory data unavailable: ${error.message}`, { cause: error });
         }
     }
 
@@ -261,8 +184,8 @@ class DeepUtils {
      * @param {Object} polygonData - Object containing polygons and shadow polygon
      */
     renderMap(polygonData) {
-        // Clear existing layers first
-        this.deepLayer.clearLayers();
+        // Build off-map first; malformed rendering data cannot clear the last successful map.
+        const nextLayer = L.layerGroup();
 
         console.log('🎨 Rendering polygons:', polygonData.polygons.length);
 
@@ -274,7 +197,7 @@ class DeepUtils {
                 // Handle GeoJSON polygons (for merged/difference polygons)
                 const layer = L.geoJSON(polygon.geojson, {
                     style: polygon.style
-                }).addTo(this.deepLayer);
+                }).addTo(nextLayer);
 
                 // For diff slices, show the slice size in km² when clicked
                 if (polygon.showArea) {
@@ -288,7 +211,7 @@ class DeepUtils {
                 }
             } else if (polygon.coordinates) {
                 // Handle coordinate-based polygons (original format)
-                L.polygon(polygon.coordinates, polygon.style).addTo(this.deepLayer);
+                L.polygon(polygon.coordinates, polygon.style).addTo(nextLayer);
             }
         });
 
@@ -300,15 +223,17 @@ class DeepUtils {
                 polygonData.shadowPolygon.gradientRings.forEach(ring => {
                     L.geoJSON(ring.geojson, {
                         style: ring.style
-                    }).addTo(this.deepLayer);
+                    }).addTo(nextLayer);
                 });
             } else {
                 // Fallback to simple rendering if no gradient rings
                 L.geoJSON(polygonData.shadowPolygon.geojson, {
                     style: polygonData.shadowPolygon.style
-                }).addTo(this.deepLayer);
+                }).addTo(nextLayer);
             }
         }
+        this.deepLayer.clearLayers();
+        nextLayer.eachLayer(layer => layer.addTo(this.deepLayer));
     }
 
     /**
@@ -316,7 +241,7 @@ class DeepUtils {
      * @param {Object} polygon - Polygon data object
      */
     renderSinglePolygon(polygon) {
-        return L.polygon(polygon.coordinates, polygon.style).addTo(this.deepLayer);
+        return L.geoJSON(TerritoryAnalysis.feature(polygon), { style: polygon.style }).addTo(this.deepLayer);
     }
 
     /**
@@ -326,176 +251,15 @@ class DeepUtils {
      * @returns {Object} Processed polygon data with diff highlighting
      */
     calculatePolygonDifference(startDatePolygons, endDatePolygons) {
-        // Filter polygons with "#a52714" color from both datasets
-        const startRedPolygons = startDatePolygons.polygons;
-        const endRedPolygons = endDatePolygons.polygons;
-
-        // Convert polygons to GeoJSON for Turf.js operations
-        const startGeojsons = startRedPolygons.map(p => ({
-            type: "Feature",
-            geometry: {
-                type: "Polygon",
-                coordinates: [p.coordinates.map(coord => [coord[1], coord[0]])] // Convert back to [lng, lat]
-            },
-            properties: p.properties
-        }));
-
-        const endGeojsons = endRedPolygons.map(p => ({
-            type: "Feature",
-            geometry: {
-                type: "Polygon",
-                coordinates: [p.coordinates.map(coord => [coord[1], coord[0]])] // Convert back to [lng, lat]
-            },
-            properties: p.properties
-        }));
-
-        let mergedStart = null;
-        let mergedEnd = null;
-        let difference = null;
-        let reverseDifference = null; // Areas in start but not in end (losses)
-
-        try {
-            // Merge all start date polygons
-            if (startGeojsons.length > 0) {
-                mergedStart = startGeojsons[0];
-                for (let i = 1; i < startGeojsons.length; i++) {
-                    if (mergedStart) {
-                        mergedStart = turf.union(mergedStart, startGeojsons[i]);
-                    }
-                }
-            }
-
-            // Merge all end date polygons
-            if (endGeojsons.length > 0) {
-                mergedEnd = endGeojsons[0];
-                for (let i = 1; i < endGeojsons.length; i++) {
-                    if (mergedEnd) {
-                        mergedEnd = turf.union(mergedEnd, endGeojsons[i]);
-                    }
-                }
-            }
-
-            // Calculate differences in both directions
-
-            // Calculate difference: areas in end date but not in start date (gains)
-            if (mergedEnd && mergedStart) {
-                try {
-                    difference = turf.difference(mergedEnd, mergedStart);
-                    console.log('✓ Calculated gains difference:', difference ? 'exists' : 'null');
-                } catch (error) {
-                    console.warn('Could not calculate difference between polygons:', error);
-                    difference = mergedEnd; // Fallback to showing end polygons
-                }
-
-                // Calculate reverse difference: areas in start but not in end (losses)
-                try {
-                    reverseDifference = turf.difference(mergedStart, mergedEnd);
-                    console.log('✓ Calculated losses difference:', reverseDifference ? 'exists' : 'null');
-                } catch (error) {
-                    console.warn('Could not calculate reverse difference between polygons:', error);
-                }
-            } else if (mergedEnd) {
-                difference = mergedEnd; // No start polygons, show all end polygons as new
-                console.log('⚠️ No start polygons, using end as difference');
-            } else if (mergedStart) {
-                reverseDifference = mergedStart; // No end polygons, show all start polygons as lost
-                console.log('⚠️ No end polygons, using start as reverse difference');
-            }
-        } catch (error) {
-            console.error('Error processing polygon difference:', error);
-        }
-
-        // Prepare result
-        const result = {
-            polygons: [],
-            shadowPolygon: endDatePolygons.shadowPolygon || startDatePolygons.shadowPolygon,
-            statistics: {
-                ...startDatePolygons.statistics,
-                ...endDatePolygons.statistics
-            }
-        };
-
-        if (mergedStart) {
-            result.polygons.push({
-                geojson: mergedStart,
-                style: {
-                    color: "#a52714",
-                    fillColor: "#a52714",
-                    fillOpacity: 0.3,
-                    weight: 1
-                },
-                type: 'merged-start'
-            });
-        }
-
-        // Add difference polygons highlighted in red (gains: start -> end)
-        if (difference) {
-            const diffArea = turf.area(difference) / 1000000;
-            console.log(`Gains (start → end): ${diffArea.toFixed(2)} km²`);
-
-            result.polygons.push({
-                geojson: difference,
-                style: {
-                    color: "red",
-                    fillColor: "red",
-                    fillOpacity: 0.5,
-                    weight: 2
-                },
-                type: 'difference'
-            });
-        }
-
-        // Add reverse difference polygons highlighted in blue (losses: end -> start)
-        if (reverseDifference) {
-            const reverseDiffArea = turf.area(reverseDifference) / 1000000;
-            console.log(`📉 Losses (end → start): ${reverseDiffArea.toFixed(2)} km²`);
-            console.log('Blue polygon added to result:', {
-                type: 'reverse-difference',
-                hasGeojson: !!reverseDifference,
-                style: { color: "blue", fillColor: "blue", fillOpacity: 0.5, weight: 2 }
-            });
-
-            result.polygons.push({
-                geojson: reverseDifference,
-                style: {
-                    color: "blue",
-                    fillColor: "blue",
-                    fillOpacity: 0.5,
-                    weight: 2
-                },
-                type: 'reverse-difference'
-            });
-        } else {
-            console.log('⚠️ No reverse difference calculated (no territorial losses)');
-        }
-
-        console.log(`Total polygons in result: ${result.polygons.length}`, result.polygons.map(p => p.type));
-
-        return result;
+        return TerritoryAnalysis.difference(startDatePolygons, endDatePolygons);
     }
 
     unionList(geojsons) {
-        let mergedStart;
-        if (geojsons.length > 0) {
-            mergedStart = geojsons[0];
-            for (let i = 1; i < geojsons.length; i++) {
-                if (mergedStart) {
-                    mergedStart = turf.union(mergedStart, geojsons[i]);
-                }
-            }
-        }
-        return mergedStart;
+        return TerritoryAnalysis.union(geojsons);
     }
 
     normalizePolygon(geojsons) {
-        return geojsons.map(p => ({
-            type: "Feature",
-            geometry: {
-                type: "Polygon",
-                coordinates: [p.coordinates.map(coord => [coord[1], coord[0]])] // Convert back to [lng, lat]
-            },
-            properties: p.properties
-        }));
+        return geojsons.map(p => TerritoryAnalysis.feature(p));
     }
 
     prepareRender(geojsons) {
@@ -529,7 +293,7 @@ class DeepUtils {
             const data = await response.json();
             return data.features[0];
         } catch (e) {
-
+            throw new Error(`Border ${code} unavailable: ${e.message}`, { cause: e });
         }
     }
 

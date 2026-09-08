@@ -13,11 +13,11 @@ class GeometryUtils {
         }
 
         if (geometry.type === 'Polygon') {
-            return [GeometryUtils.toLatLngRing(geometry.coordinates[0])];
+            return geometry.coordinates.map(ring => GeometryUtils.toLatLngRing(ring));
         }
 
         if (geometry.type === 'MultiPolygon') {
-            return geometry.coordinates.map(polygon => GeometryUtils.toLatLngRing(polygon[0]));
+            return geometry.coordinates.map(polygon => polygon.map(ring => GeometryUtils.toLatLngRing(ring)));
         }
 
         return null;

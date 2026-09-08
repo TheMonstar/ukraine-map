@@ -23,393 +23,9 @@ class UiBindings {
         const dashboard = this.dashboard;
         let selectedIcons = new Set();
 
-        const updateDiffStats = (startDatePolygons, endDatePolygons) => {
-            const totalGains = Object.values(endDatePolygons.statistics).reduce((acc, curr) => acc + curr, 0) -
-                Object.values(startDatePolygons.statistics).reduce((acc, curr) => acc + curr, 0);
-            const totalGrey = endDatePolygons.statistics['#bcaaa4'] - startDatePolygons.statistics['#bcaaa4'];
-            const totalCaptured = endDatePolygons.statistics['#a52714'] - startDatePolygons.statistics['#a52714'];
-
-            dashboard.setText('total-gains', Math.round(totalGains));
-            dashboard.setText('total-captured', Math.round(totalCaptured));
-            dashboard.setText('total-grayed', Math.round(totalGrey));
-            dashboard.calculateSettlementsInDiffArea(startDatePolygons, endDatePolygons);
-            const sliceStatsEl = dashboard.getEl('slice-territory-stats');
-            if (sliceStatsEl) sliceStatsEl.innerHTML = '';
-            dashboard.charts?.onTerritoryStats(null);
-        };
-
-        const polyCache = new Map();
-        const borderCache = new Map();
-
-        const getPolygons = async (date) => {
-            const shadowLine = document.getElementById('shadow-line')?.checked ? 1 : 0;
-            const occDepth = document.getElementById('shadow-depth-occupied')?.value || '';
-            const oppDepth = document.getElementById('shadow-depth-opposite')?.value || '';
-            const gradient = document.getElementById('shadow-gradient')?.checked ? 1 : 0;
-            const key = `${date.toLocaleDateString('en-CA')}:${shadowLine}:${occDepth}:${oppDepth}:${gradient}`;
-            if (!polyCache.has(key)) {
-                const utils = new DeepUtils(null);
-                polyCache.set(key, await utils.addDeepMap(date));
-            }
-            return polyCache.get(key);
-        };
-
-        const getBorder = async (code = 'ua') => {
-            if (!borderCache.has(code)) {
-                const utils = new DeepUtils(null);
-                borderCache.set(code, await utils.loadTheBorder(code));
-            }
-            return borderCache.get(code);
-        };
-
-        const safeUnion = (left, right) => {
-            if (!left) return right;
-            try {
-                return turf.union(left, right);
-            } catch (error) {
-                try {
-                    return turf.union(turf.cleanCoords(left), turf.cleanCoords(right));
-                } catch (cleanError) {
-                    console.warn('Union failed for diff slice polygon, skipping merge:', cleanError);
-                    return left;
-                }
-            }
-        };
-
-        const TACTICAL_REGIONS = AttackMapDashboard.TACTICAL_REGIONS;
-
-        const RU_DIRECTIONS = ['Север', 'Запад', 'Восток', 'Центр', 'Юг', 'Днепр'];
-
-        /** Clip gains/losses geometry against a named region set. */
-        const regionDiffRows = (gainsGeom, lossesGeom, regionNames) => {
-            const clippedKm2 = (regionPolygon, geom) => {
-                if (!geom) return 0;
-                try {
-                    const clipped = turf.intersect(regionPolygon, geom);
-                    return clipped ? turf.area(clipped) / 1e6 : 0;
-                } catch (e) {
-                    return 0;
-                }
-            };
-
-            const rows = [];
-            regionNames.forEach(name => {
-                const regionPolygon = dashboard.regionPolygonCache.get(name);
-                if (!regionPolygon) return;
-
-                const gains = clippedKm2(regionPolygon, gainsGeom);
-                const losses = clippedKm2(regionPolygon, lossesGeom);
-                if (gains < 0.01 && losses < 0.01) return;
-
-                rows.push({
-                    name, gains, losses,
-                    net: gains - losses,
-                    coordinates: dashboard.regionCoordinates[name]
-                });
-            });
-            return rows;
-        };
-
-        const logRegionDiffRows = (header, rows) => {
-            console.log(header);
-            if (!rows.length) {
-                console.log('  (no overlap with predefined regions)');
-                return;
-            }
-            rows.forEach(({ name, gains, losses, net }) => {
-                console.log(`  ${name}: ${net >= 0 ? '+' : ''}${net.toFixed(1)} km² (↑${gains.toFixed(1)} ↓${losses.toFixed(1)})`);
-            });
-        };
-
-        const drawRegionDiffLabels = (rows) => {
-            if (!dashboard.diffRegionLabels) dashboard.diffRegionLabels = L.layerGroup().addTo(dashboard.map);
-            // Concurrent renders can interleave past the clear at the top of
-            // renderDeepLayer, so clear again here where the writes happen.
-            dashboard.diffRegionLabels.clearLayers();
-            rows.forEach(({ net, coordinates }) => {
-                if (!coordinates) return;
-                const text = `${net >= 0 ? '+' : ''}${net.toFixed(1)}`;
-                const w = Math.max(40, text.length * 10 + 16);
-                const h = 26;
-                const icon = L.divIcon({
-                    className: `attack-label border-${net >= 0 ? 'red' : 'green'}`,
-                    html: `<div style="font-size:14px; line-height:1;">${text}</div>`,
-                    iconSize: [w, h],
-                    iconAnchor: [w / 2, h / 2]
-                });
-                L.marker(coordinates, { icon }).addTo(dashboard.diffRegionLabels);
-            });
-        };
-
-        const reportDiffByPredefinedRegions = (polygons) => {
-            let gains = null, losses = null;
-            polygons.forEach(p => {
-                if (!p.geojson) return;
-                if (p.type === 'difference') gains = safeUnion(gains, p.geojson);
-                else if (p.type === 'reverse-difference') losses = safeUnion(losses, p.geojson);
-            });
-
-            const rows = regionDiffRows(gains, losses, TACTICAL_REGIONS);
-            logRegionDiffRows(
-                `Diff by predefined region ${dashboard.formatDate(dashboard.startDate)} → ${dashboard.formatDate(dashboard.endDate)}:`,
-                rows
-            );
-            drawRegionDiffLabels(rows);
-        };
-
-        const renderDeepLayer = async () => {
-            dashboard.deepLayer.clearLayers();
-            if (!dashboard.diffRegionLabels) dashboard.diffRegionLabels = L.layerGroup().addTo(dashboard.map);
-            dashboard.diffRegionLabels.clearLayers();
-            if (!dashboard.isChecked('diff-area')) {
-                dashboard.setText('settlements-in-diff', '0');
-                if (dashboard.casualtiesLayer) dashboard.casualtiesLayer.clearLayers();
-                dashboard.charts?.onTerritoryStats(null);
-                if (dashboard.selectedPolygons.length > 0) dashboard.calculateSelectedAreaStatistics();
-                return;
-            }
-
-            const deepMap = new DeepUtils(dashboard.deepLayer);
-            const endDatePolygons = await getPolygons(dashboard.endDate);
-
-            if (dashboard.isChecked('shadow-ua')) {
-                const uaborder = await getBorder('ua');
-                const ruborder = await getBorder('ru');
-                const frame = turf.polygon([[[52.426188, 31.433755], [52.426188, 40.678473], [46.977225, 40.678473], [46.977225, 31.433755], [52.426188, 31.433755]].map(el => [el[1], el[0]])]);
-                const area = deepMap.unionList([...deepMap.normalizePolygon(endDatePolygons.polygons), turf.intersect(ruborder, frame)]);
-                const chunk = turf.difference(uaborder, area);
-                const shadow = deepMap.addShadow(area, dashboard.getEl('shadow-ua-size')?.value || 20);
-                const shadowOnly = turf.difference(shadow, area);
-                const shadowExclRu = turf.intersect(turf.difference(shadowOnly, ruborder), uaborder);
-                dashboard.shadowUaPolygon = shadowExclRu;
-                const zone = turf.difference(chunk, shadow);
-                const contested = turf.difference(uaborder, zone);
-                const areaExclRu = turf.difference(area, ruborder);
-                const contestedExclRu = turf.difference(contested, ruborder);
-                const shadowPolygonData = {
-                    polygons: [
-                        { geojson: areaExclRu, style: { color: '#a52714', fillColor: '#a52714', fillOpacity: 0.2, weight: 1 }, type: 'merged-start' },
-                        { geojson: shadowExclRu, style: { color: '#1b1a1a', fillColor: '#1b1a1a', fillOpacity: 0.3, weight: 1 }, type: 'shadow' },
-                        { geojson: contestedExclRu, style: { color: '#a52714', fillColor: '#a52714', fillOpacity: 0.2, weight: 1 }, type: 'merged-start' }
-                    ].filter(p => p.geojson)
-                };
-                const optimizedShadowData = dashboard.isChecked('optimize-polygons') ?
-                    dashboard.optimizePolygonsByColor(shadowPolygonData) : shadowPolygonData;
-                deepMap.renderMap(optimizedShadowData);
-
-            } else if (dashboard.isChecked('diff-highlight')) {
-                const startDatePolygons = await getPolygons(dashboard.startDate);
-                updateDiffStats(startDatePolygons, endDatePolygons);
-
-                const noGray = (data) => dashboard.isChecked('diff-no-base')
-                    ? { ...data, polygons: data.polygons.filter(p => p.properties?.fill !== '#bcaaa4') }
-                    : data;
-
-                const sliceDates = dashboard.getDiffSliceDates();
-                if (sliceDates.length) {
-                    const sliceColors = ['#ff5252', '#ff9800', '#ffeb3b', '#8bc34a', '#03a9f4', '#9c27b0'];
-                    const allDates = [dashboard.startDate, ...sliceDates, dashboard.endDate];
-                    const diffPolygons = [];
-                    let combinedDifference = null;
-
-                    const baseResult = deepMap.calculatePolygonDifference(noGray(startDatePolygons), noGray(endDatePolygons));
-                    baseResult.polygons
-                        .filter(polygon => polygon.type === 'merged-start')
-                        .forEach(polygon => diffPolygons.push(polygon));
-
-                    const sliceTerritoryStats = [];
-                    for (let i = 0; i < allDates.length - 1; i++) {
-                        const sliceStart = await getPolygons(allDates[i]);
-                        const sliceEnd = await getPolygons(allDates[i + 1]);
-                        const sliceDiff = deepMap.calculatePolygonDifference(noGray(sliceStart), noGray(sliceEnd));
-                        const color = sliceColors[i % sliceColors.length];
-                        let sliceGains = 0, sliceLosses = 0;
-                        // Kept so the charts ledger can re-clip a slice against a selected
-                        // polygon without re-running the diff. Captured before the
-                        // small-fragment filter below, which builds new objects and leaves
-                        // these untouched, so clipped and whole-front totals share geometry.
-                        const sliceGainGeoms = [], sliceLossGeoms = [];
-
-                        sliceDiff.polygons
-                            .filter(polygon => polygon.type === 'difference')
-                            .forEach(polygon => {
-                                polygon.style = { ...polygon.style, color, fillColor: color };
-                                polygon.sliceIndex = i;
-                                polygon.showArea = true;
-                                polygon.sliceLabel = `${dashboard.formatDate(allDates[i])} → ${dashboard.formatDate(allDates[i + 1])} captured`;
-                                diffPolygons.push(polygon);
-                                combinedDifference = safeUnion(combinedDifference, polygon.geojson);
-                                if (polygon.geojson) sliceGainGeoms.push(polygon.geojson);
-                                try { sliceGains += turf.area(polygon.geojson) / 1e6; } catch (e) { }
-                            });
-
-                        sliceDiff.polygons
-                            .filter(polygon => polygon.type === 'reverse-difference')
-                            .forEach(polygon => {
-                                polygon.style = { ...polygon.style, color: 'blue', fillColor: 'blue', fillOpacity: 0.5 };
-                                polygon.sliceIndex = i;
-                                polygon.isLoss = true;
-                                polygon.showArea = true;
-                                polygon.sliceLabel = `${dashboard.formatDate(allDates[i])} → ${dashboard.formatDate(allDates[i + 1])} lost`;
-                                diffPolygons.push(polygon);
-                                if (polygon.geojson) sliceLossGeoms.push(polygon.geojson);
-                                try { sliceLosses += turf.area(polygon.geojson) / 1e6; } catch (e) { }
-                            });
-
-                        sliceTerritoryStats.push({
-                            from: dashboard.formatDate(allDates[i]),
-                            to: dashboard.formatDate(allDates[i + 1]),
-                            color, gains: sliceGains, losses: sliceLosses, net: sliceGains - sliceLosses,
-                            gainGeoms: sliceGainGeoms, lossGeoms: sliceLossGeoms
-                        });
-                    }
-
-                    const minAreaSqM = 1e6;
-                    const filteredDiffPolygons = diffPolygons.map(polygon => {
-                        if (!polygon.geojson) return polygon;
-                        try {
-                            const geom = polygon.geojson.geometry || polygon.geojson;
-                            if (geom.type === 'MultiPolygon') {
-                                const kept = geom.coordinates.filter(coords =>
-                                    turf.area(turf.polygon(coords)) >= minAreaSqM
-                                );
-                                if (kept.length === 0) return null;
-                                return {
-                                    ...polygon, geojson: kept.length === 1
-                                        ? turf.polygon(kept[0]) : turf.multiPolygon(kept)
-                                };
-                            }
-                            if (geom.type === 'Polygon') {
-                                return turf.area(polygon.geojson) >= minAreaSqM ? polygon : null;
-                            }
-                            return polygon;
-                        } catch (e) {
-                            return polygon;
-                        }
-                    }).filter(Boolean);
-
-                    const combinedResult = {
-                        polygons: filteredDiffPolygons,
-                        shadowPolygon: endDatePolygons.shadowPolygon || startDatePolygons.shadowPolygon,
-                        statistics: { ...startDatePolygons.statistics, ...endDatePolygons.statistics }
-                    };
-                    dashboard.currentDiffResult = combinedResult;
-
-                    const optimizedDiffResult = dashboard.isChecked('optimize-polygons') ?
-                        dashboard.optimizePolygonsByColor(combinedResult) : combinedResult;
-                    deepMap.renderMap(optimizedDiffResult);
-
-                    dashboard.charts?.onTerritoryStats(sliceTerritoryStats);
-                    const statsEl = dashboard.getEl('slice-territory-stats');
-                    if (statsEl && sliceTerritoryStats.length) {
-                        const totalGains = sliceTerritoryStats.reduce((s, t) => s + t.gains, 0);
-                        const totalLosses = sliceTerritoryStats.reduce((s, t) => s + t.losses, 0);
-                        const totalNet = totalGains - totalLosses;
-                        let html = '<h3 style="margin:10px 0 5px">Slice Territory</h3>';
-                        sliceTerritoryStats.forEach(s => {
-                            html += `<p style="margin:2px 0;font-size:12px">` +
-                                `<span style="color:${s.color}">■</span> ${s.from} → ${s.to}: ` +
-                                `<b>${s.net >= 0 ? '+' : ''}${s.net.toFixed(1)}</b> km² ` +
-                                `(↑${s.gains.toFixed(1)} ↓${s.losses.toFixed(1)})</p>`;
-                        });
-                        html += `<p style="margin:4px 0 0;font-size:12px;border-top:1px solid #ddd;padding-top:4px">` +
-                            `<b>Total: ${totalNet >= 0 ? '+' : ''}${totalNet.toFixed(1)} km²</b> ` +
-                            `(↑${totalGains.toFixed(1)} ↓${totalLosses.toFixed(1)})</p>`;
-                        statsEl.innerHTML = html;
-                    } else if (statsEl) {
-                        statsEl.innerHTML = '';
-                    }
-
-                    if (dashboard.isChecked('regions-highlight') && combinedDifference) {
-                        const dirs = [];
-                        Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
-                            const res = turf.intersect(value, combinedDifference);
-                            if (!res) return;
-                            L.geoJSON(res, {
-                                style: { color: dashboard.getDirectionColor(key), weight: 2, fillOpacity: 0.7 }
-                            }).addTo(dashboard.featureLayer).bindTooltip(key);
-                            dirs.push({
-                                region: key, totalAttacks: res.geometry.coordinates.flatMap(item => item)
-                                    .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0)
-                            });
-                        });
-                        dashboard.updateStatistics(dashboard.calculateAttackStatistics(dirs));
-                    }
-
-                } else {
-                    const diffResult = deepMap.calculatePolygonDifference(noGray(startDatePolygons), noGray(endDatePolygons));
-                    dashboard.currentDiffResult = diffResult;
-
-                    const optimizedDiffResult = dashboard.isChecked('optimize-polygons') ?
-                        dashboard.optimizePolygonsByColor(diffResult) : diffResult;
-                    deepMap.renderMap(optimizedDiffResult);
-
-                    if (dashboard.isChecked('regions-highlight')) {
-                        const dirs = [];
-                        const gainsPolygon = diffResult.polygons.find(p => p.type === 'difference');
-                        const lossesPolygon = diffResult.polygons.find(p => p.type === 'reverse-difference');
-
-                        if (gainsPolygon?.geojson) {
-                            Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
-                                const res = turf.intersect(value, gainsPolygon.geojson);
-                                if (!res) return;
-                                L.geoJSON(res, {
-                                    style: { color: dashboard.getDirectionColor(key), weight: 2, fillOpacity: 0.7 }
-                                }).addTo(dashboard.featureLayer).bindTooltip(`${key} (gains)`);
-                                const area = res.geometry.coordinates.flatMap(item => item)
-                                    .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0);
-                                const existingDir = dirs.find(d => d.region === key);
-                                if (existingDir) existingDir.gains = area;
-                                else dirs.push({ region: key, totalAttacks: area, gains: area, losses: 0 });
-                            });
-                        }
-
-                        if (lossesPolygon?.geojson) {
-                            Object.entries(dashboard.directionBorders).forEach(([key, value]) => {
-                                const res = turf.intersect(value, lossesPolygon.geojson);
-                                if (!res) return;
-                                L.geoJSON(res, {
-                                    style: { color: 'blue', weight: 2, fillOpacity: 0.5 }
-                                }).addTo(dashboard.featureLayer).bindTooltip(`${key} (losses)`);
-                                const area = res.geometry.coordinates.flatMap(item => item)
-                                    .reduce((a, b) => a + deepMap.calculateGeoPolygonArea(b).squareKilometers || 0, 0);
-                                const existingDir = dirs.find(d => d.region === key);
-                                if (existingDir) existingDir.losses = area;
-                                else dirs.push({ region: key, totalAttacks: 0, gains: 0, losses: area });
-                            });
-                        }
-
-                        if (dirs.length > 0) {
-                            dashboard.updateStatistics(dashboard.calculateAttackStatistics(dirs));
-                        }
-                    }
-                }
-
-                if (dashboard.isChecked('search-in-regions') && dashboard.currentDiffResult) {
-                    reportDiffByPredefinedRegions(dashboard.currentDiffResult.polygons);
-                }
-
-            } else {
-                // Base case: render only endDate polygons
-                dashboard.currentDiffResult = null;
-                dashboard.currentDeepResult = endDatePolygons;
-                const sliceStatsEl = dashboard.getEl('slice-territory-stats');
-                if (sliceStatsEl) sliceStatsEl.innerHTML = '';
-                dashboard.charts?.onTerritoryStats(null);
-                const optimized = dashboard.isChecked('optimize-polygons') ?
-                    dashboard.optimizePolygonsByColor(endDatePolygons) : endDatePolygons;
-                deepMap.renderMap(optimized);
-            }
-
-            if (dashboard.isChecked('casualties-density')) {
-                dashboard.renderCasualtiesDensity();
-            }
-            if (dashboard.selectedPolygons.length > 0) {
-                dashboard.calculateSelectedAreaStatistics();
-            }
-        };
-
-        dashboard.renderDeepLayer = renderDeepLayer;
+        this.territory = new TerritoryController(dashboard);
+        const { getPolygons, safeUnion, regionDiffRows, logRegionDiffRows,
+            drawRegionDiffLabels, RU_DIRECTIONS, renderDeepLayer } = this.territory.init();
 
         dashboard.bindUI('map-style', 'change', (e) => {
             dashboard.layers.setBaseLayer(e.target.value);
@@ -534,31 +150,47 @@ class UiBindings {
         // --- Hex Tiles ---
         const hexTiles = new HexTiles();
         let hexDebounce = null;
+        let hexGeneration = 0;
 
-        const scheduleHexUpdate = () => {
+        const scheduleHexUpdate = ({ immediate = false } = {}) => {
+            const request = ++hexGeneration;
             clearTimeout(hexDebounce);
-            hexDebounce = setTimeout(async () => {
-                if (!dashboard.isChecked('hex-tiles')) {
-                    hexTiles.remove(dashboard.map);
-                    return;
+            if (!dashboard.isChecked('hex-tiles')) {
+                hexTiles.remove(dashboard.map);
+                TerritoryStatus.set(dashboard, 'hex', '');
+            }
+            const render = async () => {
+                try {
+                    if (!dashboard.isChecked('hex-tiles')) {
+                        hexTiles.remove(dashboard.map);
+                        return;
+                    }
+                    const cellSize = parseFloat(dashboard.getEl('hex-tile-size')?.value || 30);
+                    let occupiedPolygons = null;
+                    if (dashboard.isChecked('match-the-front')) {
+                        const deepUtils = new DeepUtils(null);
+                        const data = await deepUtils.addDeepMap(dashboard.endDate);
+                        if (request !== hexGeneration) return;
+                        occupiedPolygons = data.polygons;
+                    }
+                    let viewBbox = null;
+                    if (dashboard.isChecked('hex-viewbox')) {
+                        const b = dashboard.map.getBounds();
+                        viewBbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+                    }
+                    if (request !== hexGeneration) return;
+                    await hexTiles.render(dashboard.map, dashboard.regionsData, cellSize, occupiedPolygons, viewBbox);
+                    if (request === hexGeneration) TerritoryStatus.set(dashboard, 'hex', '');
+                } catch (error) {
+                    if (request === hexGeneration) TerritoryStatus.set(dashboard, 'hex', `Hex territory unavailable: ${error.message}`);
                 }
-                const cellSize = parseFloat(dashboard.getEl('hex-tile-size')?.value || 30);
-                let occupiedPolygons = null;
-                if (dashboard.isChecked('match-the-front')) {
-                    const deepUtils = new DeepUtils(null);
-                    const data = await deepUtils.addDeepMap(dashboard.endDate);
-                    occupiedPolygons = data.polygons;
-                }
-                let viewBbox = null;
-                if (dashboard.isChecked('hex-viewbox')) {
-                    const b = dashboard.map.getBounds();
-                    viewBbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-                }
-                await hexTiles.render(dashboard.map, dashboard.regionsData, cellSize, occupiedPolygons, viewBbox);
-            }, 500);
+            };
+            if (immediate) return render();
+            hexDebounce = setTimeout(render, 500);
         };
 
         dashboard.hexTilesUpdate = scheduleHexUpdate;
+        dashboard.refreshHexTiles = () => scheduleHexUpdate({ immediate: true });
 
         dashboard.bindUI('hex-tiles', 'change', () => {
             const controls = dashboard.getEl('hex-tiles-controls');
@@ -676,51 +308,9 @@ class UiBindings {
             { id: 'ria-overlay', key: null, label: 'RIA' }
         ];
 
-        const updateOverlayDiffTotals = async () => {
-            if (!dashboard.isChecked('diff-highlight')) return;
-
-            const enabled = OVERLAY_DIFF_SOURCES.filter(source => dashboard.isChecked(source.id));
-            // Without this the stats below would zero out DeepState's own numbers
-            // when this runs from an overlay toggle with no overlay enabled.
-            if (!enabled.length) return;
-
-            let totalGains = 0;
-            let totalLosses = 0;
-            const byDirection = dashboard.isChecked('search-in-regions');
-            let labelRows = null;
-
-            for (const source of enabled) {
-                const result = source.key
-                    ? await dashboard.layers.getManifestDiffAreaKm2(source.key, dashboard.startDate, dashboard.endDate)
-                    : await dashboard.layers.getRiaDiffAreaKm2(dashboard.startDate, dashboard.endDate);
-                // Handle both old (number) and new (object) return formats
-                if (typeof result === 'object') {
-                    totalGains += result.gains || 0;
-                    totalLosses += result.losses || 0;
-                } else {
-                    totalGains += result || 0;
-                    continue;
-                }
-
-                if (!byDirection) continue;
-                const rows = regionDiffRows(result.gainsGeom, result.lossesGeom, RU_DIRECTIONS);
-                logRegionDiffRows(`${source.label} diff by direction:`, rows);
-                if (!labelRows) labelRows = rows;
-            }
-
-            // DeepState owns the labels whenever it is rendering (#diff-area on) —
-            // the direction centres sit on top of the tactical ones.
-            if (byDirection && labelRows && !dashboard.isChecked('diff-area')) {
-                drawRegionDiffLabels(labelRows);
-            }
-
-            const netChange = totalGains - totalLosses;
-            dashboard.setText('total-gains', `${Math.round(netChange)} (↑${Math.round(totalGains)} ↓${Math.round(totalLosses)})`);
-            console.log(`📊 Total: Gains ${totalGains.toFixed(2)} km², Losses ${totalLosses.toFixed(2)} km², Net ${netChange.toFixed(2)} km²`);
-            dashboard.setText('total-captured', '0');
-            dashboard.setText('total-grayed', '0');
-            dashboard.setText('settlements-in-diff', '0');
-        };
+        const updateOverlayDiffTotals = createOverlayDiffUpdater(dashboard, OVERLAY_DIFF_SOURCES, {
+            regionDiffRows, logRegionDiffRows, drawRegionDiffLabels, directions: RU_DIRECTIONS
+        });
         dashboard.updateOverlayDiffTotals = updateOverlayDiffTotals;
 
         /**

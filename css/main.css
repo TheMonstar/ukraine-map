@@ -2287,3 +2287,11 @@ body.charts-wide .charts-card-body {
         display: none;
     }
 }
+
+#territory-status:not(:empty) {
+    white-space: pre-line;
+    margin-top: 8px;
+    color: var(--amber);
+    font-size: 12px;
+    line-height: 1.4;
+}

@@ -1,0 +1,34 @@
+Local checks (Node 22+):
+  npm ci --prefix tests
+  node scripts/check.cjs
+
+Browser smoke check (uses the MCP package's locked Playwright dependency):
+  npm ci --prefix mcp
+  cd mcp
+  npx playwright install chromium
+  cd ..
+  node scripts/browser-smoke.cjs
+
+The smoke check starts a loopback-only server on a random port, launches Chromium,
+and mocks external feeds. It covers startup, date control bindings, territory
+comparisons, failed-fetch retry, imported HTML escaping, and game startup with CDN dependencies. It writes a screenshot
+to output/playwright/review-fixes.png. Live API availability and basemap imagery
+are not tested. The GitHub workflow runs both checks before deployment and on PRs.
+
+Runtime JavaScript and CSS load from exact-version CDN URLs in index.html and
+game/game.html, with SHA-384 integrity hashes and anonymous CORS. The static checks
+verify version pins and integrity attributes; the browser checks load the actual
+CDN assets and enforce their hashes. Network access is required for browser checks.
+Turf for Node regression tests is a development dependency in tests/package.json;
+install it with npm ci --prefix tests. node_modules is ignored. No build or npm
+install is needed to run the public site.
+
+Territory code:
+  territory-data.js: bounded async caches, validation, geometry comparisons
+  territory-controller.js: territory rendering and region statistics
+  utils.js: shadow processing and Leaflet rendering
+  html-utils.js: escaping and safe source links
+
+Regression coverage includes holed-boundary lengths, indexed hex classification,
+independent feature statuses, regional failure isolation, partial overlay totals,
+and RIA same-date rendering and recovery.
