@@ -125,6 +125,8 @@ class Charts {
         this._regionGeom = null;        // its diff geometry, kept so a tab switch re-clips
         this._regionsBusy = false;
         this._regionSide = 'ua';        // 'ua' = the 12 GS axes, 'ru' = the 6 groupings
+        this._ledgerScope = 'selection'; // ledger defaults to the drawn selection when there is one
+        this._ledgerClip = null;         // its clipped rows, cached on dashboard.polygonVersion
         this._sawEvents = false;
         this._months = null;
         this._partialMonth = null;
@@ -216,6 +218,8 @@ class Charts {
             this._computeRegions(act.dataset.source || 'DeepState');
         } else if (kind === 'region-side') {
             this._setRegionSide(act.dataset.side);
+        } else if (kind === 'ledger-scope') {
+            this._setLedgerScope(act.dataset.scope);
         }
     }
 
@@ -396,6 +400,7 @@ class Charts {
     _invalidateWindowComputations() {
         this._windowRevision++;
         this._territory = null;
+        this._ledgerClip = null;
         this._sources = null;
         this._sourcesBusy = false;
         this._regions = null;
@@ -431,6 +436,16 @@ class Charts {
 
     onTerritoryStats(stats) {
         this._territory = stats && stats.length ? stats : null;
+        this._ledgerClip = null;
+        if (this.isOpen() && this._openCards.has('ledger')) this.refresh({ force: true });
+    }
+
+    /**
+     * A polygon was drawn, edited, deleted or cleared. Only the ledger reads the
+     * selection, so this is a cache drop plus a redraw of that one card.
+     */
+    onSelectionChange() {
+        this._ledgerClip = null;
         if (this.isOpen() && this._openCards.has('ledger')) this.refresh({ force: true });
     }
 
@@ -753,13 +768,81 @@ class Charts {
     }
 
     /**
+     * The slice rows clipped to the drawn selection, or null when nothing is
+     * selected. Same idiom as regionDiffRows — intersect, measure, per-polygon
+     * try/catch to zero — but against the user's polygon rather than a named
+     * region. Cached on polygonVersion, so flipping the scope tab is free.
+     */
+    _clipLedger() {
+        const db = this.dashboard;
+        const stats = this._territory;
+        if (!stats) return null;
+        const version = db.polygonVersion;
+        if (this._ledgerClip && this._ledgerClip.version === version) return this._ledgerClip;
+
+        const mask = db.getSelectionMask?.();
+        if (!mask) return null;
+
+        const clippedKm2 = (geoms) => (geoms || []).reduce((sum, geom) => {
+            try {
+                const clipped = turf.intersect(geom, mask);
+                return sum + (clipped ? turf.area(clipped) / 1e6 : 0);
+            } catch (error) {
+                return sum;
+            }
+        }, 0);
+
+        let maskKm2 = 0;
+        try { maskKm2 = turf.area(mask) / 1e6; } catch (error) { }
+
+        this._ledgerClip = {
+            version, maskKm2,
+            rows: stats.map(st => {
+                const gains = clippedKm2(st.gainGeoms);
+                const losses = clippedKm2(st.lossGeoms);
+                return { from: st.from, to: st.to, color: st.color, gains, losses, net: gains - losses };
+            })
+        };
+        return this._ledgerClip;
+    }
+
+    _ledgerTabs() {
+        const sel = this._ledgerScope === 'selection';
+        return `<div class="charts-tabs">`
+            + `<button class="${sel ? 'on' : ''}" data-act="ledger-scope" data-scope="selection">`
+            + `In selection</button>`
+            + `<button class="${sel ? '' : 'on'}" data-act="ledger-scope" data-scope="front">`
+            + `Whole front</button></div>`;
+    }
+
+    _setLedgerScope(scope) {
+        if (scope !== 'selection' && scope !== 'front') return;
+        if (scope === this._ledgerScope) return;
+        this._ledgerScope = scope;
+        this.refresh({ force: true });
+    }
+
+    /**
      * Territory ledger. Recomputes nothing — renderDeepLayer already builds these
      * numbers and pushes them here. `gains`/`losses` are Russian-relative, so red is
      * a Russian gain and blue a Russian loss; green-good/red-bad would invert it.
+     *
+     * With a polygon selected the same rows are clipped to it, which is the only way
+     * to ask how one sector moved slice by slice. The scope tabs appear only then.
      */
     _chartLedger() {
-        const stats = this._territory;
-        if (!stats) return this._ledgerSources();
+        const all = this._territory;
+        if (!all) return this._ledgerSources();
+        const hasSel = (this.dashboard.selectedPolygons || []).length > 0;
+        const clip = hasSel && this._ledgerScope === 'selection' ? this._clipLedger() : null;
+        const tabs = hasSel ? this._ledgerTabs() : '';
+        const stats = clip ? clip.rows : all;
+
+        if (clip && !stats.some(st => st.gains > 0.01 || st.losses > 0.01)) {
+            return tabs + `<p class="charts-empty">No mapped change inside the selection
+                (${Charts.fmt(clip.maskKm2)} km²) for these periods.</p>`;
+        }
+
         const W = this._w(), rh = this._effectiveWide() ? 42 : 34, L = 4, R = 4, T = 14;
         const h = T + stats.length * rh + 6;
         const mx = Math.max(1, ...stats.map(s => Math.max(s.gains, s.losses)));
@@ -787,13 +870,21 @@ class Charts {
         s += '</svg>';
         const g = stats.reduce((a, x) => a + x.gains, 0);
         const l = stats.reduce((a, x) => a + x.losses, 0);
-        return `<div class="charts-legend">
+        let scopeNote = '';
+        if (clip) {
+            const front = all.reduce((a, x) => a + x.gains + x.losses, 0);
+            const inside = g + l;
+            const share = front > 0 ? inside / front * 100 : 0;
+            scopeNote = ` Clipped to the selected polygon (${Charts.fmt(clip.maskKm2)} km²), which
+                holds ${share.toFixed(0)}% of the change mapped anywhere in this window.`;
+        }
+        return tabs + `<div class="charts-legend">
                 <span><i style="background:var(--chart-ru)"></i>Russian gain</span>
                 <span><i style="background:var(--chart-ua)"></i>Russian loss</span>
             </div>${s}
             <p class="charts-card-note">${g.toFixed(0)} km² taken, ${l.toFixed(0)} given back,
             net ${(g - l) >= 0 ? '+' : '−'}${Math.abs(g - l).toFixed(0)}. Net alone cannot tell a
-            quiet month from a churning one.</p>`;
+            quiet month from a churning one.${scopeNote}</p>`;
     }
 
     /**
@@ -1632,7 +1723,10 @@ class Charts {
      * truth disagreeing on restore.
      */
     serialize() {
-        return { cards: [...this._openCards], wide: this._wide, regionSide: this._regionSide };
+        return {
+            cards: [...this._openCards], wide: this._wide,
+            regionSide: this._regionSide, ledgerScope: this._ledgerScope
+        };
     }
 
     /** Call before the session's toggle pass, so the first render uses these cards. */
@@ -1642,6 +1736,9 @@ class Charts {
         if (state.regionSide === 'ua' || state.regionSide === 'ru') {
             this._regionSide = state.regionSide;
             this._clipRegions();
+        }
+        if (state.ledgerScope === 'selection' || state.ledgerScope === 'front') {
+            this._ledgerScope = state.ledgerScope;
         }
         if (typeof state.wide === 'boolean' && state.wide !== this._wide) {
             this.setWide(state.wide);

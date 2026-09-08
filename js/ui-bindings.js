@@ -224,6 +224,11 @@ class UiBindings {
                         const sliceDiff = deepMap.calculatePolygonDifference(noGray(sliceStart), noGray(sliceEnd));
                         const color = sliceColors[i % sliceColors.length];
                         let sliceGains = 0, sliceLosses = 0;
+                        // Kept so the charts ledger can re-clip a slice against a selected
+                        // polygon without re-running the diff. Captured before the
+                        // small-fragment filter below, which builds new objects and leaves
+                        // these untouched, so clipped and whole-front totals share geometry.
+                        const sliceGainGeoms = [], sliceLossGeoms = [];
 
                         sliceDiff.polygons
                             .filter(polygon => polygon.type === 'difference')
@@ -234,6 +239,7 @@ class UiBindings {
                                 polygon.sliceLabel = `${dashboard.formatDate(allDates[i])} → ${dashboard.formatDate(allDates[i + 1])} captured`;
                                 diffPolygons.push(polygon);
                                 combinedDifference = safeUnion(combinedDifference, polygon.geojson);
+                                if (polygon.geojson) sliceGainGeoms.push(polygon.geojson);
                                 try { sliceGains += turf.area(polygon.geojson) / 1e6; } catch (e) { }
                             });
 
@@ -246,13 +252,15 @@ class UiBindings {
                                 polygon.showArea = true;
                                 polygon.sliceLabel = `${dashboard.formatDate(allDates[i])} → ${dashboard.formatDate(allDates[i + 1])} lost`;
                                 diffPolygons.push(polygon);
+                                if (polygon.geojson) sliceLossGeoms.push(polygon.geojson);
                                 try { sliceLosses += turf.area(polygon.geojson) / 1e6; } catch (e) { }
                             });
 
                         sliceTerritoryStats.push({
                             from: dashboard.formatDate(allDates[i]),
                             to: dashboard.formatDate(allDates[i + 1]),
-                            color, gains: sliceGains, losses: sliceLosses, net: sliceGains - sliceLosses
+                            color, gains: sliceGains, losses: sliceLosses, net: sliceGains - sliceLosses,
+                            gainGeoms: sliceGainGeoms, lossGeoms: sliceLossGeoms
                         });
                     }
 

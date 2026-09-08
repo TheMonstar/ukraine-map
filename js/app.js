@@ -877,6 +877,7 @@ class AttackMapDashboard {
             // Add to drawnItems and selectedPolygons
             this.drawnItems.addLayer(polygon);
             this.selectedPolygons.push(polygon);
+            this.polygonVersion += 1;
 
             // Log coordinates
             this.printPolygonCoordinates(polygon, `LOADED (${regionName})`);
@@ -1042,6 +1043,7 @@ class AttackMapDashboard {
         this.selectedPolygons = [];
         this.polygonVersion += 1;
         this.resetAreaStatistics();
+        this.charts?.onSelectionChange();
     }
 
     /**
@@ -2671,6 +2673,7 @@ class AttackMapDashboard {
         ids.forEach(id => {
             this.setText(id, '0');
         });
+        this.setText('selected-population-label', 'Pop (selected)');
         this.setStatusBarSource(null);
     }
 
@@ -2687,6 +2690,7 @@ class AttackMapDashboard {
      * Calculate statistics for selected area
      */
     async calculateSelectedAreaStatistics() {
+        this.charts?.onSelectionChange();
         if (this.selectedPolygons.length === 0) {
             this.resetAreaStatistics();
             return;
@@ -2711,41 +2715,74 @@ class AttackMapDashboard {
         let shadowZonePopulation = 0;
         const selectedGeoJSONs = [];
 
+        // {feature, bbox} pairs, same idiom as owlEventTerritory: a bounding-box
+        // rejection ahead of every booleanPointInPolygon against these polygons,
+        // which are whole oblasts of 12k-47k vertices.
+        const selectedShapes = [];
+
         this.selectedPolygons.forEach(polygon => {
             const geoJSON = polygon.toGeoJSON();
             selectedGeoJSONs.push(geoJSON);
+            selectedShapes.push({ feature: geoJSON, bbox: turf.bbox(geoJSON) });
 
             // Calculate area using turf.js
             const area = turf.area(geoJSON) / 1000000; // Convert to km²
             totalSelectedArea += area;
         });
 
+        /** True once the point falls in any selected polygon — never twice, so a
+         *  settlement under two overlapping selections counts once. */
+        const inSelection = (point, coords) => selectedShapes.some(({ feature, bbox }) =>
+            coords[0] >= bbox[0] && coords[0] <= bbox[2] &&
+            coords[1] >= bbox[1] && coords[1] <= bbox[3] &&
+            turf.booleanPointInPolygon(point, feature));
+
         // Whichever control overlay is active owns every territorial figure below
         const source = this.getActiveControlSource();
+
+        // With Difference on, "Pop (selected)" reports the people on the ground that
+        // changed hands inside the selection rather than everyone living in it. Same
+        // gains geometry `highlighted-in-selection` measures, bbox-indexed like the
+        // selection above so the settlement sweep stays a bbox test per point.
+        const diffShapes = (this.isChecked('diff-highlight') && this.currentDiffResult)
+            ? this.currentDiffResult.polygons
+                .filter(polygon => polygon.type === 'difference' && polygon.geojson)
+                .map(polygon => ({ feature: polygon.geojson, bbox: turf.bbox(polygon.geojson) }))
+            : null;
+        const inDiff = (point, coords) => diffShapes.some(({ feature, bbox }) =>
+            coords[0] >= bbox[0] && coords[0] <= bbox[2] &&
+            coords[1] >= bbox[1] && coords[1] <= bbox[3] &&
+            turf.booleanPointInPolygon(point, feature));
+        let diffPopulation = 0;
 
         // Calculate population in selected areas
         if (this.settlementsData && this.settlementsData.features) {
             const excludeOccupied = this.isChecked('exclude-occupied');
 
-            selectedGeoJSONs.forEach(selectedPolygon => {
-                this.settlementsData.features.forEach(settlement => {
-                    try {
-                        const point = turf.point(settlement.geometry.coordinates);
-                        if (turf.booleanPointInPolygon(point, selectedPolygon)) {
-                            const population = parseInt(settlement.properties.population) || 0;
+            this.settlementsData.features.forEach(settlement => {
+                try {
+                    const coords = settlement.geometry.coordinates;
+                    const point = turf.point(coords);
+                    if (inSelection(point, coords)) {
+                        const population = parseInt(settlement.properties.population) || 0;
 
-                            // Check if settlement is in occupied territory
-                            const isOccupied = this.isPointOccupied(point, source);
+                        // Check if settlement is in occupied territory
+                        const isOccupied = this.isPointOccupied(point, source);
 
-                            // Add to total population only if not excluding occupied territories, or if not occupied
-                            if (!excludeOccupied || !isOccupied) {
-                                totalSelectedPopulation += population;
-                            }
+                        // Add to total population only if not excluding occupied territories, or if not occupied
+                        if (!excludeOccupied || !isOccupied) {
+                            totalSelectedPopulation += population;
                         }
-                    } catch (error) {
-                        console.warn('Error processing settlement:', error);
+
+                        // Ground inside the diff is captured by definition, so this
+                        // ignores exclude-occupied — applying it would always zero.
+                        if (diffShapes && inDiff(point, coords)) {
+                            diffPopulation += population;
+                        }
                     }
-                });
+                } catch (error) {
+                    console.warn('Error processing settlement:', error);
+                }
             });
         }
 
@@ -2802,7 +2839,7 @@ class AttackMapDashboard {
             });
 
             // Calculate frontline length by converting captured polygons to lines
-            selectedGeoJSONs.forEach(selectedPolygon => {
+            selectedShapes.forEach(({ feature: selectedPolygon, bbox: selectionBbox }) => {
                 endDatePolygons.polygons.forEach(territoryPolygon => {
                     try {
                         // Calculate frontline for all occupied territories
@@ -2815,7 +2852,7 @@ class AttackMapDashboard {
                             const polygonLine = turf.polygonToLine(turf.polygon([polygonCoords]));
 
                             // Find line segments that intersect with the selected box
-                            const lineSegments = this.getLineSegmentsInBox(polygonLine, selectedPolygon);
+                            const lineSegments = this.getLineSegmentsInBox(polygonLine, selectedPolygon, selectionBbox);
 
                             // Measure the total length of line segments within the box
                             lineSegments.forEach(segment => {
@@ -2866,7 +2903,7 @@ class AttackMapDashboard {
                 ? await this.getControlSourceGains(source)
                 : null;
 
-            selectedGeoJSONs.forEach(selectedPolygon => {
+            selectedShapes.forEach(({ feature: selectedPolygon, bbox: selectionBbox }) => {
                 try {
                     const intersection = turf.intersect(selectedPolygon, merged);
                     if (intersection) capturedArea += turf.area(intersection) / 1000000;
@@ -2878,7 +2915,7 @@ class AttackMapDashboard {
                 // as a flat coordinate list, so a MultiLineString would break it.
                 controlRings.forEach(ring => {
                     try {
-                        const segments = this.getLineSegmentsInBox(turf.lineString(ring), selectedPolygon);
+                        const segments = this.getLineSegmentsInBox(turf.lineString(ring), selectedPolygon, selectionBbox);
                         segments.forEach(segment => {
                             frontlineLength += turf.length(segment, { units: 'kilometers' });
                         });
@@ -2909,29 +2946,29 @@ class AttackMapDashboard {
             const polygonsToCheck = selectedGeoJSONs.length > 0 ? selectedGeoJSONs : null;
 
             if (polygonsToCheck) {
-                selectedGeoJSONs.forEach(selectedPolygon => {
-                    this.settlementsData.features.forEach(settlement => {
-                        try {
-                            const point = turf.point(settlement.geometry.coordinates);
-                            if (turf.booleanPointInPolygon(point, selectedPolygon)) {
-                                settlementsInSelection++;
-                                const population = parseInt(settlement.properties.population) || 0;
+                const checkShadow = this.isChecked('shadow-ua');
+                this.settlementsData.features.forEach(settlement => {
+                    try {
+                        const coords = settlement.geometry.coordinates;
+                        const point = turf.point(coords);
+                        if (inSelection(point, coords)) {
+                            settlementsInSelection++;
+                            const population = parseInt(settlement.properties.population) || 0;
 
-                                // Check if in occupied territory (any colored territory)
-                                if (this.isPointOccupied(point, source)) {
-                                    settlementsInOccupiedTerritory++;
-                                    capturedPopulation += population;
-                                }
-
-                                // Check if in shadow zone (only if shadow-ua is enabled)
-                                if (this.isChecked('shadow-ua') && this.isInShadowZone(point)) {
-                                    shadowZonePopulation += population;
-                                }
+                            // Check if in occupied territory (any colored territory)
+                            if (this.isPointOccupied(point, source)) {
+                                settlementsInOccupiedTerritory++;
+                                capturedPopulation += population;
                             }
-                        } catch (error) {
-                            console.warn('Error processing settlement for captured/shadow zones:', error);
+
+                            // Check if in shadow zone (only if shadow-ua is enabled)
+                            if (checkShadow && this.isInShadowZone(point)) {
+                                shadowZonePopulation += population;
+                            }
                         }
-                    });
+                    } catch (error) {
+                        console.warn('Error processing settlement for captured/shadow zones:', error);
+                    }
                 });
             } else {
                 console.log('No regions selected, skipping captured population calculation');
@@ -2948,7 +2985,9 @@ class AttackMapDashboard {
 
         // Update UI
         this.setText('selected-area', totalSelectedArea.toFixed(2));
-        this.setText('selected-population', totalSelectedPopulation.toLocaleString());
+        this.setText('selected-population',
+            (diffShapes ? diffPopulation : totalSelectedPopulation).toLocaleString());
+        this.setText('selected-population-label', diffShapes ? 'Pop (diff)' : 'Pop (selected)');
         this.setText('captured-in-selection', capturedArea.toFixed(2));
         this.setText('captured-population', capturedPopulation.toLocaleString());
         this.setText('highlighted-in-selection', highlightedArea.toFixed(2));
@@ -3113,32 +3152,69 @@ class AttackMapDashboard {
      * Check if a point is in occupied territory
      */
     isInOccupiedTerritory(point) {
-        if (!this.deepLayer.toGeoJSON().features.length) {
+        const index = this.getOccupiedIndex();
+        if (!index.length) {
             return false;
         }
 
         try {
-            const deepFeatures = this.deepLayer.toGeoJSON().features;
-
-            // Debug: Log available features on first call
-            if (!this._debugLoggedFeatures) {
-                console.log(`Deep layer has ${deepFeatures.length} features`);
-                const featureColors = deepFeatures.map(f => ({
-                    stroke: f.properties?.stroke,
-                    fill: f.properties?.fill,
-                    color: f.properties?.color
-                })).filter(c => c.stroke || c.fill || c.color);
-                console.log('Available feature colors:', featureColors.slice(0, 5));
-                this._debugLoggedFeatures = true;
-            }
-
-            return deepFeatures.some(feature => {
-                return turf.booleanPointInPolygon(point, feature);
-            });
+            const [lng, lat] = point.geometry.coordinates;
+            return index.some(({ feature, bbox }) =>
+                lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] &&
+                turf.booleanPointInPolygon(point, feature));
         } catch (error) {
             console.warn('Error checking occupied territory:', error);
             return false;
         }
+    }
+
+    /**
+     * The deep layer's features as {feature, bbox} pairs. Serialising the layer is
+     * far too expensive to repeat per point — the settlement sweeps call this tens
+     * of thousands of times — so it is built once and reused.
+     *
+     * The stamp is the layer count plus the first layer's id. Leaflet hands out ids
+     * in creation order and a re-render always builds new layers, so the same stamp
+     * cannot outlive its geometry — which a bare count could, since a re-render
+     * usually yields the same number of features.
+     */
+    getOccupiedIndex() {
+        let layers = [];
+        try {
+            layers = this.deepLayer.getLayers();
+        } catch (error) {
+            console.warn('Error reading deep layer:', error);
+            return [];
+        }
+        const stamp = `${layers.length}:${layers[0]?._leaflet_id ?? 0}`;
+        if (this._occupiedIndex && this._occupiedIndex.stamp === stamp) {
+            return this._occupiedIndex.entries;
+        }
+
+        let features = [];
+        try {
+            features = this.deepLayer.toGeoJSON().features;
+        } catch (error) {
+            console.warn('Error reading deep layer:', error);
+        }
+
+        // Debug: Log available features on first build
+        if (features.length && !this._debugLoggedFeatures) {
+            console.log(`Deep layer has ${features.length} features`);
+            const featureColors = features.map(f => ({
+                stroke: f.properties?.stroke,
+                fill: f.properties?.fill,
+                color: f.properties?.color
+            })).filter(c => c.stroke || c.fill || c.color);
+            console.log('Available feature colors:', featureColors.slice(0, 5));
+            this._debugLoggedFeatures = true;
+        }
+
+        this._occupiedIndex = {
+            stamp,
+            entries: features.map(feature => ({ feature, bbox: turf.bbox(feature) }))
+        };
+        return this._occupiedIndex.entries;
     }
 
     /**
@@ -3433,16 +3509,28 @@ class AttackMapDashboard {
     /**
      * Get line segments that fall within the selected box/polygon
      */
-    getLineSegmentsInBox(line, selectedPolygon) {
+    getLineSegmentsInBox(line, selectedPolygon, selectionBbox = null) {
         const segments = [];
 
         try {
             // Convert line to individual segments
             const coordinates = line.geometry.coordinates;
+            // A segment outside the selection's bounding box cannot touch the
+            // selection, and rejecting it here is the whole cost of this loop:
+            // getLinePolygonIntersection falls through to turf.lineIntersect, which
+            // rebuilds a spatial index over the entire selection polygon per call.
+            const bbox = selectionBbox || turf.bbox(selectedPolygon);
 
             for (let i = 0; i < coordinates.length - 1; i++) {
                 const segmentStart = coordinates[i];
                 const segmentEnd = coordinates[i + 1];
+
+                if (Math.max(segmentStart[0], segmentEnd[0]) < bbox[0] ||
+                    Math.min(segmentStart[0], segmentEnd[0]) > bbox[2] ||
+                    Math.max(segmentStart[1], segmentEnd[1]) < bbox[1] ||
+                    Math.min(segmentStart[1], segmentEnd[1]) > bbox[3]) {
+                    continue;
+                }
 
                 // Create a line segment
                 const segment = turf.lineString([segmentStart, segmentEnd]);
@@ -6982,6 +7070,24 @@ class AttackMapDashboard {
      */
     hideBoundariesLoader() {
         return this.settlements.hideBoundariesLoader();
+    }
+
+    /**
+     * The selection as one turf feature, or null when nothing is selected. Same
+     * union-with-fallback idiom the polygon comparison uses inline; anything that
+     * needs to clip geometry to the selection can share this one.
+     */
+    getSelectionMask() {
+        if (!this.selectedPolygons || this.selectedPolygons.length === 0) return null;
+        return this.selectedPolygons.reduce((acc, polygon) => {
+            try {
+                const geoJSON = polygon.toGeoJSON();
+                return acc ? turf.union(acc, geoJSON) : geoJSON;
+            } catch (error) {
+                console.warn('Error merging selected polygons, using what merged so far:', error);
+                return acc;
+            }
+        }, null);
     }
 
     /**
