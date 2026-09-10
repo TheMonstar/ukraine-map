@@ -5401,6 +5401,7 @@ class AttackMapDashboard {
         if (clamped === 0) {
             this.updateDiffSliceLabels();
             this.scheduleUpdateMap();
+            this.scheduleDateDependentRefreshes();
             return;
         }
 
@@ -5420,6 +5421,10 @@ class AttackMapDashboard {
             this.diffSliceDates = values.map(value => new Date(parseInt(value, 10)));
             this.updateDiffSliceLabels();
             this.scheduleUpdateMap();
+            // Slice boundaries decide what the territory layers draw, and only
+            // refreshDateDependentLayers redraws them — scheduleUpdateMap is markers
+            // and statistics. Same 800ms debounce the date slider drags through.
+            this.scheduleDateDependentRefreshes();
         });
     }
 
@@ -5507,6 +5512,10 @@ class AttackMapDashboard {
     }
 
     // ── RU Shadow reach bands ───────────────────────────────
+
+    /** Diff-slice period fills, in order. Shared by every control overlay that
+     *  can be sliced, so the same colour means the same period on all of them. */
+    static DIFF_SLICE_COLORS = ['#ff5252', '#ff9800', '#ffeb3b', '#8bc34a', '#03a9f4', '#9c27b0'];
 
     /** Band fills, innermost first. Same ramp as the diff slices. */
     static RU_SHADOW_COLORS = ['#ff5252', '#ff9800', '#ffeb3b', '#8bc34a', '#03a9f4'];

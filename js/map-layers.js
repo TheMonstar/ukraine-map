@@ -70,6 +70,63 @@ class MapLayers {
             : L.featureGroup();
     }
 
+    /**
+     * Merged RU polygon per source and date. Slicing turns two loads per render
+     * into one per boundary, and dragging a slice handle re-renders every one of
+     * them — the same reason TerritoryData caches the DeepState side.
+     */
+    static mergedByDate = new AsyncLruCache(24);
+
+    /**
+     * Diff slices for any dated control overlay. The date window is split at the
+     * slice handles and each period's RU gains are painted in that period's colour,
+     * exactly as renderDeepLayer paints DeepState — so a colour on a Suriyak band
+     * and the same colour on a DeepState band mean the same fortnight.
+     *
+     * Losses stay blue in every period, matching DeepState: colour answers "when
+     * was this taken", never "which side took it".
+     *
+     * `loadMerged(date)` resolves that date's merged RU polygon, or null. Returns
+     * true once it has rendered, false when no slices are set and the caller should
+     * fall back to its own single start-to-end difference.
+     */
+    async renderDiffSlices(loadMerged, targetLayer, baseStyle, isCurrent) {
+        const dashboard = this.dashboard;
+        const sliceDates = dashboard.getDiffSliceDates();
+        if (!sliceDates.length) return false;
+
+        const bounds = [dashboard.startDate, ...sliceDates, dashboard.endDate];
+        // One request per boundary rather than per slice — adjacent slices share a
+        // boundary date, so a naive per-slice pair would fetch each one twice.
+        const merged = await Promise.all(bounds.map(date => loadMerged(date)));
+        if (isCurrent && !isCurrent()) return true;
+
+        if (merged[0]) {
+            L.geoJSON(merged[0], { style: baseStyle })
+                .bindTooltip(`Start: ${dashboard.formatDate(bounds[0])}`)
+                .addTo(targetLayer);
+        }
+
+        const colors = AttackMapDashboard.DIFF_SLICE_COLORS;
+        for (let i = 0; i < bounds.length - 1; i++) {
+            const { gainsGeom, lossesGeom } = TerritoryAnalysis.summary(merged[i], merged[i + 1]);
+            const period = `${dashboard.formatDate(bounds[i])} → ${dashboard.formatDate(bounds[i + 1])}`;
+            const color = colors[i % colors.length];
+
+            if (gainsGeom) {
+                L.geoJSON(gainsGeom, { style: { color, fillColor: color, weight: 2, fillOpacity: 0.5 } })
+                    .bindTooltip(`${period} captured: ${(turf.area(gainsGeom) / 1e6).toFixed(2)} km²`)
+                    .addTo(targetLayer);
+            }
+            if (lossesGeom) {
+                L.geoJSON(lossesGeom, { style: { color: 'blue', fillColor: 'blue', weight: 2, fillOpacity: 0.5 } })
+                    .bindTooltip(`${period} lost: ${(turf.area(lossesGeom) / 1e6).toFixed(2)} km²`)
+                    .addTo(targetLayer);
+            }
+        }
+        return true;
+    }
+
     constructor(dashboard) {
         this.dashboard = dashboard;
         this.sourcesManifest = null;
@@ -1139,14 +1196,26 @@ class MapLayers {
         const endStr = MapLayers._riaDateStr(endDate);
         const startStr = startDate ? MapLayers._riaDateStr(startDate) : null;
         const compare = dashboard.isChecked('diff-highlight') && startStr && startStr !== endStr;
+        // renderDiffSlices loads every boundary itself, so the plain start-date load
+        // below would only duplicate the first of them.
+        const slicing = compare && dashboard.getDiffSliceDates().length > 0;
+        const riaMerged = date => MapLayers.mergedByDate.get(
+            `ria:${MapLayers._riaDateStr(date)}`, () => this._loadRiaMerged(MapLayers._riaDateStr(date)));
         try {
             const [endMerged, startMerged] = await Promise.all([
-                this._loadRiaMerged(endStr),
-                compare ? this._loadRiaMerged(startStr) : null
+                riaMerged(endDate),
+                compare && !slicing ? riaMerged(startDate) : null
             ]);
             if (!isCurrent()) return;
             const nextLayer = L.layerGroup();
-            if (compare) {
+            const sliced = slicing && await this.renderDiffSlices(
+                riaMerged, nextLayer,
+                { color: '#FF655C', fillColor: '#FF655C', weight: 1, fillOpacity: 0.2 },
+                isCurrent);
+            if (!isCurrent()) return;
+            if (sliced) {
+                // renderDiffSlices already painted the window
+            } else if (compare) {
                 const data = feature => ({ polygons: feature ? [{ geojson: feature }] : [], statistics: {} });
                 const comparison = TerritoryAnalysis.difference(data(startMerged), data(endMerged));
                 for (const polygon of comparison.polygons) {
@@ -1248,7 +1317,11 @@ class MapLayers {
             throw new Error(`No features found in ${sourceKey} KML data.`);
         }
 
-        const startData = diffEnabled ? await this.loadManifestDataByDate(sourceKey, startDate) : null;
+        // renderDiffSlices loads each boundary date itself; the plain start-date load
+        // is only needed for the single start-to-end difference.
+        const slicing = diffEnabled && dashboard.getDiffSliceDates().length > 0;
+        const startData = diffEnabled && !slicing
+            ? await this.loadManifestDataByDate(sourceKey, startDate) : null;
         if (!isCurrent()) return;
 
         const nextLayer = L.layerGroup();
@@ -1288,7 +1361,19 @@ class MapLayers {
             };
         };
 
-        if (diffEnabled && startData) {
+        const sliced = slicing && await this.renderDiffSlices(
+            async date => MapLayers.mergedByDate.get(
+                `${sourceKey}:${this.formatDateToYYYYMMDD(date)}`,
+                async () => this.extractKmlFeatures(
+                    await this.loadManifestDataByDate(sourceKey, date), sourceKey).ruUnion),
+            nextLayer,
+            { color: '#a52714', fillColor: '#a52714', weight: 1, fillOpacity: 0.2 },
+            isCurrent);
+        if (!isCurrent()) return;
+
+        if (sliced) {
+            // renderDiffSlices already painted the window
+        } else if (diffEnabled && startData) {
             const { ruUnion: startRuUnion } = this.extractKmlFeatures(startData, sourceKey);
             const startFeature = startRuUnion ? {
                 type: 'Feature',
