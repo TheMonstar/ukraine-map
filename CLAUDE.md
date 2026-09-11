@@ -101,6 +101,7 @@ Push to `main` → GitHub Actions ([.github/workflows/deploy.yml](.github/workfl
 | [js/data-store.js](js/data-store.js) | `DataStore` | Data source stubs (private data removed in public version) |
 | [js/poster.js](js/poster.js) | `Poster` | Title block + auto-derived legend for publication-quality exports |
 | [js/overpass.js](js/overpass.js) | `Overpass` | Live OSM queries — Overpass QL input, `{{bbox}}` → viewport, own overlay |
+| [js/coords.js](js/coords.js) | `Coords` | Cursor lat/lng + MGRS readout, right-click copy popup, top-bar go-to box, MGRS grid overlay (proj4) |
 
 Script load order in `index.html` matters — CDN libraries first, then `utils.js` → ... → `app.js`. `window.dashboard` is set at end of `index.html`.
 
@@ -133,6 +134,7 @@ All app coupling lives in [mcp/browser/agent-api.js](mcp/browser/agent-api.js), 
 - **toGeoJSON 4.4.1** — KML/GPX import
 - **osmtogeojson 3.0.0-beta.5** — Overpass/OSM JSON → GeoJSON
 - **PapaParse 5.4.1** — CSV parsing
+- **proj4js 2.22.0** — UTM projection and MGRS (via `proj4.Point`) for the coordinate readout and grid
 
 ### Coding Conventions
 

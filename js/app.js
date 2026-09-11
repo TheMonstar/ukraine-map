@@ -284,6 +284,7 @@ class AttackMapDashboard {
         this.settlements = new Settlements(this);
         this.lineFeatures = new LineFeatures(this);
         this.overpass = new Overpass(this);
+        this.coords = new Coords(this);
         this.uiBindings = new UiBindings(this);
     }
 
@@ -509,7 +510,18 @@ class AttackMapDashboard {
             'infil-status',
             'infil-spinner',
             'infil-to-drawing',
-            'infil-clear'
+            'infil-clear',
+            'cursor-coords',
+            'goto-input',
+            'goto-results',
+            'mgrs-grid',
+            'step-back-btn',
+            'step-fwd-btn',
+            'sidebar-search',
+            'active-layer-chips',
+            'shortcuts-help-modal',
+            'road-km-shadow-stats',
+            'road-km-diff-stats'
         ];
         ids.forEach(id => {
             this.ui[id] = document.getElementById(id);
@@ -616,28 +628,46 @@ class AttackMapDashboard {
             this.regionsData = regionsData;
             this.settlementsData = settlementsData;
 
-            this.linkedUnitNames = new Set();
-            this.linkedUnitsByParent = new Map();
-            if (corpsBrigadeData) {
-                Object.values(corpsBrigadeData).forEach(corps => {
-                    corps.forEach(({ name, brigades }) => {
-                        this.linkedUnitNames.add(name);
-                        this.linkedUnitsByParent.set(name, new Set(brigades));
-                        brigades.forEach(b => this.linkedUnitNames.add(b));
+            const buildUnitHierarchy = (oobData) => {
+                const names = new Set();
+                const childrenByParent = new Map();
+                const childKeys = ['corps', 'divisions', 'brigades', 'regiments', 'battalions', 'units'];
+
+                const visit = (unit) => {
+                    if (typeof unit === 'string') {
+                        names.add(unit);
+                        return unit;
+                    }
+                    if (!unit || typeof unit !== 'object' || !unit.name) return null;
+
+                    names.add(unit.name);
+                    const children = [];
+                    childKeys.forEach(key => {
+                        const entries = Array.isArray(unit[key]) ? unit[key] : [];
+                        entries.forEach(entry => {
+                            const childName = visit(entry);
+                            if (childName) children.push(childName);
+                        });
                     });
-                });
-            }
-            this.ruLinkedUnitNames = new Set();
-            this.ruLinkedUnitsByParent = new Map();
-            if (ruCorpsBrigadeData) {
-                Object.values(ruCorpsBrigadeData).forEach(corps => {
-                    corps.forEach(({ name, brigades }) => {
-                        this.ruLinkedUnitNames.add(name);
-                        this.ruLinkedUnitsByParent.set(name, new Set(brigades));
-                        brigades.forEach(b => this.ruLinkedUnitNames.add(b));
-                    });
-                });
-            }
+                    if (children.length) childrenByParent.set(unit.name, new Set(children));
+                    return unit.name;
+                };
+
+                Object.values(oobData || {})
+                    .filter(Array.isArray)
+                    .flat()
+                    .forEach(visit);
+
+                return { names, childrenByParent };
+            };
+
+            const uaHierarchy = buildUnitHierarchy(corpsBrigadeData);
+            this.linkedUnitNames = uaHierarchy.names;
+            this.linkedUnitsByParent = uaHierarchy.childrenByParent;
+
+            const ruHierarchy = buildUnitHierarchy(ruCorpsBrigadeData);
+            this.ruLinkedUnitNames = ruHierarchy.names;
+            this.ruLinkedUnitsByParent = ruHierarchy.childrenByParent;
 
             // Re-apply filters that depend on OOB data now that it's loaded
             if (this.isChecked('show-linked-units') && this.updateDailyPositions) {
@@ -652,6 +682,46 @@ class AttackMapDashboard {
         } catch (error) {
             console.error('Error loading geographic data:', error);
         }
+    }
+
+    /**
+     * Return the complete connected OOB branch for a unit, including ancestors,
+     * siblings and descendants at every available level.
+     */
+    getLinkedUnitFamily(unitName) {
+        const connected = new Set([unitName]);
+        const queue = [unitName];
+        const maps = [this.linkedUnitsByParent, this.ruLinkedUnitsByParent];
+
+        while (queue.length) {
+            const current = queue.shift();
+            maps.forEach(map => {
+                if (!map) return;
+
+                map.get(current)?.forEach(child => {
+                    if (!connected.has(child)) {
+                        connected.add(child);
+                        queue.push(child);
+                    }
+                });
+
+                map.forEach((children, parent) => {
+                    if (!children.has(current)) return;
+                    if (!connected.has(parent)) {
+                        connected.add(parent);
+                        queue.push(parent);
+                    }
+                    children.forEach(sibling => {
+                        if (!connected.has(sibling)) {
+                            connected.add(sibling);
+                            queue.push(sibling);
+                        }
+                    });
+                });
+            });
+        }
+
+        return connected;
     }
 
     /**
@@ -1826,7 +1896,7 @@ class AttackMapDashboard {
         'forest-overlay', 'show-watermark',
         'show-settlements', 'show-regions', 'position-change',
         'hex-tiles', 'ru-shadow', 'show-date-overlay', 'custom-kml-overlay', 'overpass-overlay', 'firms-overlay',
-        'event-heatmap', 'event-coverage', 'charts-panel-on'
+        'event-heatmap', 'event-coverage', 'charts-panel-on', 'mgrs-grid'
     ];
 
     /** Heat ramps for the source heatmaps — dark to bright so hot spots pop
@@ -5760,6 +5830,24 @@ class AttackMapDashboard {
             playBtn.classList.remove('playing');
         }
         if (refresh && !this.dateRefreshPromise) this.scheduleDateDependentRefreshes();
+    }
+
+    /** Step the date by `days` (negative = back). With Lock on the whole window moves and
+     *  keeps its width; otherwise only the end date moves — the default window spans the
+     *  whole data range, so shifting it would do nothing. Clamped to the data range; the
+     *  slider's update handler redraws, debounced as for a drag. */
+    stepDates(days) {
+        if (!this.startDate || !this.endDate || !this.minDate || !this.maxDate) return;
+        if (this.isPlaying) this.stopAnimation({ refresh: false });
+        const target = this.endDate.getTime() + days * 86400000;
+        if (this.sliderLock) {
+            const width = this.endDate - this.startDate;
+            const end = Math.min(this.maxDate.getTime(), Math.max(this.minDate.getTime() + width, target));
+            this.updateSliderValues(new Date(end - width), new Date(end));
+        } else {
+            const end = Math.min(this.maxDate.getTime(), Math.max(this.startDate.getTime(), target));
+            this.updateSliderValues(this.startDate, new Date(end));
+        }
     }
 
     /**

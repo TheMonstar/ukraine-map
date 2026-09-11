@@ -1558,6 +1558,42 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     }
 }
 
+/* Below 1000px the top bar takes two rows — step/play/speed/Lock/go-to, then the dates
+   around the slider. One row needs ~890px since the step buttons and go-to box arrived;
+   on phones the dates and slider alone need ~320px. */
+@media (max-width: 1000px) {
+    :root {
+        --top-bar-height: 80px;
+    }
+
+    .top-bar-inner {
+        flex-wrap: wrap;
+        column-gap: 8px;
+        row-gap: 3px; /* applied on both sides of the zero-height break below */
+    }
+
+    .top-bar-inner::after {
+        content: '';
+        order: 1;
+        flex-basis: 100%;
+    }
+
+    #date-start,
+    .top-bar-slider-wrap,
+    #date-end {
+        order: 2;
+    }
+
+    /* Lets the slider take what the dates leave on the narrowest phones (80px at 320) */
+    .top-bar-slider-wrap {
+        min-width: 60px;
+    }
+
+    .top-bar-lock {
+        margin-left: auto;
+    }
+}
+
 /* ---- Diff Slices Slider (overlaid on date-range track) ---- */
 #diff-slices-slider .noUi-handle {
     width: 10px;
@@ -2294,4 +2330,245 @@ body.charts-wide .charts-card-body {
     color: var(--amber);
     font-size: 12px;
     line-height: 1.4;
+}
+
+/* ---- Coordinates: sidebar readout, go-to box, popup, MGRS grid ---- */
+/* Pinned below the sidebar's scroll area, so it never shifts the status bar */
+.cursor-coords {
+    flex-shrink: 0;
+    min-height: 3.4em;
+    padding: 6px 12px;
+    border-top: 1px solid var(--sidebar-border);
+    color: var(--sidebar-muted);
+    font-size: 11px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    white-space: pre-line;
+}
+
+.top-bar-btn.top-bar-step {
+    background: var(--sidebar-border);
+}
+
+.top-bar-btn.top-bar-step:hover {
+    background: #475569;
+}
+
+.goto-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.goto-input {
+    width: 210px;
+}
+
+.goto-input.goto-miss {
+    border-color: var(--danger);
+}
+
+.goto-results {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    width: 280px;
+    max-height: 280px;
+    z-index: 2000;
+    color: var(--sidebar-text);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Room on the right for Leaflet's close button; rows carry their own padding */
+.coords-popup-wrap .leaflet-popup-content {
+    margin: 12px 24px 10px 10px;
+}
+
+.coords-popup {
+    display: grid;
+    gap: 2px;
+    font-family: var(--font);
+}
+
+.coords-popup-title {
+    margin: 0 8px 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+/* The whole row is the copy target — easier to hit on touch than a small button */
+.coords-row {
+    display: grid;
+    grid-template-columns: 4.6em 1fr auto;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: #0f172a;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.coords-row:hover,
+.coords-row:focus-visible {
+    background: #f1f5f9;
+    border-color: #e2e8f0;
+    outline: none;
+}
+
+.coords-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.coords-row code {
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: nowrap;
+}
+
+/* Fixed width so "Copy" → "Copied ✓" does not shift the value */
+.coords-copy {
+    min-width: 5.2em;
+    text-align: right;
+    font-size: 11px;
+    color: var(--accent);
+}
+
+.coords-row.copied {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+
+.coords-row.copied .coords-copy {
+    color: #16a34a;
+}
+
+/* Phones: label and Copy on one line, the value under them, so the widest format
+   (DMS) fits a 320px screen without clipping */
+@media (max-width: 480px) {
+    .coords-row {
+        grid-template-columns: 1fr auto;
+        grid-template-areas: "label copy" "value value";
+        row-gap: 2px;
+    }
+
+    .coords-label {
+        grid-area: label;
+    }
+
+    .coords-row code {
+        grid-area: value;
+    }
+
+    .coords-copy {
+        grid-area: copy;
+    }
+}
+
+.mgrs-square-label span {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font: 700 13px var(--font);
+    color: #1d4ed8;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+    white-space: nowrap;
+}
+
+/* ---- Sidebar control search + active-layer chips ---- */
+.sidebar-search {
+    padding: 0 12px 8px;
+    border-bottom: 1px solid var(--sidebar-border);
+}
+
+.active-layer-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.active-layer-chips:empty {
+    display: none;
+}
+
+.layer-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 0 1px 8px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.18);
+    border: 1px solid rgba(59, 130, 246, 0.45);
+    color: var(--sidebar-text);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.layer-chip button {
+    background: none;
+    border: none;
+    color: var(--sidebar-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 6px;
+}
+
+.layer-chip button:hover {
+    color: var(--danger);
+}
+
+.search-hit {
+    background: rgba(245, 158, 11, 0.22);
+    box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.6);
+    border-radius: var(--radius-sm);
+}
+
+.flash {
+    animation: control-flash 1.4s ease-out;
+    border-radius: var(--radius-sm);
+}
+
+@keyframes control-flash {
+    from {
+        background: rgba(245, 158, 11, 0.5);
+    }
+
+    to {
+        background: transparent;
+    }
+}
+
+/* ---- Keyboard shortcuts sheet ---- */
+.shortcuts-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    color: #cbd5e1;
+}
+
+.shortcuts-table td {
+    padding: 6px 4px;
+    border-bottom: 1px solid var(--sidebar-border);
+}
+
+.shortcuts-table td:first-child {
+    white-space: nowrap;
+    width: 40%;
+}
+
+.shortcuts-table kbd {
+    background: #0f172a;
+    border: 1px solid #475569;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font: 12px ui-monospace, monospace;
+    color: #f8fafc;
 }

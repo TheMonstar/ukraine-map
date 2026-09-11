@@ -157,6 +157,7 @@ class TerritoryController {
             const deepMap = new DeepUtils(dashboard.deepLayer);
             const endDatePolygons = getPolygons(dashboard.endDate);
 
+            TerritoryStatus.set(dashboard, 'shadow', '');
             if (dashboard.isChecked('shadow-ua')) {
                 const uaborder = getBorder('ua');
                 const ruborder = getBorder('ru');
@@ -167,6 +168,9 @@ class TerritoryController {
                 const shadowOnly = turf.difference(shadow, area);
                 const shadowExclRu = turf.intersect(turf.difference(shadowOnly, ruborder), uaborder);
                 dashboard.shadowUaPolygon = shadowExclRu;
+                if (!shadowExclRu) {
+                    TerritoryStatus.set(dashboard, 'shadow', 'UA shadow: no shadow area inside Ukraine for these settings, so nothing is drawn.');
+                }
                 const zone = turf.difference(chunk, shadow);
                 const contested = turf.difference(uaborder, zone);
                 const areaExclRu = turf.difference(area, ruborder);

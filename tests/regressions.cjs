@@ -294,7 +294,7 @@ test('overlay totals retain successful sources and label partial results; recove
 function riaRuntime() {
     const styles=[], texts=new Map(), toggle={checked:true};
     const layer=()=>({items:[],clearLayers(){this.items=[]},eachLayer(fn){this.items.forEach(fn)},addTo(target){target?.items?.push(this);return this},bindTooltip(){return this}});
-    const dashboard={startDate:new Date(2026,0,1),endDate:new Date(2026,0,2),map:{},getEl:()=>toggle,isChecked:()=>true,setText:(id,text)=>texts.set(id,text)};
+    const dashboard={startDate:new Date(2026,0,1),endDate:new Date(2026,0,2),map:{},getEl:()=>toggle,isChecked:()=>true,setText:(id,text)=>texts.set(id,text),getDiffSliceDates:()=>[]};
     const {c,run}=runtime({dashboard,L:{layerGroup:layer,geoJSON(geo,opts){styles.push(opts.style);return layer()}}});
     c.polygon=feature([square()]);
     run('this.layers = new MapLayers(dashboard); layers._loadRiaMerged = async () => polygon');
@@ -422,4 +422,77 @@ test('manual date refresh includes all enabled dated overlays and awaits hex ren
     assert.ok(run('player.dateRefreshPromise'));
     c.hold.resolve(); await run('player.dateRefreshPromise');
     assert.equal(run('player.dateRefreshPromise'),null);
+});
+
+test('stepping moves the end date, or the whole window with Lock on, inside the data range', () => {
+    const {run}=playbackRuntime();
+    run('player.minDate=new Date(2026,0,1); player.updateSliderValues=(s,e)=>{player.startDate=s;player.endDate=e}');
+    const days=()=>[run('player.startDate.getDate()'),run('player.endDate.getDate()')];
+    run('player.stepDates(1)');
+    assert.deepEqual(days(),[1,3]);
+    run('player.stepDates(7)');
+    assert.deepEqual(days(),[1,4]);
+    run('player.stepDates(-7)');
+    assert.deepEqual(days(),[1,1]);
+    run('player.sliderLock=86400000; player.endDate=new Date(2026,0,2); player.stepDates(1)');
+    assert.deepEqual(days(),[2,3]);
+    run('player.stepDates(7)');
+    assert.deepEqual(days(),[3,4]);
+    run('player.stepDates(-7)');
+    assert.deepEqual(days(),[1,2]);
+    run('player.isPlaying=true; player.stepDates(1)');
+    assert.equal(run('player.isPlaying'),false);
+    assert.deepEqual(days(),[2,3]);
+});
+
+function coordsRuntime() {
+    const c = vm.createContext({ proj4: require('proj4'), console: quiet });
+    c.window = c;
+    vm.runInContext(fs.readFileSync('js/coords.js', 'utf8'), c);
+    return { c, run: code => vm.runInContext(code, c) };
+}
+
+test('coordinate input accepts decimal, DMS and MGRS, and leaves place names alone', () => {
+    const { c, run } = coordsRuntime();
+    const near = (text, lat, lng) => {
+        c.text = text;
+        const p = run('Coords.parse(text)');
+        assert.ok(p, `${text} did not parse`);
+        assert.ok(turf.distance([lng, lat], [p.lng, p.lat], { units: 'meters' }) < 20, `${text} → ${p.lat}, ${p.lng}`);
+    };
+    near('48.6, 37.8', 48.6, 37.8);
+    near('48.6 37.8', 48.6, 37.8);
+    near("48°36'N 37°48'E", 48.6, 37.8);
+    near('48°36′0″N, 37°48′0″E', 48.6, 37.8);
+    near("37°48'E 48°36'N", 48.6, 37.8);
+    near('37U DP 11529 83686', 48.6, 37.8);
+    near('37udp1152983686', 48.6, 37.8);
+    for (const text of ['Bakhmut', '', '95, 37', '48°N 49°N', '37UDP123']) {
+        c.text = text;
+        assert.equal(run('Coords.parse(text)'), null, text);
+    }
+});
+
+test('MGRS output is spaced 1 m precision and parses back to the same spot', () => {
+    const { run } = coordsRuntime();
+    assert.equal(run('Coords.toMgrs(48.6, 37.8)'), '37U DP 11529 83686');
+    assert.equal(run('Coords.toMgrs(86, 10)'), '');
+    for (const [lat, lng] of [[48.6, 37.8], [47.1, 35.3], [50.45, 30.52], [46.5, 32.0], [49.9, 24.0]]) {
+        const p = run(`Coords.parse(Coords.toMgrs(${lat}, ${lng}))`);
+        assert.ok(turf.distance([lng, lat], [p.lng, p.lat], { units: 'meters' }) < 2, `${lat}, ${lng}`);
+    }
+});
+
+test('DMS output parses back, carrying rounded seconds, and a typed MGRS reference is echoed as typed', () => {
+    const { run } = coordsRuntime();
+    assert.equal(run('Coords.formatDms(48.5894, 38.0021)'), `48°35'21.8"N 38°00'07.6"E`);
+    assert.equal(run('Coords.formatDms(46.75, 32.9999999)'), `46°45'00.0"N 33°00'00.0"E`);
+    for (const [lat, lng] of [[48.5894, 38.0021], [46.75, 32.9999999], [-33.9, 18.4], [50.4501, -0.05]]) {
+        const p = run(`Coords.parse(Coords.formatDms(${lat}, ${lng}))`);
+        assert.ok(Math.abs(p.lat - lat) < 3e-5 && Math.abs(p.lng - lng) < 3e-5, `${lat}, ${lng} → ${p.lat}, ${p.lng}`);
+    }
+    assert.equal(run('Coords.parse("37udp1152983686").mgrs'), '37U DP 11529 83686');
+    assert.equal(run('Coords.parse("37U DP 115 836").mgrs'), '37U DP 115 836');
+    assert.equal(run('Coords.parse("37UDP").mgrs'), '37U DP');
+    assert.equal(run('Coords.parse("48.6, 37.8").mgrs'), undefined);
 });

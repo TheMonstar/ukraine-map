@@ -4,7 +4,9 @@
 **File:** `js/app.js:3043`
 **Priority:** High
 
-Every date-slider movement with NASA Satellite selected tears down the tile layer and creates a new one (`removeLayer` + `L.tileLayer` + `addTo`). A single drag fires dozens of teardowns, blanking the map and flooding the tile cache.
+~~Every date-slider movement with NASA Satellite selected tears down the tile layer and creates a new one (`removeLayer` + `L.tileLayer` + `addTo`). A single drag fires dozens of teardowns, blanking the map and flooding the tile cache.~~
+
+**DONE.** The slider's `update` handler (`initSlider` in `js/app.js`) keys `_lastNasaDate` on the start|end dates and only rebuilds the dated basemap and compare layer when they change.
 
 **Fix:** Track the last date used for the NASA layer and skip `setBaseLayer` if the date hasn't changed.
 
@@ -25,7 +27,9 @@ if (mapStyleEl?.value === 'nasa-gibs') {
 **File:** `js/app.js:1475`
 **Priority:** High
 
-Registered on Leaflet's `'move'` event which fires on every mousemove pixel during panning. Each call does 8 `latLngToLayerPoint` lookups + matrix3d computation synchronously, saturating the main thread and causing jank on mobile.
+~~Registered on Leaflet's `'move'` event which fires on every mousemove pixel during panning. Each call does 8 `latLngToLayerPoint` lookups + matrix3d computation synchronously, saturating the main thread and causing jank on mobile.~~
+
+**DONE.** `_updateFreeTransformBound` in `js/app.js` is throttled with `requestAnimationFrame` via `_freeTransformRafPending`, as below.
 
 **Fix:** Throttle with `requestAnimationFrame`:
 
@@ -57,6 +61,8 @@ this._updateFreeTransformBound = () => {
 **File:** `js/ui-bindings.js:418`
 **Priority:** Medium
 
-`polys.reduce((acc, p) => acc ? turf.union(acc, p.geojson) : p.geojson, null)` — the accumulator grows with every merge. For large date ranges (60+ polygons) the final merges operate on near-complete territory outlines, potentially freezing the main thread.
+~~`polys.reduce((acc, p) => acc ? turf.union(acc, p.geojson) : p.geojson, null)` — the accumulator grows with every merge. For large date ranges (60+ polygons) the final merges operate on near-complete territory outlines, potentially freezing the main thread.~~
+
+**DONE.** `unionAll` in the `motorlines-by-diff-btn` handler is now a divide-and-conquer tree union.
 
 **Fix:** Consider a divide-and-conquer tree union (merge pairs, then merge pairs of pairs) to reduce max intermediate polygon size. Alternatively, run in a Web Worker for large inputs.

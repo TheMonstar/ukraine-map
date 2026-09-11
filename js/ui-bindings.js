@@ -117,12 +117,21 @@ class UiBindings {
 
         const MAJOR_HIGHWAYS = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 
+        /** "motorway 12.3 · primary 4.1 km", longest first, for the road-km stats lines. */
+        const formatRoadKm = (totals) => {
+            const parts = Object.entries(totals).filter(([, km]) => km > 0)
+                .sort((a, b) => b[1] - a[1]).map(([type, km]) => `${type} ${km.toFixed(1)}`);
+            return parts.length ? `${parts.join(' · ')} km` : 'none';
+        };
+
         dashboard.bindUI('motorlines-by-shadow-btn', 'click', async () => {
+            const report = text => dashboard.setText('road-km-shadow-stats', text);
             try {
             if (!dashboard.isChecked('shadow-ua') || !dashboard.shadowUaPolygon) {
-                console.warn('Enable UA Shadow first');
+                report(dashboard.isChecked('shadow-ua') ? 'No UA shadow zone to measure' : 'Enable UA Shadow first');
                 return;
             }
+            report('Measuring…');
             const roadFeatures = await dashboard.lineFeatures.loadAllRoads();
             const totals = {};
             for (const feature of roadFeatures) {
@@ -140,11 +149,8 @@ class UiBindings {
                     // skip malformed features
                 }
             }
-            console.log('Road km within UA shadow zone:');
-            Object.entries(totals).sort((a, b) => b[1] - a[1]).forEach(([type, km]) => {
-                console.log(`  ${type}: ${km.toFixed(1)} km`);
-            });
-            } catch (e) { console.error('motorlines-by-shadow error:', e); }
+            report(`Road km in shadow: ${formatRoadKm(totals)}`);
+            } catch (e) { console.error('motorlines-by-shadow error:', e); report(`Road km failed: ${e.message}`); }
         });
 
         // --- Hex Tiles ---
@@ -222,13 +228,15 @@ class UiBindings {
         dashboard.bindUI('diff-area', 'change', () => renderDeepLayer());
 
         dashboard.bindUI('motorlines-by-diff-btn', 'click', async () => {
+            const report = text => dashboard.setText('road-km-diff-stats', text);
             try {
             const visibleTypes = new Set([
                 ...(dashboard.isChecked('motorlines-type-highway')  ? ['motorway', 'trunk']      : []),
                 ...(dashboard.isChecked('motorlines-type-primary')   ? ['primary', 'secondary']   : []),
                 ...(dashboard.isChecked('motorlines-type-tertiary')  ? ['tertiary']               : []),
             ]);
-            if (!visibleTypes.size) { console.warn('No motorline types selected'); return; }
+            if (!visibleTypes.size) { report('Select at least one road type'); return; }
+            report('Measuring…');
             const roadFeatures = await dashboard.lineFeatures.loadAllRoads();
             const features = roadFeatures.filter(f => visibleTypes.has(f?.properties?.highway));
 
@@ -265,16 +273,12 @@ class UiBindings {
                 const geoJsons = dashboard.selectedPolygons.map(p => p.toGeoJSON());
                 const polygon = geoJsons.reduce((acc, g) => acc ? turf.union(acc, g) : g, null);
                 const totals = calcByType(polygon);
-                console.log('Road km in selected polygon:');
-                Object.entries(totals).sort((a, b) => b[1] - a[1]).forEach(([t, km]) => console.log(`  ${t}: ${km.toFixed(1)} km`));
+                report(`Road km in selected polygon: ${formatRoadKm(totals)}`);
             } else if (dashboard.currentDiffResult) {
                 const gainPolygons = dashboard.currentDiffResult.polygons.filter(p => p.type === 'difference' && p.geojson);
                 const lossPolygons = dashboard.currentDiffResult.polygons.filter(p => p.type === 'reverse-difference' && p.geojson);
                 const [gains, losses] = await Promise.all([calcByType(unionAll(gainPolygons)), calcByType(unionAll(lossPolygons))]);
-                console.log('Road km in GAINS (diff area):');
-                Object.entries(gains).sort((a, b) => b[1] - a[1]).forEach(([t, km]) => console.log(`  ${t}: ${km.toFixed(1)} km`));
-                console.log('Road km in LOSSES (diff area):');
-                Object.entries(losses).sort((a, b) => b[1] - a[1]).forEach(([t, km]) => console.log(`  ${t}: ${km.toFixed(1)} km`));
+                report(`Road km in gains: ${formatRoadKm(gains)}\nRoad km in losses: ${formatRoadKm(losses)}`);
             } else if (dashboard.currentDeepResult) {
                 const basePolygons = dashboard.currentDeepResult.polygons
                     .filter(p => p.geojson || p.coordinates)
@@ -285,12 +289,11 @@ class UiBindings {
                         return { geojson: turf.polygon([ring]) };
                     });
                 const totals = await calcByType(unionAll(basePolygons));
-                console.log('Road km in DeepState painted area:');
-                Object.entries(totals).sort((a, b) => b[1] - a[1]).forEach(([t, km]) => console.log(`  ${t}: ${km.toFixed(1)} km`));
+                report(`Road km in DeepState painted area: ${formatRoadKm(totals)}`);
             } else {
-                console.warn('Enable DeepState first');
+                report('Enable DeepState first');
             }
-            } catch (e) { console.error('motorlines-by-diff error:', e); }
+            } catch (e) { console.error('motorlines-by-diff error:', e); report(`Road km failed: ${e.message}`); }
         });
 
         dashboard.bindUI('show-date-overlay', 'change', () => {
@@ -1395,26 +1398,7 @@ class UiBindings {
                                     layer.on('contextmenu', (e) => {
                                         L.DomEvent.stopPropagation(e);
                                         L.DomEvent.preventDefault(e);
-                                        const highlight = new Set([unitName]);
-                                        const subordinates = dashboard.linkedUnitsByParent?.get(unitName)
-                                            || dashboard.ruLinkedUnitsByParent?.get(unitName);
-                                        if (subordinates) {
-                                            // Clicked a corps — add all its subordinates
-                                            subordinates.forEach(s => highlight.add(s));
-                                        } else {
-                                            // Clicked a subordinate — find parent and full family
-                                            const maps = [dashboard.linkedUnitsByParent, dashboard.ruLinkedUnitsByParent];
-                                            maps.forEach(map => {
-                                                if (!map) return;
-                                                map.forEach((brigades, corpsName) => {
-                                                    if (brigades.has(unitName)) {
-                                                        highlight.add(corpsName);
-                                                        brigades.forEach(s => highlight.add(s));
-                                                    }
-                                                });
-                                            });
-                                        }
-                                        window.highlightedUnits = highlight;
+                                        window.highlightedUnits = dashboard.getLinkedUnitFamily(unitName);
                                         updateDailyPositions();
                                     });
                                 }
@@ -2267,35 +2251,12 @@ class UiBindings {
                     };
 
                     // Helper to add right-click handler to unit markers
-                    // Corps (level 6): highlights corps + all subordinates
-                    // Subordinates: highlights unit + its parent corps
+                    // Highlight the complete OOB branch at any available level.
                     const addCorpsRightClickHandler = (marker, unitName, unitLevel) => {
                         marker.on('contextmenu', function (e) {
                             L.DomEvent.stopPropagation(e);
                             L.DomEvent.preventDefault(e);
-
-                            const connectedToHighlight = new Set([unitName]);
-
-                            if (unitLevel === 6) {
-                                // Corps: add all direct subordinates from the pre-built map
-                                const subordinates = dashboard.linkedUnitsByParent?.get(unitName)
-                                    || dashboard.ruLinkedUnitsByParent?.get(unitName);
-                                if (subordinates) subordinates.forEach(s => connectedToHighlight.add(s));
-                            } else {
-                                // Subordinate: find parent corps and highlight the full family
-                                const maps = [dashboard.linkedUnitsByParent, dashboard.ruLinkedUnitsByParent];
-                                maps.forEach(map => {
-                                    if (!map) return;
-                                    map.forEach((brigades, corpsName) => {
-                                        if (brigades.has(unitName)) {
-                                            connectedToHighlight.add(corpsName);
-                                            brigades.forEach(s => connectedToHighlight.add(s));
-                                        }
-                                    });
-                                });
-                            }
-
-                            window.highlightedUnits = connectedToHighlight;
+                            window.highlightedUnits = dashboard.getLinkedUnitFamily(unitName);
                             renderPositionChanges();
                         });
                     };
@@ -2882,25 +2843,34 @@ class UiBindings {
                 L.latLng(52.324983525342205, 40.38061609411399)
             );
 
-            const repositionCorps = (parentMap) => {
-                parentMap?.forEach((brigades, corpsName) => {
+            const repositionFormations = (parentMap) => {
+                parentMap?.forEach((subordinates, formationName) => {
                     const positions = [];
-                    brigades.forEach(brigade => {
-                        if (brigade.includes('Artillery Brigade')) return;
-                        const pos = unitPositions.get(brigade);
+                    const collectLeafPositions = (unitName, visited = new Set()) => {
+                        if (visited.has(unitName)) return;
+                        visited.add(unitName);
+
+                        const children = parentMap.get(unitName);
+                        if (children?.size) {
+                            children.forEach(child => collectLeafPositions(child, visited));
+                            return;
+                        }
+                        if (unitName.includes('Artillery')) return;
+                        const pos = unitPositions.get(unitName);
                         if (pos && repoBounds.contains(pos)) positions.push(pos);
-                    });
+                    };
+                    subordinates.forEach(unitName => collectLeafPositions(unitName));
                     if (positions.length === 0) return;
                     const lat = positions.reduce((s, p) => s + p.lat, 0) / positions.length;
                     const lng = positions.reduce((s, p) => s + p.lng, 0) / positions.length;
                     const centroid = L.latLng(lat, lng);
-                    window.draggedCorpsPositions[corpsName] = [lat, lng];
-                    const corpsMarker = unitLayers.get(corpsName);
-                    if (corpsMarker?.setLatLng) corpsMarker.setLatLng(centroid);
+                    window.draggedCorpsPositions[formationName] = [lat, lng];
+                    const formationMarker = unitLayers.get(formationName);
+                    if (formationMarker?.setLatLng) formationMarker.setLatLng(centroid);
                 });
             };
-            repositionCorps(dashboard.linkedUnitsByParent);
-            repositionCorps(dashboard.ruLinkedUnitsByParent);
+            repositionFormations(dashboard.linkedUnitsByParent);
+            repositionFormations(dashboard.ruLinkedUnitsByParent);
         });
 
         dashboard.bindUI('export-dragged-positions', 'click', () => {
@@ -4110,6 +4080,183 @@ class UiBindings {
         document.getElementById('map-uml-help-modal')?.addEventListener('click', (e) => {
             if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
         });
+
+        // --- Coordinates & MGRS ---
+        const coords = dashboard.coords;
+        dashboard.map.on('mousemove', (e) => coords.updateReadout(e.latlng));
+        // The drawing canvas passes right-clicks through to the map; leave those to it.
+        dashboard.map.on('contextmenu', (e) => {
+            if (!dashboard.drawTool?.active) coords.showPopup(e.latlng);
+        });
+        dashboard.bindUI('goto-input', 'input', (e) => {
+            e.target.classList.remove('goto-miss');
+            coords.suggest(e.target.value);
+        });
+        dashboard.bindUI('goto-input', 'keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.target.classList.toggle('goto-miss', !coords.goTo(e.target.value));
+            } else if (e.key === 'Escape') {
+                e.target.value = '';
+                coords.hideSuggestions();
+                e.target.blur();
+            }
+        });
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#goto-input, #goto-results')) coords.hideSuggestions();
+        });
+        dashboard.bindUI('mgrs-grid', 'change', () => coords.renderGrid());
+        dashboard.map.on('moveend rotate', () => coords.renderGrid());
+
+        // --- Keyboard shortcuts ---
+        const shortcutsModal = dashboard.getEl('shortcuts-help-modal');
+        const shortcutsOpen = () => shortcutsModal?.style.display === 'flex';
+        const setShortcutsOpen = (open) => {
+            if (shortcutsModal) shortcutsModal.style.display = open ? 'flex' : 'none';
+        };
+        dashboard.bindUI('btn-close-shortcuts-help', 'click', () => setShortcutsOpen(false));
+        shortcutsModal?.addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) setShortcutsOpen(false);
+        });
+        dashboard.bindUI('step-back-btn', 'click', (e) => dashboard.stepDates(e.shiftKey ? -7 : -1));
+        dashboard.bindUI('step-fwd-btn', 'click', (e) => dashboard.stepDates(e.shiftKey ? 7 : 1));
+
+        // Not the arrow keys: Leaflet pans the map with those once it has focus.
+        const shortcuts = {
+            ' ': () => dashboard.playAnimation(),
+            ',': () => dashboard.stepDates(-1),
+            '.': () => dashboard.stepDates(1),
+            '<': () => dashboard.stepDates(-7),
+            '>': () => dashboard.stepDates(7),
+            '/': () => {
+                document.getElementById('sidebar')?.classList.remove('collapsed');
+                dashboard.getEl('sidebar-search')?.focus();
+            },
+            'g': () => dashboard.getEl('goto-input')?.focus(),
+            '?': () => setShortcutsOpen(!shortcutsOpen())
+        };
+        document.addEventListener('keydown', (e) => {
+            if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.key === 'Escape' && shortcutsOpen()) {
+                setShortcutsOpen(false);
+                return;
+            }
+            // Typing belongs to the field, and Space on a focused button already clicks it
+            if (e.target.closest?.('input, textarea, select, button, [contenteditable]')) return;
+            const action = shortcuts[e.key];
+            if (!action) return;
+            e.preventDefault();
+            action();
+        });
+
+        // --- Sidebar search & active-layer chips ---
+        const sections = [...document.querySelectorAll('.accordion-section')].map(section => {
+            const header = section.querySelector('.accordion-header');
+            const body = section.querySelector('.accordion-body');
+            return {
+                section, body,
+                arrow: header.querySelector('.accordion-arrow'),
+                title: header.textContent.trim().toLowerCase(),
+                items: [...body.querySelectorAll('label, button, .control-label, .small-label')]
+                    .map(el => ({ el, text: el.textContent.trim().toLowerCase() }))
+                    .filter(item => item.text)
+            };
+        });
+        // Same open/closed markup as initSidebar()
+        const setSectionOpen = (s, open) => {
+            s.body.style.display = open ? 'block' : 'none';
+            s.arrow.innerHTML = open ? '&#9660;' : '&#9654;';
+        };
+        let openBeforeSearch = null;
+        const applySidebarSearch = (query) => {
+            const q = query.trim().toLowerCase();
+            document.querySelectorAll('.search-hit').forEach(el => el.classList.remove('search-hit'));
+            if (!q) {
+                if (openBeforeSearch) sections.forEach((s, i) => {
+                    s.section.style.display = '';
+                    setSectionOpen(s, openBeforeSearch[i]);
+                });
+                openBeforeSearch = null;
+                return;
+            }
+            if (!openBeforeSearch) openBeforeSearch = sections.map(s => s.body.style.display !== 'none');
+            for (const s of sections) {
+                const hits = s.items.filter(item => item.text.includes(q));
+                const match = hits.length > 0 || s.title.includes(q);
+                s.section.style.display = match ? '' : 'none';
+                if (match) setSectionOpen(s, true);
+                hits.forEach(item => item.el.classList.add('search-hit'));
+            }
+        };
+        dashboard.bindUI('sidebar-search', 'input', (e) => applySidebarSearch(e.target.value));
+        dashboard.bindUI('sidebar-search', 'keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.target.value = '';
+                applySidebarSearch('');
+                e.target.blur();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                [...document.querySelectorAll('.search-hit')].find(el => el.offsetParent !== null)
+                    ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+        });
+
+        // Curated: toggle markup nests too inconsistently to find "layers" from the DOM
+        const LAYER_CHIPS = {
+            'diff-area': 'DeepState', 'suriyak-overlay': 'Suriyak', 'ria-overlay': 'RIA zones', 'source-gsua': 'GSUA',
+            'feature-modr': 'MoDR', 'mgrs-grid': 'MGRS grid', 'custom-kml-overlay': 'Custom layer',
+            'shadow-ua': 'UA shadow', 'ru-shadow': 'RU shadow', 'shadow-line': 'Depth shadow', 'hex-tiles': 'Hex tiles',
+            'feature-positions-ua': 'UA positions', 'feature-positions-ru': 'RU positions', 'position-change': 'Position changes',
+            'feature-ditches': 'Ditches', 'feature-wire': 'Wire', 'feature-dragon': 'Teeth',
+            'feature-motorlines': 'Roads', 'feature-railways': 'Railways', 'feature-waterways': 'Waterways',
+            'overpass-overlay': 'Overpass', 'feature-events': 'Events', 'feature-ria-events': 'RIA events',
+            'feature-owl-events': 'UAControlMap', 'firms-overlay': 'FIRMS fires',
+            'full-ad-positions': 'AD positions', 'full-ad-ranges': 'AD ranges', 'forest-overlay': 'Tree lines',
+            'show-settlements': 'Settlements', 'show-settlement-boundaries': 'Boundaries',
+            'show-settlement-names': 'Names', 'settlement-progress-heatmap': 'Progress heatmap'
+        };
+        const chipBox = dashboard.getEl('active-layer-chips');
+        const revealControl = (input) => {
+            const s = sections.find(s => s.section.contains(input));
+            if (s) {
+                s.section.style.display = '';
+                setSectionOpen(s, true);
+            }
+            const target = input.closest('label') || input;
+            target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            target.classList.remove('flash');
+            void target.offsetWidth; // restart the animation on a repeat click
+            target.classList.add('flash');
+        };
+        const renderLayerChips = () => {
+            if (!chipBox) return;
+            chipBox.replaceChildren(...Object.entries(LAYER_CHIPS)
+                .filter(([id]) => dashboard.getEl(id)?.checked)
+                .map(([id, label]) => {
+                    const input = dashboard.getEl(id);
+                    const chip = document.createElement('span');
+                    chip.className = 'layer-chip';
+                    chip.title = 'Show in the sidebar';
+                    chip.textContent = label;
+                    chip.addEventListener('click', () => revealControl(input));
+                    const off = document.createElement('button');
+                    off.type = 'button';
+                    off.textContent = '×';
+                    off.title = `Turn off ${label}`;
+                    off.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        input.checked = false;
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                    });
+                    chip.appendChild(off);
+                    return chip;
+                }));
+        };
+        // Capture phase: restoreSession dispatches change events that do not bubble
+        document.addEventListener('change', (e) => {
+            if (e.target.id in LAYER_CHIPS) renderLayerChips();
+        }, true);
+        renderLayerChips();
 
         // Terrain Analysis
         if (dashboard.terrainAnalysis) {

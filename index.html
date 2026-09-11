@@ -73,14 +73,20 @@
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" crossorigin="anonymous" integrity="sha384-wgw+aLYNQ7dlhK47ZPK7FRACiq7ROZwgFNg0m04avm4CaXS+Z9Y7nMu8yNjBKYC+"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" crossorigin="anonymous" integrity="sha384-NZLkVuBRMEeB4VeZz27WwTRvlhec30biQ8Xx7zG7JJnkvEKRg5qi6BNbEXo9ydwv"/>
-    <link rel="stylesheet" href="css/main.css?595" />
+    <link rel="stylesheet" href="css/main.css?598" />
 </head>
 
 <body>
     <!-- Top Date Bar -->
     <div class="top-bar">
         <div class="top-bar-inner">
-            <button id="play-btn" class="top-bar-btn" title="Play/Pause">
+            <button id="step-back-btn" class="top-bar-btn top-bar-step" title="Back 1 day ( , ) — Shift: 7 days ( < )">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="2" y="2" width="2" height="12" rx="1" />
+                    <path d="M14 2L5 8l9 6V2z" />
+                </svg>
+            </button>
+            <button id="play-btn" class="top-bar-btn" title="Play/Pause (Space)">
                 <svg class="icon-play" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M4 2l10 6-10 6V2z" />
                 </svg>
@@ -88,6 +94,12 @@
                     style="display:none;">
                     <rect x="3" y="2" width="4" height="12" rx="1" />
                     <rect x="9" y="2" width="4" height="12" rx="1" />
+                </svg>
+            </button>
+            <button id="step-fwd-btn" class="top-bar-btn top-bar-step" title="Forward 1 day ( . ) — Shift: 7 days ( > )">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M2 2l9 6-9 6V2z" />
+                    <rect x="12" y="2" width="2" height="12" rx="1" />
                 </svg>
             </button>
             <select id="playback-speed" class="top-bar-select">
@@ -107,6 +119,12 @@
                 <span class="toggle-switch"></span>
                 Lock
             </label>
+            <div class="goto-wrap hide-mobile">
+                <input type="search" id="goto-input" class="top-bar-date goto-input" autocomplete="off"
+                    placeholder="Go to: 48.6, 37.8 · 37U DP… · name"
+                    title="Latitude, longitude (decimal or DMS), MGRS, or a settlement name. Shortcut: G" />
+                <div id="goto-results" class="search-results goto-results"></div>
+            </div>
         </div>
     </div>
 
@@ -115,6 +133,12 @@
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-scroll">
+
+                <div class="sidebar-search">
+                    <input type="search" id="sidebar-search" class="control-input" autocomplete="off"
+                        placeholder="Find a control…  ( / )" />
+                    <div id="active-layer-chips" class="active-layer-chips"></div>
+                </div>
 
                 <!-- Map Layers -->
                 <div class="accordion-section" data-section="map-layers">
@@ -186,6 +210,8 @@
                                         class="toggle-switch"></span>Direction</label>
                                 <label class="toggle-label"><input type="checkbox" id="feature-modr" /><span
                                         class="toggle-switch"></span>MoDR</label>
+                                <label class="toggle-label" title="Grid spacing follows zoom: 100 km, 10 km, then 1 km"><input
+                                        type="checkbox" id="mgrs-grid" /><span class="toggle-switch"></span>MGRS grid</label>
                                 <select id="marker-display" class="control-select" style="width:auto;"
                                     title="How GSUA and MoDR markers are drawn">
                                     <option value="cluster" selected>Cluster</option>
@@ -286,6 +312,7 @@
                         <div class="toggle-row">
                             <button id="motorlines-by-shadow-btn" style="font-size:11px; padding:2px 8px; cursor:pointer;">Road km in shadow</button>
                         </div>
+                        <div id="road-km-shadow-stats" class="stats-text" style="white-space:pre-line;"></div>
                         <div class="control-row">
                             <label class="small-label">Shadow size (km):</label>
                             <input type="number" id="shadow-ua-size" value="20" min="1" max="100" step="1"
@@ -470,6 +497,7 @@
                             <label class="toggle-label" style="font-size:11px;"><input type="checkbox" id="motorlines-type-bridge" /><span class="toggle-switch"></span><span style="color:#7b1fa2;">Bridges</span></label>
                             <button id="motorlines-by-diff-btn" style="font-size:11px; padding:2px 8px; cursor:pointer;">Road km in diff</button>
                             <button id="motorlines-clear-selection-btn" style="font-size:11px; padding:2px 8px; cursor:pointer;">Clear selection</button>
+                            <div id="road-km-diff-stats" class="stats-text" style="white-space:pre-line;"></div>
                         </div>
                         <div class="toggle-row">
                             <label class="toggle-label"><input type="checkbox" id="feature-railways" /><span
@@ -1270,6 +1298,7 @@
                     </div>
                 </div>
             </div>
+            <div class="cursor-coords hide-mobile" id="cursor-coords" title="Cursor position. Right-click the map to copy it."></div>
         </aside>
 
         <!-- Sidebar Toggle -->
@@ -1405,6 +1434,24 @@ Situation report:
         </div>
     </div>
 
+    <!-- Keyboard Shortcuts Modal -->
+    <div id="shortcuts-help-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; justify-content:center; align-items:center;">
+        <div style="background:#1e293b; padding:20px 25px; border-radius:8px; width:380px; max-width:90%; max-height:85vh; overflow-y:auto; border:1px solid #475569; position:relative; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <button id="btn-close-shortcuts-help" style="position:absolute; top:12px; right:15px; background:none; border:none; color:#94a3b8; font-size:24px; cursor:pointer; line-height:1;">&times;</button>
+            <h2 style="margin-top:0; font-size:18px; color:#f8fafc; border-bottom:1px solid #334155; padding-bottom:10px; margin-bottom:15px;">Keyboard Shortcuts</h2>
+            <table class="shortcuts-table">
+                <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
+                <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>End date back / forward 1 day (the whole window with Lock on)</td></tr>
+                <tr><td><kbd>&lt;</kbd> <kbd>&gt;</kbd></td><td>Back / forward 7 days</td></tr>
+                <tr><td><kbd>/</kbd></td><td>Find a sidebar control</td></tr>
+                <tr><td><kbd>G</kbd></td><td>Go to coordinates, MGRS or a place</td></tr>
+                <tr><td>Right-click map</td><td>Copy lat/lng, MGRS or DMS</td></tr>
+                <tr><td><kbd>Esc</kbd></td><td>Close this, or clear a search box</td></tr>
+                <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>
+            </table>
+        </div>
+    </div>
+
     <!-- Status Bar -->
     <div class="status-bar">
         <div class="status-item">Total: <span id="total-gains">0</span> km²</div>
@@ -1459,6 +1506,7 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated@0.2.1/Leaflet.ImageOverlay.Rotated.js" integrity="sha384-7oBmAX73N5DMKPSTLhXDB3qYFCIcDn1NtkLTsqtvLbzJjwYn/GF+0TnSMG6o4Bg9" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" integrity="sha384-nlUQ8ZqCbvStErob+biJNzSgltf6urV3VGqhfIfzhmg9RXmpeRm76ELw0pYnKlTR" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js" integrity="sha384-0d+Gr7vM4Drod8E3hXKgciWJSWbjD/opKLLygI9ktiWbuvlDwQLzU46wJ9s5gsp7" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.22.0/proj4.min.js" integrity="sha512-UeNA4/krf3UM0banbl23Tb7RxwicxxLiknzKQ2y905a9qQ8LfYlELc5EqYqtPkrM+LGudPIkSIMMHpHvEVTCBQ==" crossorigin="anonymous"></script>
     <script src="js/html-utils.js?595"></script>
     <script src="js/territory-data.js?595"></script>
     <script src="js/utils.js?595"></script>
@@ -1474,14 +1522,15 @@ Situation report:
     <script src="js/image-extract.js?577"></script>
     <script src="js/terrain-analysis.js?577"></script>
     <script src="js/overpass.js?577"></script>
+    <script src="js/coords.js?598"></script>
     <script src="js/infiltration.js?577"></script>
     <script src="js/stream.js?577"></script>
     <script src="js/charts.js?593"></script>
-    <script src="js/territory-controller.js?595"></script>
-    <script src="js/ui-bindings.js?596"></script>
+    <script src="js/territory-controller.js?597"></script>
+    <script src="js/ui-bindings.js?597"></script>
     <script src="js/map-uml-engine.js?577"></script>
     <script src="js/poster.js?577"></script>
-    <script src="js/app.js?596"></script>
+    <script src="js/app.js?597"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();
