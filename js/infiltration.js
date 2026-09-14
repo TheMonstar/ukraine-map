@@ -179,6 +179,59 @@ class Infiltration {
     // the point of drawing a line is that the result stays near it.
     static OUT_OF_CORRIDOR_COST = 1e6;
 
+    // ── Survival model ───────────────────────────────────────────────────────
+    //
+    // The cost surface says which way is most concealed; it does not say
+    // whether anyone arrives. This is a Koopman-style hazard model on top of
+    // it: each person on the route faces a detection-and-strike rate λ per hour,
+    // so surviving a step of duration t is exp(−λt) and surviving the route is
+    // exp(−Σλt). Time is what kills, which is why a slow concealed route is not
+    // automatically safer than a fast exposed one.
+    //
+    //   λ = HAZARD_BASE_PER_H · depth(x) · class · openness · conditions
+    //
+    // x is the signed distance in km to the Russian-held edge (DeepState red):
+    // negative still inside it, positive past it into the grey zone and beyond.
+    //
+    // Calibrated (see reports/infiltration-survival-*) so the reference route —
+    // 15 km from 12 km behind the RU edge to 3 km past it, 60% on a treeline,
+    // at 1.2 km/h, at night, pairs — arrives 35% of the time: the reported
+    // "60–70% of infiltrators die before reaching the line of contact". The
+    // same base rate gives an exposed pair in daylight at the line a mean
+    // survival of ~2.3 h, not the widely quoted 20–35 min; that figure describes
+    // assault troops already found and hunted, not a group on the move.
+    static HAZARD_BASE_PER_H = 0.435;
+    static HAZARD_PEAK_KM = 3;         // grey zone + UA forward positions: FPV at full density
+    static HAZARD_DECAY_KM = 8;        // falls off behind the RU edge…
+    static HAZARD_FLOOR = 0.05;        // …to the 20–25 km reach of bombers and mid-range strike
+    static HAZARD_REAR_DECAY_KM = 6;   // past the UA forward belt, fewer drones hunt
+    static HAZARD_REAR_FLOOR = 0.3;
+    static FRONT_RANGE_KM = 30;        // beyond this the front is too far to matter
+
+    // Drones look down, so a canopy counts and a ravine mostly does not — dead
+    // ground from the DEM is deliberately left out of the hazard.
+    static HAZARD_CLASS = {
+        open: 1.0, water: 1.0, riparian: 0.5, wetland: 0.4, derived: 0.45,
+        treeline: 0.35, builtup: 0.3, cover: 0.2,
+    };
+    static HAZARD_OPEN_EDGE = 0.5;     // open ground hugging a treeline, vs mid-field at 1.0
+
+    static CONDITIONS = {
+        light:   { day: 1.0, night: 0.6 },              // thermals take back most of the dark
+        weather: { clear: 1.0, rain: 0.5, fog: 0.3 },   // what grounds the small drones
+        ew:      { none: 1.0, heavy: 0.7 },
+    };
+    static DEFAULT_CONDITIONS = { light: 'night', weather: 'clear', ew: 'none', group: 2 };
+    static GROUP_REF = 2;              // calibration group size; detection scales with √n
+
+    // Kill probability per 100 m travelled — the colour of a risk run.
+    static RISK_BANDS = [
+        { max: 0.0025, color: '#2e7d32', label: '<0.25%' },
+        { max: 0.01,   color: '#f5c518', label: '0.25–1%' },
+        { max: 0.025,  color: '#fb8c00', label: '1–2.5%' },
+        { max: Infinity, color: '#e53935', label: '>2.5%' },
+    ];
+
     // Overpass allows two slots per IP, so a fast finger has to be absorbed here
     // rather than by the API. See _fetchOsm.
     static RETRY_DELAYS_MS = [3000, 8000];
@@ -452,6 +505,7 @@ class Infiltration {
             useTerrain: this.dashboard.isChecked('infil-terrain'),
             useDerived: this.dashboard.isChecked('infil-derived'),
             snap: this.dashboard.isChecked('infil-snap'),
+            conditions: this.conditions(),
         };
     }
 
@@ -480,7 +534,9 @@ class Infiltration {
         this.routes = await this.computeRoutes(points, {
             radiusM: o.radiusM, cellM: o.cellM, profile: o.profile,
             routes, useTerrain: o.useTerrain, useDerived: o.useDerived, tolerance: o.tolerance,
+            conditions: o.conditions,
         });
+        this._lastRadiusM = o.radiusM;
         this.render(this.routes, { radiusM: o.radiusM });
         let status = Infiltration.describeRoutes(this.routes);
         if (multiLeg && o.asked > 1) {
@@ -496,8 +552,9 @@ class Infiltration {
         const { drawn, snapped } = await this.analyzeDrawn(points, {
             cellM: o.cellM, profile: o.profile, useTerrain: o.useTerrain,
             useDerived: o.useDerived, snap: o.snap, corridorM: o.corridorM,
-            radiusM: 0, tolerance: o.tolerance,
+            radiusM: 0, tolerance: o.tolerance, conditions: o.conditions,
         });
+        this._lastRadiusM = 0;
         this.drawn = drawn;
         this.routes = snapped ? [snapped] : [drawn];
         this.render(this.routes, { radiusM: 0, drawn: snapped ? drawn : null });
@@ -510,6 +567,7 @@ class Infiltration {
 
     static describeStats(s) {
         const parts = [
+            Infiltration.describeSurvival(s),
             `${s.length_km.toFixed(1)} km`,
             `${s.covered_pct}% under cover (${s.settlement_pct}% through settlements)`,
             `longest open crossing ${Math.round(s.longest_open_m)} m`,
@@ -521,6 +579,16 @@ class Infiltration {
         if (s.derived_pct) parts.push(`${s.derived_pct}% on satellite-derived cover`);
         if (s.cell_m !== s.requested_cell_m) parts.push(`grid coarsened to ${s.cell_m} m`);
         return parts.join(' · ');
+    }
+
+    /** The survival headline: arrive %, per-km survival, where half are lost. */
+    static describeSurvival(s) {
+        if (s.survival_pct == null) return '';
+        const half = s.half_life_km == null ? 'half never lost' : `half lost by ${s.half_life_km} km`;
+        const front = s.front_unknown ? ' (no front loaded — worst case)' : '';
+        return `arrive ${s.survival_pct}% · ${s.per_km_survival_pct}%/km · ${half}`
+             + ` · ${s.sends_per_arrival ?? '∞'} sent per arrival`
+             + ` · worst km ${s.deadliest_km.from_km}–${s.deadliest_km.to_km} (−${s.deadliest_km.kill_pct}%)${front}`;
     }
 
     /** One row per route, numbered to match the badges on the map. */
@@ -1057,19 +1125,28 @@ out body; >; out skel qt;`;
         return d;
     }
 
+    /** Distance in cells to the nearest cover — shared by the cost surface and
+     *  the survival model, so both read open ground the same way. */
+    static coverDistance(mask, W, H) {
+        const M = Infiltration;
+        const seed = new Uint8Array(W * H);
+        for (let i = 0; i < mask.length; i++) {
+            if (mask[i] & (M.M_COVER | M.M_TREELINE | M.M_BUILTUP | M.M_DERIVED)) seed[i] = 1;
+        }
+        return M.distanceTransform(seed, W, H);
+    }
+
     _costSurface(mask, grid, profile, terrainFactor = null,
                  tolerance = Infiltration.EXPOSURE_TOLERANCE) {
         const { W, H, cell } = grid;
         const M = Infiltration;
         const p = typeof profile === 'string' ? M.profile(profile) : (profile || M.profile());
 
-        const coverSeed = new Uint8Array(W * H);
         const townSeed = new Uint8Array(W * H);
         for (let i = 0; i < mask.length; i++) {
-            if (mask[i] & (M.M_COVER | M.M_TREELINE | M.M_BUILTUP | M.M_DERIVED)) coverSeed[i] = 1;
             if (mask[i] & M.M_BUILTUP) townSeed[i] = 1;
         }
-        const distCells = M.distanceTransform(coverSeed, W, H);
+        const distCells = M.coverDistance(mask, W, H);
         const townCells = M.distanceTransform(townSeed, W, H);
 
         const tol = Math.min(100, Math.max(0, tolerance));
@@ -1251,6 +1328,7 @@ out body; >; out skel qt;`;
         // once it has supplied cover here the warning would be misleading.
         this.coverage = derived.length ? null : Infiltration.coverageWarning(geojson, grid);
         return { grid, mask, cost, terrain, derived: derived.length,
+                 coverCells: Infiltration.coverDistance(mask, grid.W, grid.H),
                  profile: Infiltration.profile(profile) };
     }
 
@@ -1262,10 +1340,10 @@ out body; >; out skel qt;`;
     async computeRoutes(points, { radiusM = 300, cellM = Infiltration.CELL_M,
                                   profile = Infiltration.DEFAULT_PROFILE, routes = 1,
                                   useTerrain = true, useDerived = true,
-                                  tolerance = Infiltration.EXPOSURE_TOLERANCE } = {}) {
+                                  tolerance = Infiltration.EXPOSURE_TOLERANCE, conditions = {} } = {}) {
         const path = Infiltration.toLatLngs(points);
         const wanted = Math.max(1, Math.min(Infiltration.MAX_ROUTES, Math.round(routes)));
-        const { grid, mask, cost, profile: prof } = await this._buildSurface(
+        const { grid, mask, cost, coverCells, profile: prof } = await this._buildSurface(
             path, { cellM, profile, useTerrain, useDerived, tolerance });
 
         const out = [];
@@ -1288,7 +1366,7 @@ out body; >; out skel qt;`;
             }
             if (overlap > Infiltration.ALT_MAX_OVERLAP) break;
 
-            const route = this._describe(chain, grid, mask, cellM, prof);
+            const route = this._describe(chain, grid, mask, cellM, prof, { coverCells, conditions });
             route.chain = chain;
             route.rank = out.length + 1;
             route.legs = path.length - 1;
@@ -1322,13 +1400,14 @@ out body; >; out skel qt;`;
      */
     async analyzeDrawn(points, { cellM = Infiltration.CELL_M, profile = Infiltration.DEFAULT_PROFILE,
                                  useTerrain = true, useDerived = true, snap = true, corridorM = 300,
-                                 radiusM = 0, tolerance = Infiltration.EXPOSURE_TOLERANCE } = {}) {
+                                 radiusM = 0, tolerance = Infiltration.EXPOSURE_TOLERANCE,
+                                 conditions = {} } = {}) {
         const path = Infiltration.toLatLngs(points);
-        const { grid, mask, cost, profile: prof } = await this._buildSurface(
+        const { grid, mask, cost, coverCells, profile: prof } = await this._buildSurface(
             path, { cellM, profile, useTerrain, useDerived, tolerance });
 
         const drawnChain = Infiltration.rasterizePath(path, grid);
-        const drawn = this._describe(drawnChain, grid, mask, cellM, prof);
+        const drawn = this._describe(drawnChain, grid, mask, cellM, prof, { coverCells, conditions });
         drawn.chain = drawnChain;
         drawn.rank = 1;
         drawn.legs = path.length - 1;
@@ -1348,7 +1427,7 @@ out body; >; out skel qt;`;
 
         const ends = [path[0], path[path.length - 1]];
         const snappedChain = this._search(grid, constrained, mask, ends[0], ends[1], radiusM);
-        const snapped = this._describe(snappedChain, grid, mask, cellM, prof);
+        const snapped = this._describe(snappedChain, grid, mask, cellM, prof, { coverCells, conditions });
         snapped.chain = snappedChain;
         snapped.rank = 1;
         snapped.legs = drawn.legs;
@@ -1414,11 +1493,20 @@ out body; >; out skel qt;`;
         }
     }
 
-    /** Cell chain -> lat/lng path, movement-class runs, and route stats. */
-    _describe(chain, grid, mask, requestedCellM, profile = Infiltration.profile()) {
+    /** Cell chain -> lat/lng path, movement-class runs, route stats and survival. */
+    _describe(chain, grid, mask, requestedCellM, profile = Infiltration.profile(),
+              { coverCells = null, conditions = {} } = {}) {
         const { W, cell } = grid;
         const latlngs = chain.map(i => [grid.latOf((i / W) | 0), grid.lngOf(i % W)]);
         const category = chain.map(i => Infiltration.category(Infiltration.cellClass(mask[i])));
+        const front = this._frontDistances(latlngs);
+        const steps = chain.map((i, k) => ({
+            m: k ? Math.hypot((i % W) - (chain[k - 1] % W),
+                              ((i / W) | 0) - ((chain[k - 1] / W) | 0)) * cell : 0,
+            klass: Infiltration.cellClass(mask[i]),
+            openM: coverCells ? coverCells[i] * cell : Infiltration.EXPOSURE_FULL_M,
+            xKm: front ? front[k] : null,
+        }));
 
         let lengthM = 0, coveredM = 0, settlementM = 0, derivedM = 0;
         let longestOpenM = 0, openRunM = 0, crossings = 0;
@@ -1471,9 +1559,11 @@ out body; >; out skel qt;`;
         if (current) runs.push(current);
         for (const run of runs) run.points = Infiltration.simplify(run.points, tolerance);
 
-        return {
+        return Infiltration.applySurvival({
             latlngs,
             runs,
+            steps,
+            simplifyTolerance: tolerance,
             stats: {
                 length_km: lengthM / 1000,
                 covered_pct: lengthM ? Math.round(100 * coveredM / lengthM) : 0,
@@ -1487,7 +1577,7 @@ out body; >; out skel qt;`;
                 cell_m: cell,
                 requested_cell_m: requestedCellM,
             },
-        };
+        }, conditions);
     }
 
     static simplify(points, tolerance) {
@@ -1499,6 +1589,288 @@ out body; >; out skel qt;`;
         } catch (error) {
             return points;   // degenerate geometry — the raw chain is still valid
         }
+    }
+
+    // ── Survival ─────────────────────────────────────────────────────────────
+
+    /** Drone density at signed distance x km from the RU-held edge, 0..1.
+     *  Unknown front (no territory layer) is priced as the worst case. */
+    static depthFactor(xKm) {
+        const M = Infiltration;
+        if (xKm == null || !Number.isFinite(xKm)) return 1;
+        if (xKm < 0) return M.HAZARD_FLOOR + (1 - M.HAZARD_FLOOR) * Math.exp(xKm / M.HAZARD_DECAY_KM);
+        if (xKm <= M.HAZARD_PEAK_KM) return 1;
+        return M.HAZARD_REAR_FLOOR
+            + (1 - M.HAZARD_REAR_FLOOR) * Math.exp(-(xKm - M.HAZARD_PEAK_KM) / M.HAZARD_REAR_DECAY_KM);
+    }
+
+    static conditions(cond = {}) {
+        const set = Object.entries(cond || {}).filter(([, v]) => v != null && v !== '');
+        return { ...Infiltration.DEFAULT_CONDITIONS, ...Object.fromEntries(set) };
+    }
+
+    static conditionFactor(cond = {}) {
+        const M = Infiltration;
+        const c = M.conditions(cond);
+        const group = Math.max(1, Math.round(c.group) || M.GROUP_REF);
+        return (M.CONDITIONS.light[c.light] ?? 1)
+             * (M.CONDITIONS.weather[c.weather] ?? 1)
+             * (M.CONDITIONS.ew[c.ew] ?? 1)
+             * Math.sqrt(group / M.GROUP_REF);
+    }
+
+    /** Per-person hazard, per hour, on one cell of the route. */
+    static hazardAt(xKm, klass, openM, cond = {}) {
+        const M = Infiltration;
+        let local = M.HAZARD_CLASS[klass] ?? 1;
+        if (klass === 'open') {
+            local *= M.HAZARD_OPEN_EDGE
+                   + (1 - M.HAZARD_OPEN_EDGE) * Math.min(1, (openM || 0) / M.EXPOSURE_FULL_M);
+        }
+        return M.HAZARD_BASE_PER_H * M.depthFactor(xKm) * local * M.conditionFactor(cond);
+    }
+
+    /**
+     * Walk the steps of a route — {m, klass, openM, xKm}, the first with m = 0 —
+     * and accumulate survival. Returns the headline numbers plus the running
+     * survival and per-100 m kill probability at every step.
+     */
+    static survivalProfile(steps, cond = {}, paceKmh = 1.2) {
+        const M = Infiltration;
+        const c = M.conditions(cond);
+        const n = steps.length;
+        const cumKm = new Float64Array(n);
+        const logS = new Float64Array(n);
+        const kill100 = new Float64Array(n);
+        let halfLifeKm = null;
+        for (let k = 1; k < n; k++) {
+            const s = steps[k];
+            const lambda = M.hazardAt(s.xKm, s.klass, s.openM, c);
+            cumKm[k] = cumKm[k - 1] + s.m / 1000;
+            logS[k] = logS[k - 1] - lambda * (s.m / 1000) / paceKmh;
+            kill100[k] = 1 - Math.exp(-lambda * 0.1 / paceKmh);
+            if (halfLifeKm == null && logS[k] <= Math.LN2 * -1) {
+                // Interpolate inside the step rather than snapping to its end.
+                const drop = logS[k - 1] - logS[k];
+                const frac = drop > 0 ? (logS[k - 1] + Math.LN2) / drop : 1;
+                halfLifeKm = cumKm[k - 1] + frac * (cumKm[k] - cumKm[k - 1]);
+            }
+        }
+        const lengthKm = n ? cumKm[n - 1] : 0;
+        const survival = n ? Math.exp(logS[n - 1]) : 1;
+        const group = Math.max(1, Math.round(c.group) || M.GROUP_REF);
+
+        // The deadliest kilometre: the 1 km window that loses the most.
+        let worst = { fromKm: 0, toKm: Math.min(1, lengthKm), killPct: 0 };
+        for (let k = 1, j = 0; k < n; k++) {
+            while (cumKm[k] - cumKm[j] > 1 && j < k - 1) j++;
+            const kill = 1 - Math.exp(logS[k] - logS[j]);
+            if (kill > worst.killPct / 100) {
+                worst = { fromKm: cumKm[j], toKm: cumKm[k], killPct: 100 * kill };
+            }
+        }
+
+        return {
+            survival,
+            perKm: lengthKm > 0 ? survival ** (1 / lengthKm) : 1,
+            halfLifeKm,
+            sendsPerArrival: survival > 0 ? 1 / survival : Infinity,
+            groupAny: 1 - (1 - survival) ** group,
+            group,
+            deadliest: worst,
+            cumKm, logS, kill100,
+        };
+    }
+
+    static riskBand(kill100) {
+        return Infiltration.RISK_BANDS.findIndex(b => kill100 < b.max);
+    }
+
+    /** RU-held polygons as {feature, bbox}. The deep layer's GeoJSON drops the
+     *  feature properties, so the colour is read off each layer's style. Grey
+     *  (contested) is left out: the edge that matters is where RU control ends. */
+    _redTerritory() {
+        const out = [];
+        let layers = [];
+        try {
+            layers = this.dashboard.deepLayer?.getLayers() || [];
+        } catch (error) {
+            return out;
+        }
+        const RED = ['#a52714', '#880e4f'];
+        const visit = (layer) => {
+            if (layer.getLayers) { layer.getLayers().forEach(visit); return; }
+            if (!RED.includes(layer.options?.color) || !layer.toGeoJSON) return;
+            try {
+                const feature = layer.toGeoJSON();
+                out.push({ feature, bbox: turf.bbox(feature) });
+            } catch (error) {
+                // an unserialisable layer just does not count as front
+            }
+        };
+        layers.forEach(visit);
+        return out;
+    }
+
+    /** Signed distance in km from each point to the RU-held edge, sampled every
+     *  ~200 m and interpolated between, or null when no territory is loaded. */
+    _frontDistances(latlngs) {
+        const M = Infiltration;
+        const red = this._redTerritory();
+        if (!red.length || !latlngs.length) return null;
+
+        const lats = latlngs.map(p => p[0]), lngs = latlngs.map(p => p[1]);
+        const lat0 = (Math.min(...lats) + Math.max(...lats)) / 2;
+        const kmLat = 111.32, kmLng = 111.32 * Math.cos(lat0 * Math.PI / 180);
+        const padLat = M.FRONT_RANGE_KM / kmLat, padLng = M.FRONT_RANGE_KM / kmLng;
+        const bbox = [Math.min(...lngs) - padLng, Math.min(...lats) - padLat,
+                      Math.max(...lngs) + padLng, Math.max(...lats) + padLat];
+
+        // Edges in a local km plane. A clipped polygon gains edges along the
+        // bbox, but those sit FRONT_RANGE_KM away, where depth is at its floor.
+        const segs = [];
+        const clipped = [];
+        for (const { feature, bbox: b } of red) {
+            if (b[0] > bbox[2] || b[2] < bbox[0] || b[1] > bbox[3] || b[3] < bbox[1]) continue;
+            let part;
+            try {
+                part = turf.bboxClip(feature, bbox);
+            } catch (error) {
+                continue;
+            }
+            const raw = part.geometry.type === 'Polygon' ? [part.geometry.coordinates]
+                      : part.geometry.type === 'MultiPolygon' ? part.geometry.coordinates : [];
+            // bboxClip leaves empty rings behind for parts outside the box, and
+            // booleanPointInPolygon throws on them.
+            const polys = raw.map(p => p.filter(ring => ring.length > 3)).filter(p => p.length);
+            if (!polys.length) continue;
+            clipped.push(turf.multiPolygon(polys));
+            for (const poly of polys) {
+                for (const ring of poly) {
+                    for (let i = 1; i < ring.length; i++) {
+                        segs.push([ring[i - 1][0] * kmLng, ring[i - 1][1] * kmLat,
+                                   ring[i][0] * kmLng, ring[i][1] * kmLat]);
+                    }
+                }
+            }
+        }
+        if (!segs.length) return latlngs.map(() => -M.FRONT_RANGE_KM);
+
+        const signedKm = ([lat, lng]) => {
+            const px = lng * kmLng, py = lat * kmLat;
+            let best = Infinity;
+            for (const [ax, ay, bx, by] of segs) {
+                const dx = bx - ax, dy = by - ay;
+                const len2 = dx * dx + dy * dy;
+                const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+                const d2 = (px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2;
+                if (d2 < best) best = d2;
+            }
+            const inside = clipped.some(f => turf.booleanPointInPolygon([lng, lat], f));
+            const d = Math.min(Math.sqrt(best), M.FRONT_RANGE_KM);
+            return inside ? -d : d;
+        };
+
+        // Sample by distance along the path; the front does not bend within 200 m.
+        const along = [0];
+        for (let k = 1; k < latlngs.length; k++) {
+            along.push(along[k - 1] + Math.hypot((latlngs[k][1] - latlngs[k - 1][1]) * kmLng,
+                                                 (latlngs[k][0] - latlngs[k - 1][0]) * kmLat));
+        }
+        const sampleIdx = [0];
+        for (let k = 1; k < latlngs.length; k++) {
+            if (along[k] - along[sampleIdx[sampleIdx.length - 1]] >= 0.2 || k === latlngs.length - 1) {
+                sampleIdx.push(k);
+            }
+        }
+        const sampled = sampleIdx.map(k => signedKm(latlngs[k]));
+        const out = new Array(latlngs.length);
+        for (let s = 0; s < sampleIdx.length; s++) {
+            const a = sampleIdx[s], b = sampleIdx[s + 1];
+            out[a] = sampled[s];
+            if (b == null) break;
+            for (let k = a + 1; k < b; k++) {
+                const t = (along[k] - along[a]) / ((along[b] - along[a]) || 1);
+                out[k] = sampled[s] + t * (sampled[s + 1] - sampled[s]);
+            }
+        }
+        return out;
+    }
+
+    /** (Re)score a described route under `cond`: stats, and runs by risk band.
+     *  Cheap — no search — so the conditions can change without re-routing. */
+    static applySurvival(route, cond = {}) {
+        const M = Infiltration;
+        const p = M.survivalProfile(route.steps, cond, route.stats.pace_kmh);
+        const pct = (v) => Math.round(1000 * v) / 10;
+        Object.assign(route.stats, {
+            survival_pct: pct(p.survival),
+            per_km_survival_pct: pct(p.perKm),
+            half_life_km: p.halfLifeKm == null ? null : Math.round(10 * p.halfLifeKm) / 10,
+            sends_per_arrival: Number.isFinite(p.sendsPerArrival)
+                ? Math.round(10 * p.sendsPerArrival) / 10 : null,
+            group: p.group,
+            group_any_arrives_pct: pct(p.groupAny),
+            deadliest_km: {
+                from_km: Math.round(10 * p.deadliest.fromKm) / 10,
+                to_km: Math.round(10 * p.deadliest.toKm) / 10,
+                kill_pct: pct(p.deadliest.killPct / 100),
+            },
+            conditions: M.conditions(cond),
+            front_unknown: route.steps.every(s => s.xKm == null),
+        });
+
+        const tolerance = route.simplifyTolerance || 0;
+        const runs = [];
+        let current = null;
+        for (let k = 0; k < route.latlngs.length; k++) {
+            const band = k ? M.riskBand(p.kill100[k]) : (p.kill100.length > 1 ? M.riskBand(p.kill100[1]) : 0);
+            if (!current || current.band !== band) {
+                if (current) {
+                    current.points.push(route.latlngs[k]);
+                    current.toKm = p.cumKm[k];
+                    current.survivalPct = pct(Math.exp(p.logS[k]));
+                    runs.push(current);
+                }
+                current = { band, points: [route.latlngs[k]], fromKm: p.cumKm[k], toKm: p.cumKm[k],
+                            kill100Pct: pct(p.kill100[Math.max(1, k)] || 0), survivalPct: 100 };
+            } else {
+                current.points.push(route.latlngs[k]);
+                current.toKm = p.cumKm[k];
+                current.survivalPct = pct(Math.exp(p.logS[k]));
+            }
+        }
+        if (current) runs.push(current);
+        for (const run of runs) {
+            run.color = M.RISK_BANDS[run.band].color;
+            if (tolerance) run.points = M.simplify(run.points, tolerance);
+        }
+        route.riskRuns = runs;
+        return route;
+    }
+
+    /** Re-score the routes on screen after a change of conditions. */
+    rescore(cond = this.conditions()) {
+        if (!this.routes.length) return;
+        for (const route of this.routes) Infiltration.applySurvival(route, cond);
+        if (this.drawn && !this.routes.includes(this.drawn)) Infiltration.applySurvival(this.drawn, cond);
+        this.render(this.routes, { radiusM: this._lastRadiusM || 0, drawn: this.routes[0].kind === 'snapped' ? this.drawn : null });
+        const rows = this.drawn && this.routes[0].kind === 'snapped'
+            ? [`as drawn · ${Infiltration.describeStats(this.drawn.stats)}`,
+               `snapped · ${Infiltration.describeStats(this.routes[0].stats)}`]
+            : [Infiltration.describeRoutes(this.routes)];
+        if (this.coverage) rows.unshift(this.coverage, '');
+        this.setStatus(rows.join('\n'));
+    }
+
+    conditions() {
+        const el = (id) => this.dashboard.getEl(id);
+        return Infiltration.conditions({
+            light: el('infil-light')?.value,
+            weather: el('infil-weather')?.value,
+            ew: el('infil-ew')?.value,
+            group: parseFloat(el('infil-group')?.value) || undefined,
+        });
     }
 
     // ── Rendering ────────────────────────────────────────────────────────────
@@ -1543,22 +1915,26 @@ out body; >; out skel qt;`;
         // A coloured line on satellite imagery or over the forest overlay is
         // invisible, so every run gets a dark casing underneath it.
         const weight = primary ? 3.5 : 2.5;
-        for (const run of route.runs) {
-            if (run.points.length < 2) continue;
-            L.polyline(run.points, {
-                color: '#0b0b0b', weight: weight + 3.5, opacity: primary ? 0.45 : 0.3,
-                // The casing sits on top of the coloured line and would eat the
-                // hover, leaving the tooltip bound to a layer nothing can reach.
-                interactive: false,
-            }).addTo(layer);
-            L.polyline(run.points, {
-                color: Infiltration.categoryColor(run.category),
-                weight,
-                opacity: primary ? 1 : 0.75,
-                dashArray: run.category === 'exposed' ? '6,6' : null,
-            }).bindTooltip(Infiltration.runTooltip(route, run), {
-                sticky: true, className: 'infil-tooltip',
-            }).addTo(layer);
+        if (this.dashboard.isChecked?.('infil-risk-colors') && route.riskRuns) {
+            this._renderRiskRuns(route, layer, primary, weight);
+        } else {
+            for (const run of route.runs) {
+                if (run.points.length < 2) continue;
+                L.polyline(run.points, {
+                    color: '#0b0b0b', weight: weight + 3.5, opacity: primary ? 0.45 : 0.3,
+                    // The casing sits on top of the coloured line and would eat the
+                    // hover, leaving the tooltip bound to a layer nothing can reach.
+                    interactive: false,
+                }).addTo(layer);
+                L.polyline(run.points, {
+                    color: Infiltration.categoryColor(run.category),
+                    weight,
+                    opacity: primary ? 1 : 0.75,
+                    dashArray: run.category === 'exposed' ? '6,6' : null,
+                }).bindTooltip(Infiltration.runTooltip(route, run), {
+                    sticky: true, className: 'infil-tooltip',
+                }).addTo(layer);
+            }
         }
 
         const path = route.latlngs;
@@ -1580,6 +1956,30 @@ out body; >; out skel qt;`;
         }
     }
 
+    /** The same line coloured by kill probability per 100 m instead of by cover. */
+    _renderRiskRuns(route, layer, primary, weight) {
+        for (const run of route.riskRuns) {
+            if (run.points.length < 2) continue;
+            L.polyline(run.points, {
+                color: '#0b0b0b', weight: weight + 3.5, opacity: primary ? 0.45 : 0.3,
+                interactive: false,
+            }).addTo(layer);
+            L.polyline(run.points, {
+                color: run.color, weight, opacity: primary ? 1 : 0.75,
+            }).bindTooltip(Infiltration.riskTooltip(route, run), {
+                sticky: true, className: 'infil-tooltip',
+            }).addTo(layer);
+        }
+    }
+
+    static riskTooltip(route, run) {
+        const s = route.stats;
+        return `<b>${run.fromKm.toFixed(1)}–${run.toKm.toFixed(1)} km — `
+             + `${Infiltration.RISK_BANDS[run.band].label} killed per 100 m</b><br>`
+             + `${run.survivalPct}% still alive at ${run.toKm.toFixed(1)} km<br>`
+             + Infiltration.describeSurvival(s);
+    }
+
     static RUN_LABEL = {
         concealed: 'under cover',
         settlement: 'through settlement',
@@ -1597,7 +1997,8 @@ out body; >; out skel qt;`;
              + `${Math.round(run.lengthM)} m</b><br>`
              + `${s.length_km.toFixed(1)} km · ${s.covered_pct}% under cover`
              + ` · worst open crossing ${Math.round(s.longest_open_m)} m`
-             + ` · ${s.crossings} crossings${legs}`;
+             + ` · ${s.crossings} crossings${legs}`
+             + (s.survival_pct == null ? '' : `<br>${Infiltration.describeSurvival(s)}`);
     }
 
     _arrowHead(p1, p2, color, layer) {

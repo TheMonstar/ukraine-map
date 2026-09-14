@@ -496,3 +496,56 @@ test('DMS output parses back, carrying rounded seconds, and a typed MGRS referen
     assert.equal(run('Coords.parse("37UDP").mgrs'), '37U DP');
     assert.equal(run('Coords.parse("48.6, 37.8").mgrs'), undefined);
 });
+
+function infiltrationRuntime() {
+    const c = vm.createContext({ console: quiet, turf });
+    c.window = c;
+    vm.runInContext(fs.readFileSync('js/infiltration.js', 'utf8'), c);
+    return vm.runInContext('Infiltration', c);
+}
+
+// The calibration route: 15 km from 12 km behind the RU edge to 3 km past it,
+// each km 400 m of open ground 200 m from cover and 600 m on a treeline.
+function referenceSteps(I) {
+    const steps = [{ m: 0, klass: 'treeline', openM: 0, xKm: -12 }];
+    for (let d = 40; d <= 15000; d += 40) {
+        const open = d % 1000 < 400;
+        steps.push({ m: 40, klass: open ? 'open' : 'treeline', openM: open ? 200 : 0, xKm: -12 + d / 1000 });
+    }
+    return steps;
+}
+
+test('infiltration survival reproduces its calibration anchor', () => {
+    const I = infiltrationRuntime();
+    const p = I.survivalProfile(referenceSteps(I), { light: 'night', group: 2 }, 1.2);
+    assert.ok(p.survival > 0.33 && p.survival < 0.37, `reference route arrives ${p.survival}`);
+    assert.ok(Math.abs(p.perKm ** 15 - p.survival) < 1e-9);
+    assert.equal(p.sendsPerArrival, 1 / p.survival);
+});
+
+test('infiltration survival falls monotonically and half-life matches a constant hazard', () => {
+    const I = infiltrationRuntime();
+    const steps = [{ m: 0, klass: 'open', openM: 400, xKm: 1 }];
+    for (let k = 0; k < 500; k++) steps.push({ m: 20, klass: 'open', openM: 400, xKm: 1 });
+    const cond = { light: 'day', weather: 'clear', ew: 'none', group: 2 };
+    const p = I.survivalProfile(steps, cond, 1.2);
+    for (let k = 1; k < p.logS.length; k++) assert.ok(p.logS[k] <= p.logS[k - 1]);
+    const lambda = I.hazardAt(1, 'open', 400, cond);
+    assert.ok(Math.abs(p.halfLifeKm - Math.LN2 / lambda * 1.2) < 0.01, `${p.halfLifeKm}`);
+});
+
+test('infiltration hazard prefers cover, dark, fog, small groups and distance from the front', () => {
+    const I = infiltrationRuntime();
+    const h = (x, klass, openM, cond) => I.hazardAt(x, klass, openM, cond);
+    assert.ok(h(0, 'cover', 0, {}) < h(0, 'treeline', 0, {}));
+    assert.ok(h(0, 'treeline', 0, {}) < h(0, 'open', 0, {}));
+    assert.ok(h(0, 'open', 50, {}) < h(0, 'open', 400, {}));
+    assert.ok(h(0, 'open', 400, { light: 'night' }) < h(0, 'open', 400, { light: 'day' }));
+    assert.ok(h(0, 'open', 400, { weather: 'fog' }) < h(0, 'open', 400, { weather: 'clear' }));
+    assert.ok(h(0, 'open', 400, { group: 2 }) < h(0, 'open', 400, { group: 6 }));
+    assert.ok(h(-20, 'open', 400, {}) < h(-5, 'open', 400, {}));
+    assert.ok(h(-5, 'open', 400, {}) < h(1, 'open', 400, {}));
+    assert.equal(h(null, 'open', 400, {}), h(1, 'open', 400, {}), 'unknown front is worst case');
+    // Unset form fields must fall back to defaults, not wipe them.
+    assert.deepEqual({ ...I.conditions({ light: undefined, group: '' }) }, { ...I.DEFAULT_CONDITIONS });
+});

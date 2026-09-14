@@ -73,7 +73,7 @@
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" crossorigin="anonymous" integrity="sha384-wgw+aLYNQ7dlhK47ZPK7FRACiq7ROZwgFNg0m04avm4CaXS+Z9Y7nMu8yNjBKYC+"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" crossorigin="anonymous" integrity="sha384-NZLkVuBRMEeB4VeZz27WwTRvlhec30biQ8Xx7zG7JJnkvEKRg5qi6BNbEXo9ydwv"/>
-    <link rel="stylesheet" href="css/main.css?598" />
+    <link rel="stylesheet" href="css/main.css?599" />
 </head>
 
 <body>
@@ -1112,6 +1112,33 @@
                                 </label>
                             </div>
 
+                            <div class="control-row" title="Survival model: per-person detection-and-strike hazard, calibrated so a 15 km night infiltration by a pair arrives ~35% of the time (reported 60–70% losses before the line of contact). Changing these re-scores the route without re-routing.">
+                                <label class="small-label">Light / weather:</label>
+                                <select id="infil-light" class="control-select-sm">
+                                    <option value="night" selected>Night</option>
+                                    <option value="day">Day</option>
+                                </select>
+                                <select id="infil-weather" class="control-select-sm">
+                                    <option value="clear" selected>Clear</option>
+                                    <option value="rain">Rain</option>
+                                    <option value="fog">Fog</option>
+                                </select>
+                            </div>
+                            <div class="control-row">
+                                <label class="small-label">EW / group size:</label>
+                                <select id="infil-ew" class="control-select-sm">
+                                    <option value="none" selected>No EW</option>
+                                    <option value="heavy">Heavy EW</option>
+                                </select>
+                                <input type="number" id="infil-group" value="2" min="1" max="12" step="1" class="control-input-sm" />
+                            </div>
+                            <div class="toggle-row">
+                                <label class="toggle-label" title="Colour the route by kill probability per 100 m instead of by cover.">
+                                    <input type="checkbox" id="infil-risk-colors" />
+                                    <span class="toggle-switch"></span>Colour by risk
+                                </label>
+                            </div>
+
                             <div class="btn-row">
                                 <button id="infil-to-drawing" class="btn btn-sm">Send to drawing</button>
                                 <button id="infil-clear" class="btn btn-sm btn-danger">Clear</button>
@@ -1121,6 +1148,12 @@
                                 <span><i style="background:#f5c518"></i>through settlement</span>
                                 <span><i style="background:#e53935"></i>open ground</span>
                                 <span><i style="background:#94a3b8"></i>as drawn</span>
+                            </div>
+                            <div class="infil-legend" id="infil-risk-legend" style="display:none;">
+                                <span><i style="background:#2e7d32"></i>&lt;0.25%</span>
+                                <span><i style="background:#f5c518"></i>0.25–1%</span>
+                                <span><i style="background:#fb8c00"></i>1–2.5%</span>
+                                <span><i style="background:#e53935"></i>&gt;2.5% killed / 100 m</span>
                             </div>
                             <div class="infil-status-row">
                                 <span id="infil-spinner" class="infil-spinner" style="display:none;"></span>
@@ -1523,11 +1556,11 @@ Situation report:
     <script src="js/terrain-analysis.js?577"></script>
     <script src="js/overpass.js?577"></script>
     <script src="js/coords.js?598"></script>
-    <script src="js/infiltration.js?577"></script>
+    <script src="js/infiltration.js?580"></script>
     <script src="js/stream.js?577"></script>
     <script src="js/charts.js?593"></script>
     <script src="js/territory-controller.js?597"></script>
-    <script src="js/ui-bindings.js?597"></script>
+    <script src="js/ui-bindings.js?598"></script>
     <script src="js/map-uml-engine.js?577"></script>
     <script src="js/poster.js?577"></script>
     <script src="js/app.js?597"></script>

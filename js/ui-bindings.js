@@ -4337,6 +4337,16 @@ class UiBindings {
                 inf.clear();
             });
 
+            // Conditions only re-score the survival model; the route itself stands.
+            for (const id of ['infil-light', 'infil-weather', 'infil-ew', 'infil-group']) {
+                dashboard.bindUI(id, 'change', () => inf.rescore());
+            }
+            dashboard.bindUI('infil-risk-colors', 'change', () => {
+                const legend = dashboard.getEl('infil-risk-legend');
+                if (legend) legend.style.display = dashboard.isChecked('infil-risk-colors') ? '' : 'none';
+                inf.rescore();
+            });
+
             dashboard.bindUI('infil-to-drawing', 'click', () => inf.toDrawing());
             dashboard.bindUI('infil-clear', 'click', () => inf.clear());
         }

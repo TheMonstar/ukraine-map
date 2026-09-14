@@ -347,22 +347,31 @@ export async function frontLine({ bbox, date, color = '#c62828', thickness = 3,
  */
 export async function infiltrationRoute({ from, to, via = [], radius_m = 300, cell_m = 40,
                                           profile = 'infiltration', routes = 1, use_terrain = true,
-                                          exposure_tolerance, side, color,
-                                          thickness = 3, label }) {
+                                          exposure_tolerance, conditions, color_by_risk = false,
+                                          side, color, thickness = 3, label }) {
     const waypoints = await resolveAll([from, ...via, to]);
     const found = await session.call('infiltrationPath', waypoints.map((w) => w.coords),
                                      // waypoints already shape the route, and each leg
                                      // multiplies the search, so alternatives are dropped
                                      { radius_m, cell_m, profile, use_terrain,
-                                       exposure_tolerance,
+                                       exposure_tolerance, conditions,
                                        routes: via.length ? 1 : routes });
     const stroke = color || (side ? colorFor(side) : '#2e7d32');
-    const shapes = found.map((r) => ({
-        type: 'freedraw',
-        points: geo.smoothPath(decimate(r.points, 140), 0, 4),
-        head: true, dash: true, color: stroke,
-        thickness: r.rank === 1 ? thickness : Math.max(1, thickness - 1),
-    }));
+    const shapes = color_by_risk
+        // One solid segment per risk band, so the deadly stretch reads at a glance;
+        // only the last segment of each route carries the arrowhead.
+        ? found.flatMap((r) => r.riskRuns.filter((run) => run.points.length >= 2).map((run, i, all) => ({
+            type: 'freedraw',
+            points: decimate(run.points, 60),
+            head: i === all.length - 1, dash: false, color: run.color,
+            thickness: r.rank === 1 ? thickness : Math.max(1, thickness - 1),
+        })))
+        : found.map((r) => ({
+            type: 'freedraw',
+            points: geo.smoothPath(decimate(r.points, 140), 0, 4),
+            head: true, dash: true, color: stroke,
+            thickness: r.rank === 1 ? thickness : Math.max(1, thickness - 1),
+        }));
     if (label) {
         const best = found[0].points;
         const mid = best[Math.floor(best.length / 2)];

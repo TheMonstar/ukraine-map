@@ -539,20 +539,24 @@
          */
         async infiltrationPath(path, { radius_m = 300, cell_m = 40, profile = 'infiltration',
                                        routes = 1, use_terrain = true,
-                                       exposure_tolerance } = {}) {
+                                       exposure_tolerance, conditions } = {}) {
             const inf = d().infiltration;
             if (!inf) throw new Error('Infiltration not loaded');
             const found = await inf.computeRoutes(
                 path.map(([lat, lng]) => ({ lat, lng })),
                 // Unset means "whatever this profile normally accepts", not 40.
                 { radiusM: radius_m, cellM: cell_m, profile, routes, useTerrain: use_terrain,
-                  tolerance: exposure_tolerance ?? window.Infiltration.profile(profile).tolerance });
+                  tolerance: exposure_tolerance ?? window.Infiltration.profile(profile).tolerance,
+                  conditions });
             return found.map((r) => ({
                 rank: r.rank,
                 legs: r.legs,
                 points: r.latlngs,
                 // each leg of the route, so the agent can talk about where it is exposed
                 runs: r.runs.map((run) => ({ category: run.category, points: run.points.length })),
+                // the same line split by kill probability per 100 m, for colour_by_risk
+                riskRuns: r.riskRuns.map((run) => ({ color: run.color, points: run.points,
+                                                    from_km: run.fromKm, to_km: run.toKm })),
                 stats: r.stats,
             }));
         },
