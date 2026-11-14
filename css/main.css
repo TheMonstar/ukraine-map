@@ -1770,6 +1770,17 @@ img.poster-swatch    { width: 18px; height: 18px; flex-basis: 24px; object-fit: 
     line-height: 1.4;
 }
 
+/* forecast layer key (js/weather-forecast.js colours) */
+.weather-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px 0 6px; vertical-align: -1px; }
+.weather-key-cloud { background: rgba(255, 255, 255, 0.8); border: 1px solid #94a3b8; }
+.weather-key-fog { background: rgb(255, 226, 120); }
+.weather-time-card { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 800; pointer-events: none;
+    font: 700 18px/1.1 system-ui, -apple-system, 'Segoe UI', sans-serif; color: #fff; font-variant-numeric: tabular-nums; text-align: center;
+    background: rgba(15, 23, 42, 0.78); padding: 7px 14px; border-radius: 6px; white-space: nowrap; }
+.weather-time-card small { display: block; font-size: 11px; font-weight: 500; opacity: 0.75; margin-bottom: 3px; }
+.weather-card-legend { font-size: 11px; font-weight: 500; line-height: 1.5; opacity: 0.9; }
+.weather-time-card > small + .weather-card-legend, .weather-time-card > .weather-card-legend:not(:first-child) { margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(255, 255, 255, 0.2); }
+
 /* Stand-in shown when a key-gated feed is unavailable */
 .locked-hint {
     font-size: 11px;

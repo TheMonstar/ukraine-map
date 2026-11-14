@@ -101,6 +101,7 @@ Push to `main` → GitHub Actions ([.github/workflows/deploy.yml](.github/workfl
 | [js/data-store.js](js/data-store.js) | `DataStore` | Data source stubs (private data removed in public version) |
 | [js/poster.js](js/poster.js) | `Poster` | Title block + auto-derived legend for publication-quality exports |
 | [js/overpass.js](js/overpass.js) | `Overpass` | Live OSM queries — Overpass QL input, `{{bbox}}` → viewport, own overlay |
+| [js/weather-forecast.js](js/weather-forecast.js) | `WeatherForecast` | Weather section: low cloud + fog, visibility and cloud base (drones: how far they see, how high they fly) from Open-Meteo, forecast (ICON-EU) or past days (Historical Forecast archive, day follows the date slider); one smooth image per hour, hour slider, cursor readout, time card + legend on the map |
 | [js/coords.js](js/coords.js) | `Coords` | Cursor lat/lng + MGRS readout, right-click copy popup, top-bar go-to box, MGRS grid overlay (proj4) |
 
 Script load order in `index.html` matters — CDN libraries first, then `utils.js` → ... → `app.js`. `window.dashboard` is set at end of `index.html`.
@@ -120,6 +121,7 @@ All app coupling lives in [mcp/browser/agent-api.js](mcp/browser/agent-api.js), 
 | Military events | `<API_BASE_URL>/events` |
 | Settlements | `https://storage.googleapis.com/telegram-reader-static/static/settlements.json` |
 | Roads / waterways / railways | `<APP_STATIC_URL>/{roads,water,rail}-*.json` — slim per-class files built by [tools/slim_geodata.py](tools/slim_geodata.py), served gzipped |
+| Low cloud / fog / cloud base | `https://api.open-meteo.com/v1/forecast` (forecast) and `https://historical-forecast-api.open-meteo.com/v1/forecast` (past) — POST, many points per call; free tier 600 point-calls/min, 5,000/h |
 | OSM live queries | `https://overpass-api.de/api/interpreter` — POST `data=<Overpass QL>`; CORS-open, rate-limited (2 slots/IP) |
 
 `API_BASE_URL` is defined at the top of [js/app.js](js/app.js).

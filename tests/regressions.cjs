@@ -306,7 +306,7 @@ test('RIA preserves its palette and renders same-day selection as a single curre
     await run('layers.toggleRiaOverlay(true)');
     assert.equal(styles[0].color,'#FF655C'); assert.equal(styles[0].fillOpacity,0.2);
     styles.length=0; dashboard.startDate=dashboard.endDate;
-    c.loads=0; run('layers._loadRiaMerged=async()=>{loads++;return polygon}');
+    c.loads=0; run('MapLayers.mergedByDate=new AsyncLruCache(24); layers._loadRiaMerged=async()=>{loads++;return polygon}');
     await run('layers.toggleRiaOverlay(true)');
     assert.equal(c.loads,1); assert.equal(styles.length,1);
     assert.equal(styles[0].color,'#FF655C'); assert.equal(styles[0].fillOpacity,0.35);
@@ -316,11 +316,11 @@ test('RIA failure turns its control off, removes stale geometry, and recovery cl
     const {run,dashboard,toggle,texts}=riaRuntime();
     await run('layers.toggleRiaOverlay(true)');
     assert.ok(dashboard.riaOverlay.items.length);
-    run('layers._loadRiaMerged=async()=>{throw Error("missing date")}');
+    run('MapLayers.mergedByDate=new AsyncLruCache(24); layers._loadRiaMerged=async()=>{throw Error("missing date")}');
     await run('layers.toggleRiaOverlay(true)');
     assert.equal(toggle.checked,false); assert.equal(dashboard.riaOverlay.items.length,0); assert.equal(dashboard.riaMergedPolygon,null);
     assert.match(texts.get('territory-status'),/RIA overlay unavailable/);
-    toggle.checked=true; run('layers._loadRiaMerged=async()=>polygon');
+    toggle.checked=true; run('MapLayers.mergedByDate=new AsyncLruCache(24); layers._loadRiaMerged=async()=>polygon');
     await run('layers.toggleRiaOverlay(true)');
     assert.equal(texts.get('territory-status'),'');
 });

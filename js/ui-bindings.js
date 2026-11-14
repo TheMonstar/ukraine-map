@@ -559,6 +559,14 @@ class UiBindings {
             await dashboard.layers.toggleCreamyOverlay(dashboard.isChecked('creamy-overlay'));
         });
 
+        // Low cloud / fog forecast (ICON-EU)
+        dashboard.bindUI('weather-forecast', 'change', () => dashboard.weather.toggle(dashboard.isChecked('weather-forecast')));
+        dashboard.bindUI('weather-show', 'change', (e) => { dashboard.weather.setShow(e.target.value); dashboard.weather.draw(); });
+        dashboard.bindUI('weather-hour', 'input', (e) => dashboard.weather.onSlider(e.target.value));
+        dashboard.bindUI('weather-mode', 'change', (e) => dashboard.weather.setMode(e.target.value));
+        dashboard.bindUI('weather-card', 'change', () => dashboard.weather.setCard(dashboard.isChecked('weather-card')));
+        dashboard.bindUI('weather-card-legend', 'change', () => dashboard.weather.setCardLegend(dashboard.isChecked('weather-card-legend')));
+
         // FIRMS fire-detection bindings
         dashboard.bindUI('firms-overlay', 'change', async () => {
             await dashboard.layers.toggleFirmsOverlay(dashboard.isChecked('firms-overlay'));

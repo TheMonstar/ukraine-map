@@ -73,7 +73,7 @@
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" crossorigin="anonymous" integrity="sha384-wgw+aLYNQ7dlhK47ZPK7FRACiq7ROZwgFNg0m04avm4CaXS+Z9Y7nMu8yNjBKYC+"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" crossorigin="anonymous" integrity="sha384-NZLkVuBRMEeB4VeZz27WwTRvlhec30biQ8Xx7zG7JJnkvEKRg5qi6BNbEXo9ydwv"/>
-    <link rel="stylesheet" href="css/main.css?599" />
+    <link rel="stylesheet" href="css/main.css?609" />
 </head>
 
 <body>
@@ -621,6 +621,42 @@
                             <div class="draw-hint">Free key: <a href="https://firms.modaps.eosdis.nasa.gov/api/map_key/"
                                     target="_blank">firms.modaps.eosdis.nasa.gov</a></div>
                             <div id="firms-status" class="draw-hint" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Weather -->
+                <div class="accordion-section" data-section="weather">
+                    <div class="accordion-header">
+                        <span class="accordion-arrow">&#9654;</span>
+                        Weather
+                    </div>
+                    <div class="accordion-body" style="display:none;">
+                        <div class="control-group">
+                            <label class="control-label">Drone weather</label>
+                            <label class="toggle-label"><input type="checkbox" id="weather-forecast" /><span
+                                    class="toggle-switch"></span>Show weather layer</label>
+                            <select id="weather-mode" class="control-select">
+                                <option value="forecast" selected>Forecast (ICON-EU, next ~5 days)</option>
+                                <option value="history">Past (day of the date slider's end)</option>
+                            </select>
+                            <select id="weather-show" class="control-select">
+                                <option value="both" selected>Low cloud + fog</option>
+                                <option value="visibility">Visibility (how far drones see)</option>
+                                <option value="ceiling">Cloud base (how high drones fly)</option>
+                                <option value="low_cloud">Low cloud</option>
+                                <option value="fog">Fog</option>
+                            </select>
+                            <label class="small-label">Hour: <span id="weather-hour-value">now</span></label>
+                            <input type="range" id="weather-hour" min="0" max="0" value="0" class="control-range" />
+                            <div id="weather-legend" class="draw-hint"><span class="weather-key weather-key-cloud"></span>low cloud
+                                <span class="weather-key weather-key-fog"></span>fog (visibility &lt; 1 km)</div>
+                            <div id="weather-cursor" class="draw-hint"></div>
+                            <label class="toggle-label"><input type="checkbox" id="weather-card" /><span
+                                    class="toggle-switch"></span>Time card on the map</label>
+                            <label class="toggle-label"><input type="checkbox" id="weather-card-legend" /><span
+                                    class="toggle-switch"></span>Legend under the time</label>
+                            <div id="weather-status" class="draw-hint" style="display:none;"></div>
                         </div>
                     </div>
                 </div>
@@ -1539,7 +1575,7 @@ Situation report:
     <script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated@0.2.1/Leaflet.ImageOverlay.Rotated.js" integrity="sha384-7oBmAX73N5DMKPSTLhXDB3qYFCIcDn1NtkLTsqtvLbzJjwYn/GF+0TnSMG6o4Bg9" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" integrity="sha384-nlUQ8ZqCbvStErob+biJNzSgltf6urV3VGqhfIfzhmg9RXmpeRm76ELw0pYnKlTR" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js" integrity="sha384-0d+Gr7vM4Drod8E3hXKgciWJSWbjD/opKLLygI9ktiWbuvlDwQLzU46wJ9s5gsp7" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.22.0/proj4.min.js" integrity="sha512-UeNA4/krf3UM0banbl23Tb7RxwicxxLiknzKQ2y905a9qQ8LfYlELc5EqYqtPkrM+LGudPIkSIMMHpHvEVTCBQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.22.0/proj4.min.js" integrity="sha384-S5KwSQADmPMvD8N1Tq9ZSGHcxkaSR62MMuobr88+E7E/0lqGq7IkUMzKS5YF6vR1" crossorigin="anonymous"></script>
     <script src="js/html-utils.js?595"></script>
     <script src="js/territory-data.js?595"></script>
     <script src="js/utils.js?595"></script>
@@ -1555,15 +1591,16 @@ Situation report:
     <script src="js/image-extract.js?577"></script>
     <script src="js/terrain-analysis.js?577"></script>
     <script src="js/overpass.js?577"></script>
+    <script src="js/weather-forecast.js?609"></script>
     <script src="js/coords.js?598"></script>
     <script src="js/infiltration.js?580"></script>
     <script src="js/stream.js?577"></script>
     <script src="js/charts.js?593"></script>
     <script src="js/territory-controller.js?597"></script>
-    <script src="js/ui-bindings.js?598"></script>
+    <script src="js/ui-bindings.js?609"></script>
     <script src="js/map-uml-engine.js?577"></script>
     <script src="js/poster.js?577"></script>
-    <script src="js/app.js?597"></script>
+    <script src="js/app.js?609"></script>
     <script>
         window.dashboard = new AttackMapDashboard();
         window.dashboard.init();

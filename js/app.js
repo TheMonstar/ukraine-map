@@ -284,6 +284,7 @@ class AttackMapDashboard {
         this.settlements = new Settlements(this);
         this.lineFeatures = new LineFeatures(this);
         this.overpass = new Overpass(this);
+        this.weather = new WeatherForecast(this);
         this.coords = new Coords(this);
         this.uiBindings = new UiBindings(this);
     }
@@ -5384,6 +5385,7 @@ class AttackMapDashboard {
             // inside this handler because initSlider() destroys and re-creates the
             // slider, which would silently drop an externally attached listener.
             this.charts?.onDateChange();
+            this.weather?.onDateChange();
             // Playback owns an awaited refresh for each frame. Manual dragging
             // still debounces requests until the slider settles.
             if (this.isPlaying) return;
