@@ -5,8 +5,11 @@
  *   history   the Historical Forecast archive (the models' own past hours, with visibility, from 2022): ICON-EU
  *             from 24 Jul 2024, Open-Meteo's best_match blend before. The day follows the date slider.
  * Cloud base is not a model output here: it is the lowest height above ground where the cloud cover on the
- * pressure levels (1000…700 hPa, heights from surface pressure and temperature) reaches 60 % (broken), 0 in fog,
- * and null when no level up to 700 hPa (~3 km) does.
+ * pressure levels (1000…850 hPa, heights from surface pressure) reaches 60 % (broken), 0 in fog, and null when
+ * no level up to 850 hPa (~1.5 km) does.
+ *
+ * Open-Meteo's free tier is counted per IP: 600 call units a minute, 5,000 an hour, 10,000 a day, a point being one
+ * unit up to 10 variables. So a fetch is ≤ 300 points × 10 variables, and earlier fetches are kept and reused.
  *
  * A snapshot is the whole fetch — grid, hours and values — so the same hours can be redrawn without the
  * network: the sidebar keeps one per view, and a 2D video keeps one per film (map_prepare_video writes
@@ -20,10 +23,12 @@
     const HISTORY_FROM = '2022-01-01';
     const HISTORY_MAX_DAYS = 31;
     const ICON_EU_HISTORY_FROM = '2024-07-24';     // the archive's ICON-EU hours have visibility from 23 Jul 2024 17:00
-    const LEVELS = [1000, 975, 950, 925, 900, 850, 800, 700];
-    const VARS = ['cloud_cover_low', 'visibility', 'weather_code', 'surface_pressure', 'temperature_2m', ...LEVELS.map((p) => `cloud_cover_${p}hPa`)];
+    const LEVELS = [1000, 975, 950, 925, 900, 850];
+    // 10 variables: one more would cost 1.1 units a point (a level, or temperature for the level heights)
+    const VARS = ['cloud_cover_low', 'visibility', 'weather_code', 'surface_pressure', ...LEVELS.map((p) => `cloud_cover_${p}hPa`)];
     const CEILING_PCT = 60;
-    const MAX_POINTS = 400;          // one POST; Open-Meteo counts each point as a call
+    const MAX_POINTS = 300;          // one POST; Open-Meteo counts each point as a call
+    const KEEP_SNAPSHOTS = 6;        // earlier fetches reused when the view returns to them
     const RATE_BUDGET = 550;         // of the free tier's 600 call units a minute
     const MIN_STEP = 0.07;           // ≈ an ICON-EU cell
     const UPSCALE = 12;              // canvas px per grid cell before Leaflet stretches it (smooths the cells)
@@ -52,15 +57,17 @@
     }
 
     /**
-     * Cloud base above ground (m) from one hour's values: { ps (hPa), t (°C), cc: { [hPa]: % }, fog }. Level heights by the
-     * hypsometric equation with a standard lapse rate; between the last level under 60 % and the first at or over it, the
-     * height where the cover crosses 60 %. 0 in fog, null with no such level up to 700 hPa.
+     * Cloud base above ground (m) from one hour's values: { ps (hPa), t (°C, default 15: the map doesn't fetch it, which
+     * moves a 400 m base by ~20 m), cc: { [hPa]: % }, fog }. Level heights by the hypsometric equation with a standard lapse
+     * rate; between the last level under 60 % and the first at or over it, the height where the cover crosses 60 %. 0 in
+     * fog, null with no such level among those given.
      */
-    function cloudBase({ ps, t, cc, fog }) {
+    function cloudBase({ ps, t = 15, cc, fog }) {
         if (fog) return 0;
-        if (ps == null || t == null) return null;
+        if (ps == null) return null;
+        t ??= 15;
         let prevH = 0, prevC = 0;
-        for (const p of LEVELS) {
+        for (const p of Object.keys(cc).map(Number).sort((a, b) => b - a)) {
             if (p >= ps) continue;                           // below ground
             const c = cc[p];
             if (c == null) continue;
@@ -76,7 +83,7 @@
     const RAMP = [[130, 40, 170, 0.78], [220, 40, 40, 0.72], [245, 135, 30, 0.62], [250, 215, 60, 0.5], [170, 225, 120, 0.28], [170, 225, 120, 0]];
     const SCALES = {
         visibility: { stops: [200, 500, 1000, 2000, 5000, 10000], label: (m) => (m < 1000 ? `${m} m` : `${m / 1000} km`) },
-        ceiling: { stops: [100, 200, 400, 700, 1200, 2000], label: (m) => `${m} m` },
+        ceiling: { stops: [100, 200, 400, 700, 1000, 1500], label: (m) => `${m} m` },
     };
     /** RGBA for a value on a scale (log-interpolated between stops); past the last stop, clear. */
     function rampColor(v, stops) {
@@ -114,7 +121,7 @@
             ...(history ? { start_date: from, end_date: to } : { forecast_days: String(days) }) });
         const r = await fetchFn(history ? HISTORY_API : API, { method: 'POST', body });
         const json = await r.json().catch(() => ({}));
-        if (!r.ok || json.error) throw new Error(`Open-Meteo: ${json.reason || r.status}`);
+        if (!r.ok || json.error) throw Object.assign(new Error(`Open-Meteo: ${json.reason || r.status}`), { status: r.status, reason: json.reason || '' });
         const answers = Array.isArray(json) ? json : [json];
         const times0 = answers[0].hourly.time;
         const val = (p, k, h) => p.hourly[k]?.[h] ?? null;
@@ -125,7 +132,7 @@
         const take = (k) => times.map((_, h) => answers.map((p) => val(p, k, h)));
         const vis = take('visibility'), code = take('weather_code');
         const base = times.map((_, h) => answers.map((p, i) => cloudBase({
-            ps: val(p, 'surface_pressure', h), t: val(p, 'temperature_2m', h),
+            ps: val(p, 'surface_pressure', h),
             cc: Object.fromEntries(LEVELS.map((lv) => [lv, val(p, `cloud_cover_${lv}hPa`, h)])), fog: isFog(vis[h][i], code[h][i]) })));
         let model_run = null;
         if (!history) try {
@@ -164,7 +171,7 @@
         const what = show === 'visibility' ? 'Visibility (how far a drone sees)' : 'Cloud base above ground (how high it can fly under cloud; 0 in fog)';
         // each colour sits at its stop and blends to the next; the last stop is clear
         return `${what}<br>` + scale.stops.slice(0, -1).map((v, i) => `${sw(RAMP[i])}${i ? '' : '≤'}${scale.label(v)}`).join(' ')
-            + ` · clear: ${show === 'visibility' ? '10 km+' : '2 km+ or none'}`;
+            + ` · clear: ${show === 'visibility' ? '10 km+' : '1.5 km+ or none'}`;
     }
 
     /** The card's lines for a snapshot hour: what is shown (forecast or past model hours) and when. */
@@ -192,11 +199,52 @@
             this._moveTimer = null;
             this._onMove = () => { clearTimeout(this._moveTimer); this._moveTimer = setTimeout(() => this.refresh(), 600); };
             this.frozen = false;         // a video's snapshot: no refetch on pan
+            this._kept = [];             // earlier fetches, newest first
         }
 
         _status(msg) {
             const el = this.dashboard.getEl('weather-status');
             if (el) { el.style.display = msg ? 'block' : 'none'; el.textContent = msg || ''; }
+        }
+
+        /** A badge on the map while loading or after a failure (the sidebar section may be closed). */
+        _mapStatus(msg, error = false) {
+            const container = this.dashboard.map.getContainer();
+            let el = container.querySelector('.weather-map-status');
+            if (!msg) { el?.remove(); return; }
+            if (!el) {
+                el = document.createElement('div');
+                el.className = 'weather-map-status';
+                container.appendChild(el);
+            }
+            el.classList.toggle('error', error);
+            el.innerHTML = error ? msg : `<span class="weather-spinner"></span>${msg}`;
+        }
+
+        /** Open-Meteo's refusals in plain words; the per-minute limit retries by itself. */
+        _failed(e) {
+            clearTimeout(this._retryTimer);
+            let msg = `Weather unavailable: ${e.message}`;
+            if (e.status === 429) {
+                if (/minute/i.test(e.reason)) {
+                    msg = 'Open-Meteo: too many requests this minute. Retrying in 60 s…';
+                    this._retryTimer = setTimeout(() => this.refresh(), 61000);
+                } else if (/hour/i.test(e.reason)) msg = 'Open-Meteo: the free hourly limit for this connection is used up. Try again in an hour.';
+                else if (/daily|day/i.test(e.reason)) {
+                    msg = `Open-Meteo: the free daily limit for this connection is used up. Try again tomorrow${this.mode === 'forecast' ? ' (Past mode has its own limit)' : ''}.`;
+                }
+            }
+            this._status(msg);
+            this._mapStatus(msg, true);
+            if (!this.snap || this.snap.source !== this.mode) {                     // nothing to slide through
+                this._overlays.forEach((o) => o.remove());
+                this._overlays = [];
+                this.snap = null;
+                const slider = this.dashboard.getEl('weather-hour');
+                if (slider) { slider.disabled = true; slider.max = '0'; slider.value = '0'; }
+                this.dashboard.setText('weather-hour-value', 'no data');
+                this._syncCard();
+            }
         }
 
         _pane() {
@@ -213,6 +261,8 @@
             this.on = enabled;
             const map = this.dashboard.map;
             if (!enabled) {
+                clearTimeout(this._retryTimer);
+                this._mapStatus(null);
                 map.off('moveend', this._onMove);
                 if (this._cursor) map.off('mousemove', this._cursor);
                 this.dashboard.setText('weather-cursor', '');
@@ -246,18 +296,27 @@
             if (!this.frozen && !this._covers(this.snap)) {
                 const b = this.dashboard.map.getBounds().pad(0.15);
                 const history = this.mode === 'history', day = this._day();
-                this._status(history ? `⏳ Loading the weather of ${day}…` : '⏳ Loading the ICON-EU forecast…');
-                try {
-                    const keep = this.snap?.times[Math.floor(this.hour)];
-                    const keepHour = keep ? keep.slice(11) : null;      // history: the same hour on the new day
-                    const snap = await WeatherForecast.fetchSnapshot([[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]], history ? { from: day } : {});
-                    if (this.mode !== (history ? 'history' : 'forecast') || (history && this._day() !== day)) return;   // changed while loading
+                const keep = this.snap?.times[Math.floor(this.hour)];
+                const keepHour = keep ? keep.slice(11) : null;      // history: the same hour on the new day
+                let snap = this._kept.find((s) => this._covers(s));
+                if (!snap) {
+                    const msg = history ? `Loading the weather of ${day}…` : 'Loading the ICON-EU forecast…';
+                    this._status(`⏳ ${msg}`);
+                    this._mapStatus(msg);
+                    try {
+                        snap = await WeatherForecast.fetchSnapshot([[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]], history ? { from: day } : {});
+                    } catch (e) {
+                        if (this.on) this._failed(e);
+                        return;
+                    }
+                    this._kept = [snap, ...this._kept].slice(0, KEEP_SNAPSHOTS);
+                }
+                this._mapStatus(null);
+                if (!this.on || this.mode !== (history ? 'history' : 'forecast') || (history && this._day() !== day)) return;   // changed while loading
+                {
                     this.load(snap);
                     this.setHour(history ? (keepHour ? hourIndex(snap, `${day}T${keepHour}`) ?? 12 : 12)
                         : (keep ? hourIndex(snap, keep) ?? hourIndex(snap, nowKyiv()) ?? 0 : hourIndex(snap, nowKyiv()) ?? 0));
-                } catch (e) {
-                    this._status(`Weather failed: ${e.message}`);
-                    return;
                 }
             }
             this.draw();
@@ -435,6 +494,7 @@
         _syncUi() {
             const slider = this.dashboard.getEl('weather-hour');
             if (!slider || !this.snap) return;
+            slider.disabled = false;
             slider.max = String(this.snap.times.length - 1);
             slider.value = String(Math.round(this.hour));
             this.dashboard.setText('weather-hour-value', hourLabel(this.hourIso(), { year: this.snap.source === 'history' }));
