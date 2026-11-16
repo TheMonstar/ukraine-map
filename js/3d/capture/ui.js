@@ -66,7 +66,8 @@ export class CaptureUI {
         this.log = el('div', 'cap-log');
         this.root.append(this.log);
         this.toastEl = el('div', 'cap-toast');
-        this.root.append(this.toastEl);
+        this.bannerEl = el('div', 'cap-banner');
+        this.root.append(this.toastEl, this.bannerEl);
         this._buildRing();
         this.modal = el('div', 'cap-modal hidden');
         this.root.append(this.modal);
@@ -266,6 +267,12 @@ export class CaptureUI {
         go.append(ok);
         card.append(go);
         this._open(card);
+    }
+
+    /** A message that stays until cleared (null), e.g. while reconnecting. */
+    banner(text) {
+        this.bannerEl.textContent = text || '';
+        this.bannerEl.classList.toggle('on', !!text);
     }
 
     toast(text) {

@@ -340,3 +340,33 @@ test('gathering point: rear blocks send their spare troops, front blocks keep th
     step(world, st);
     assert.equal(st.rally.us, null, 'a lost gathering point is cleared');
 });
+
+test('game page: a parameter-free address with a link preview, opening the fixed frame', async () => {
+    const { readFileSync, existsSync } = await import('node:fs');
+    const html = readFileSync(new URL('../mala-tokmachka.html', import.meta.url), 'utf8');
+    const meta = name => html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]+)"`))?.[1];
+    for (const name of ['og:title', 'og:description', 'og:image', 'twitter:card', 'twitter:image']) assert.ok(meta(name), name);
+    assert.equal(meta('twitter:card'), 'summary_large_image');
+    const image = new URL(meta('og:image')).pathname.replace(/^\/ukraine-map\//, '');
+    assert.ok(existsSync(new URL(`../${image}`, import.meta.url)), `${image} is in the repo`);
+    const jpeg = readFileSync(new URL(`../${image}`, import.meta.url));
+    assert.equal(jpeg.readUInt16BE(0), 0xffd8, 'a JPEG');
+    const target = html.match(/location\.replace\('([^']+)'/)[1];
+    const q = new URL(target, 'https://x/').searchParams;
+    assert.equal(+q.get('lat'), P.frame.lat);
+    assert.equal(+q.get('lng'), P.frame.lng);
+    assert.equal(+q.get('size'), P.frame.size);
+    assert.equal(q.get('game'), 'capture');
+    assert.match(html, /location\.hash\)/, 'an invite (#join=…) travels along');
+});
+
+test('a saved game picks up exactly where it was (what a host reload restores)', () => {
+    const live = playHeadless(world, { seed: 5, maxT: 200 });
+    assert.equal(live.winner, null, 'still running');
+    const restored = JSON.parse(JSON.stringify(live));        // what sessionStorage keeps
+    for (let i = 0; i < 1200; i++) {
+        step(world, live);
+        step(world, restored);
+    }
+    assert.deepEqual(JSON.parse(JSON.stringify(restored)), JSON.parse(JSON.stringify(live)));
+});

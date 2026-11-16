@@ -271,6 +271,23 @@ button.on .cap-kbd { border-color: rgba(255, 255, 255, 0.45); }
 
 .cap-toast.on { opacity: 1; }
 
+.cap-root .cap-banner {
+    position: fixed;
+    top: 66px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 41;
+    display: none;
+    padding: 7px 16px;
+    border-radius: 999px;
+    background: rgba(160, 60, 40, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.cap-banner.on { display: block; }
+
 /* ── drag controls: the quarters at the target, the label above them ─────── */
 .cap-ring, .cap-badge { position: fixed; left: 0; top: 0; z-index: 27; pointer-events: none; display: none; }
 .cap-ring.on, .cap-badge.on { display: block; }

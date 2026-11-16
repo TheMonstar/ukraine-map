@@ -114,11 +114,26 @@ export class HostNet {
         this.lastSeen = new Map();
     }
 
-    async start() {
-        const Peer = await loadPeerJs();
-        this.peer = new Peer();
-        this.peer.on('open', id => this.h.onOpen(id));
-        this.peer.on('connection', conn => {
+    /** `id`: reclaim this address after a reload, so the invite link and the guests still find us. */
+    async start(id = null) {
+        this.Peer = await loadPeerJs();
+        this.wantId = id;
+        this.idTries = 0;
+        this._open();
+        this.timer = setInterval(() => {
+            const now = Date.now();
+            for (const c of this.conns) if (now - (this.lastSeen.get(c) || 0) > GUEST_TIMEOUT) this._drop(c);
+        }, 1000);
+    }
+
+    _open() {
+        const peer = this.wantId ? new this.Peer(this.wantId) : new this.Peer();
+        this.peer = peer;
+        peer.on('open', id => {
+            this.id = id;
+            this.h.onOpen(id);
+        });
+        peer.on('connection', conn => {
             conn.on('open', () => {
                 this.conns.add(conn);
                 this.lastSeen.set(conn, Date.now());
@@ -136,12 +151,16 @@ export class HostNet {
             conn.on('close', () => this._drop(conn));
             conn.on('error', () => this._drop(conn));
         });
-        this.peer.on('disconnected', () => { if (!this.closed) this.peer.reconnect(); });
-        this.peer.on('error', err => this.h.onError(`Online play: ${err.type || err.message}`));
-        this.timer = setInterval(() => {
-            const now = Date.now();
-            for (const c of this.conns) if (now - (this.lastSeen.get(c) || 0) > GUEST_TIMEOUT) this._drop(c);
-        }, 1000);
+        peer.on('disconnected', () => { if (!this.closed && !peer.destroyed) peer.reconnect(); });
+        peer.on('error', err => {
+            // right after a reload the broker may still hold our old address: wait for it to free up
+            if (err.type === 'unavailable-id' && this.wantId && ++this.idTries < 20) {
+                peer.destroy();
+                setTimeout(() => { if (!this.closed) this._open(); }, 2000);
+                return;
+            }
+            this.h.onError(`Online play: ${err.type || err.message}`);
+        });
     }
 
     _drop(conn) {
@@ -150,6 +169,13 @@ export class HostNet {
         this.lastSeen.delete(conn);
         try { conn.close(); } catch { /* already gone */ }
         this.h.onLeave(conn);
+    }
+
+    /** Forget a connection without telling the game (a player came back on a new one). */
+    forget(conn) {
+        this.conns.delete(conn);
+        this.lastSeen.delete(conn);
+        try { conn.close(); } catch { /* already gone */ }
     }
 
     send(conn, msg) {
@@ -167,41 +193,87 @@ export class HostNet {
     }
 }
 
-/** Guest side: one connection to the host. */
+export const RECONNECT_FOR = 60000;  // ms a guest keeps trying to reach a host it lost
+
+/**
+ * Guest side: one connection to the host. A drop (the host reloading, a network blip) is
+ * not the end: it keeps reconnecting for RECONNECT_FOR and says hello again with the same
+ * token, so the host gives back the same seat.
+ */
 export class GuestNet {
     constructor(hostId, handlers) {
         this.hostId = hostId;
-        this.h = handlers;      // {onMessage(msg), onLost(text)}
+        this.h = handlers;      // {onMessage(msg), onLost(text), onReconnecting(secondsLeft | null)}
     }
 
     async start(hello) {
-        const Peer = await loadPeerJs();
-        this.peer = new Peer();
-        this.peer.on('open', () => {
-            this.conn = this.peer.connect(this.hostId, { reliable: true });
-            this.conn.on('open', () => {
-                this.lastSnap = Date.now();
-                this.conn.send({ t: 'hello', v: PROTOCOL, ...hello });
-                this.ping = setInterval(() => {
-                    if (this.conn.open) this.conn.send({ t: 'ping' });
-                    if (Date.now() - this.lastSnap > HOST_TIMEOUT) this._lost('The host left the game.');
-                }, 2000);
-            });
-            this.conn.on('data', msg => {
-                if (!msg || typeof msg !== 'object') return;
-                if (msg.t === 'snap' || msg.t === 'lobby' || msg.t === 'welcome') this.lastSnap = Date.now();
-                this.h.onMessage(msg);
-            });
-            this.conn.on('close', () => this._lost('The host left the game.'));
+        this.hello = hello;
+        this.Peer = await loadPeerJs();
+        this._open();
+        this.ping = setInterval(() => {
+            if (this.conn?.open) this.conn.send({ t: 'ping' });
+            if (this.everConnected && !this.retryUntil && Date.now() - this.lastSnap > HOST_TIMEOUT) this._retry();
+        }, 2000);
+    }
+
+    _open() {
+        const peer = new this.Peer();
+        this.peer = peer;
+        peer.on('open', () => this._connect());
+        peer.on('disconnected', () => { if (!this.gone && !peer.destroyed) peer.reconnect(); });
+        peer.on('error', err => {
+            if (this.everConnected) return this._retry();
+            this._lost(err.type === 'peer-unavailable'
+                ? 'That game is over or the link is wrong.' : `Online play: ${err.type || err.message}`);
         });
-        this.peer.on('error', err => this._lost(err.type === 'peer-unavailable'
-            ? 'That game is over or the link is wrong.' : `Online play: ${err.type || err.message}`));
+    }
+
+    _connect() {
+        const conn = this.peer.connect(this.hostId, { reliable: true });
+        this.conn = conn;
+        conn.on('open', () => {
+            if (conn !== this.conn) return;
+            this.everConnected = true;
+            this.lastSnap = Date.now();
+            if (this.retryUntil) {
+                this.retryUntil = null;
+                this.h.onReconnecting?.(null);
+            }
+            conn.send({ t: 'hello', v: PROTOCOL, ...this.hello });
+        });
+        conn.on('data', msg => {
+            if (conn !== this.conn || !msg || typeof msg !== 'object') return;
+            if (msg.t === 'snap' || msg.t === 'lobby' || msg.t === 'welcome') this.lastSnap = Date.now();
+            this.h.onMessage(msg);
+        });
+        conn.on('close', () => { if (conn === this.conn) this._retry(); });
+    }
+
+    _retry() {
+        if (this.gone || !this.everConnected) return;
+        if (!this.retryUntil) this.retryUntil = Date.now() + RECONNECT_FOR;
+        const left = this.retryUntil - Date.now();
+        if (left <= 0) return this._lost('The host left the game.');
+        this.h.onReconnecting?.(Math.ceil(left / 1000));
+        clearTimeout(this.retryTimer);
+        this.retryTimer = setTimeout(() => {
+            if (this.gone) return;
+            const old = this.conn;
+            this.conn = null;
+            try { old?.close(); } catch { /* already gone */ }
+            if (this.peer.destroyed) this._open();
+            else this._connect();
+            clearTimeout(this._retryCheck);
+            this._retryCheck = setTimeout(() => { if (!this.conn?.open) this._retry(); }, 4000);
+        }, 3000);
     }
 
     _lost(text) {
         if (this.gone) return;
         this.gone = true;
         clearInterval(this.ping);
+        clearTimeout(this.retryTimer);
+        clearTimeout(this._retryCheck);
         this.h.onLost(text);
     }
 
@@ -212,6 +284,8 @@ export class GuestNet {
     close() {
         this.gone = true;
         clearInterval(this.ping);
+        clearTimeout(this.retryTimer);
+        clearTimeout(this._retryCheck);
         this.peer?.destroy();
     }
 }

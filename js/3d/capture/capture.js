@@ -28,6 +28,16 @@ const quarterAt = (dx, dy) => {                          // screen y grows downw
     return QUARTERS[[1, 2, 3, 0][((Math.round(a / (Math.PI / 2)) % 4) + 4) % 4]];
 };
 
+// per-tab memory that survives a reload: the host's running game, the game a guest joined
+const HOST_KEY = 'capture-host';
+const GUEST_KEY = 'capture-guest';
+const RESUME_FOR = 10 * 60 * 1000;           // ms a saved game can still be picked up after a reload
+const session = {
+    get(k) { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } },
+    set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* full or blocked */ } },
+    del(k) { try { sessionStorage.removeItem(k); } catch { /* blocked */ } },
+};
+
 function sessionToken() {
     try {
         let t = sessionStorage.getItem('capture-token');
@@ -67,6 +77,8 @@ export class CaptureGame {
             },
             pick(x, y) { return game.view ? game._pick({ clientX: x, clientY: y }) : -1; },
             get scene() { return game.scene; },
+            get camera() { return game.camera; },
+            get controls() { return game.controls; },
         };
     }
 
@@ -101,6 +113,10 @@ export class CaptureGame {
         this._activate();
         this.joinId = join;
         this.mode = 'setup';
+        // a reload in the middle of an online game picks it up again
+        const host = session.get(HOST_KEY), guest = session.get(GUEST_KEY);
+        if (!join && host?.v === 1 && Date.now() - host.at < RESUME_FOR) return this._resumeHost(host);
+        if (join && guest?.hostId === join) return this._startGuest(guest.side, guest.name);
         this._showSetup();
     }
 
@@ -123,6 +139,8 @@ export class CaptureGame {
 
     /** Back to the setup screen, the scene and the input kept (standalone game page). */
     _reset() {
+        session.del(HOST_KEY);
+        session.del(GUEST_KEY);
         clearInterval(this.loop);
         clearInterval(this.lobbyTimer);
         this.loop = null;
@@ -187,6 +205,8 @@ export class CaptureGame {
 
     stop() {
         if (!this.view) return;
+        session.del(HOST_KEY);
+        session.del(GUEST_KEY);
         this._gestureCancel();
         clearInterval(this.loop);
         clearInterval(this.lobbyTimer);
@@ -274,12 +294,55 @@ export class CaptureGame {
         this.you = side;
         this.level = level;
         this._seatsFor(side, level);
-        this.guests = new Map();     // conn → side
         this.ui.showLobby({ title: 'Online game', seats: this._seatLabels(), canStart: false, note: 'Connecting…' });
+        await this._hostNet(null);
+    }
+
+    /** Pick up a hosted game after a reload: same game, same address; guests' seats wait for them. */
+    async _resumeHost(saved) {
+        this.mode = 'host';
+        this.you = saved.you;
+        this.level = saved.level;
+        this.seats = saved.seats;
+        for (const f of FACTIONS) {
+            const s = this.seats[f];
+            if (s.kind === 'guest') this.seats[f] = { kind: 'ai', level: 'normal', token: s.token, name: s.name };
+        }
+        if (saved.st) {
+            this.st = saved.st;
+            this.aiTimer = saved.aiTimer || Object.fromEntries(FACTIONS.map((f, i) => [f, 1 + i]));
+            this.endShown = false;
+            this.acc = 0;
+            this.lastTick = performance.now();
+            const home = this.st.blocks.find(b => b.owner === this.you);
+            if (home) { this.selected.add(home.id); this._overview([home.id]); }
+            this.ui.hideModal();
+            this.loop = setInterval(() => this._tick(), 50);
+        } else {
+            this.ui.showLobby({ title: 'Online game', seats: this._seatLabels(), canStart: false, note: 'Reconnecting…' });
+        }
+        await this._hostNet(saved.peerId);
+        this.ui.toast('Game restored: your guests are reconnecting.');
+    }
+
+    /** Save the hosted game into this tab, so a reload can pick it up (every 2 s and on seat changes). */
+    _saveHost() {
+        if (this.mode !== 'host' || !this.net?.id) return;
+        const seats = Object.fromEntries(FACTIONS.map(f => [f, { ...this.seats[f] }]));
+        session.set(HOST_KEY, {
+            v: 1, at: Date.now(), peerId: this.net.id, you: this.you, level: this.level, seats,
+            st: this.st, aiTimer: this.aiTimer,
+        });
+        this.savedAt = performance.now();
+    }
+
+    async _hostNet(peerId) {
+        this.guests = new Map();     // conn → side
         this.net = new HostNet({
             onOpen: id => {
-                this.link = inviteLink(id);
-                this._showHostLobby();
+                this.link = this._inviteLink(id);
+                if (!this.st) this._showHostLobby();
+                this._saveHost();
             },
             onHello: (conn, msg) => this._guestHello(conn, msg),
             onCmd: (conn, cmd) => {
@@ -291,19 +354,37 @@ export class CaptureGame {
                 const side = this.guests.get(conn);
                 if (!side) return;
                 this.guests.delete(conn);
-                this.ui.toast(`${this.seats[side].name} left: the computer plays ${SIDES[side].name}.`);
-                this.seats[side] = { kind: 'ai', level: 'normal', token: this.seats[side].token };
+                const { name, token } = this.seats[side];
+                this.ui.toast(`${name} dropped out: the computer plays ${SIDES[side].name} until they are back.`);
+                this.seats[side] = { kind: 'ai', level: 'normal', token, name };
                 this._lobbyChanged();
+                this._saveHost();
             },
             onError: text => this.ui.toast(text),
         });
         try {
-            await this.net.start();
+            await this.net.start(peerId);
         } catch (err) {
             this.ui.showMessage('Online play unavailable', err.message);
             return;
         }
-        this.lobbyTimer = setInterval(() => { if (!this.st) this._lobbyChanged(); }, 1000);
+        clearInterval(this.lobbyTimer);
+        this.lobbyTimer = setInterval(() => {
+            if (!this.st) this._lobbyChanged();
+            this._saveHost();
+        }, 2000);
+    }
+
+    /** Invites point at the game's own page (mala-tokmachka.html: clean address, link preview)
+     * when the game runs on its fixed frame, else at this viewer URL. */
+    _inviteLink(id) {
+        const p = new URLSearchParams(location.search), f = PRESET.frame;
+        const fixed = +p.get('lat') === f.lat && +p.get('lng') === f.lng && +p.get('size') === f.size;
+        if (!fixed) return inviteLink(id);
+        const u = new URL('mala-tokmachka', location.href);
+        if (/^(localhost|127\.|\[::1\])/.test(location.hostname) || location.protocol === 'file:') u.pathname += '.html';
+        u.hash = `join=${encodeURIComponent(id)}`;
+        return u.toString();
     }
 
     _seatLabels() {
@@ -328,8 +409,21 @@ export class CaptureGame {
     _guestHello(conn, msg) {
         const token = String(msg.token || '').slice(0, 40);
         const name = cleanName(msg.name);
-        let side = FACTIONS.find(f => this.seats[f].token === token && this.seats[f].kind === 'ai');
-        if (!side && FACTIONS.includes(msg.want) && this.seats[msg.want].kind === 'ai') side = msg.want;
+        // a player coming back (reload, dropped connection) gets their own seat again, even if
+        // the old connection hasn't timed out yet
+        let side = token && FACTIONS.find(f => this.seats[f].token === token && this.seats[f].kind !== 'you');
+        const back = !!side;
+        if (side) {
+            for (const [c, s] of this.guests) {
+                if (s === side && c !== conn) {
+                    this.guests.delete(c);
+                    this.net.forget(c);
+                }
+            }
+        }
+        if (!side && FACTIONS.includes(msg.want) && this.seats[msg.want].kind === 'ai' && !this.seats[msg.want].token) side = msg.want;
+        if (!side) side = FACTIONS.find(f => this.seats[f].kind === 'ai' && !this.seats[f].token);
+        if (!side) side = FACTIONS.find(f => this.seats[f].kind === 'ai');   // a dropped player's seat, as a last resort
         if (!side) side = FACTIONS.find(f => this.seats[f].kind === 'ai');
         if (!side) {
             this.net.send(conn, { t: 'reject', reason: 'The game is full.' });
@@ -338,8 +432,9 @@ export class CaptureGame {
         this.seats[side] = { kind: 'guest', name, token };
         this.guests.set(conn, side);
         this.net.send(conn, { t: 'welcome', seat: side });
-        this.ui.toast(`${name} joined as ${SIDES[side].name}.`);
+        this.ui.toast(back ? `${name} is back as ${SIDES[side].name}.` : `${name} joined as ${SIDES[side].name}.`);
         this._lobbyChanged();
+        this._saveHost();
         if (this.st) this.net.send(conn, encodeSnapshot(this.st, g => marchSpeed(this.st, g.f)));
     }
 
@@ -367,8 +462,11 @@ export class CaptureGame {
         this.ui.showLobby({ seats: { us: '…', cn: '…', ru: '…' }, canStart: false, note: 'Connecting to the host…' });
         this.net = new GuestNet(this.joinId, {
             onMessage: msg => this._guestMessage(msg),
+            onReconnecting: left => this.ui?.banner(left == null ? null : `Lost the host: reconnecting… ${left} s`),
             onLost: text => {
                 clearInterval(this.loop);
+                session.del(GUEST_KEY);
+                this.ui?.banner(null);
                 this.ui?.showMessage('Game over', text);
             },
         });
@@ -382,16 +480,19 @@ export class CaptureGame {
     _guestMessage(msg) {
         if (!this.ui) return;
         if (msg.t === 'welcome' && FACTIONS.includes(msg.seat)) {
+            const again = this.you === msg.seat && !!this.mirror;
             this.you = msg.seat;
-            this.ui.toast(`You play ${SIDES[msg.seat].long}.`);
+            this.ui.toast(again ? 'Back in the game.' : `You play ${SIDES[msg.seat].long}.`);
+            session.set(GUEST_KEY, { hostId: this.joinId, side: msg.seat, name: store.get('name', '') });
         } else if (msg.t === 'reject') {
+            session.del(GUEST_KEY);
             this.ui.showMessage('Could not join', String(msg.reason || 'The host said no.'));
         } else if (msg.t === 'lobby') {
             this.seatsShown = msg.seats;
             if (!msg.started) this.ui.showLobby({ seats: msg.seats, canStart: false, note: 'The host starts the game.' });
         } else if (msg.t === 'snap') {
             const first = !this.mirror;
-            const restarted = this.mirror && msg.time < this.mirror.t;
+            const restarted = this.mirror && msg.time + 10 < this.mirror.t;   // a new game, not a host reload
             this.mirror = applySnapshot(msg, restarted ? null : this.mirror);
             this.snapAt = performance.now();
             if (first || restarted) {
@@ -422,7 +523,10 @@ export class CaptureGame {
             this.acc -= RULES.tick;
             n++;
         }
-        if (this.mode === 'host') this._broadcastSnap(!!this.st.winner);
+        if (this.mode === 'host') {
+            this._broadcastSnap(!!this.st.winner);
+            if (performance.now() - (this.savedAt || 0) > 2000) this._saveHost();
+        }
         if (this.st.winner && !this.endShown) this._showEnd(this.st, true);
     }
 

@@ -150,6 +150,9 @@ Each feature class follows the same shape: `load(bbox[, mapFeatures])` (fetch),
     host-authoritative, protocol v1), `capture.js` (controller), `field-pack.js`.
   - Pure modules (`streets`, `sim`, `ai`, `text`, `net`) run in node: `tests/capture-*.test.mjs`
     (in `scripts/check.cjs`); the AI test is the balance guard (`CAPTURE_SEEDS=200` for tuning).
+  - The game's address is `mala-tokmachka.html` (`/ukraine-map/mala-tokmachka` on Pages): no parameters,
+    a link preview (Open Graph / Twitter card, `images/capture-preview.jpg` rendered from the game by
+    `scripts/capture-preview.mjs`), then on to `3d-view.html?…&game=capture`; invites use it too.
   - A game link is the game's own page: no viewer panel, quitting returns to its start screen,
     and the field loads from `data/capture/field/` (`scripts/capture-field.mjs`: heightmap, OSM
     woods/water/fields, Microsoft buildings, roads and village lanes), so it needs no Overpass or
@@ -166,6 +169,11 @@ Each feature class follows the same shape: `load(bbox[, mapFeatures])` (fetch),
     side's rear blocks (no enemy block within 600 m by street) send all but 5 troops there.
   - Online: PeerJS loads on demand with the pin from `index.html`; the host runs the only sim and
     sends 5 Hz snapshots, guests send commands; empty or dropped seats are played by the computer.
+  - Reloads and drops: the host saves the game into the tab every 2 s (`sessionStorage` `capture-host`)
+    and a reload picks it up on the same PeerJS address; guests remember the game they joined
+    (`capture-guest`), rejoin after a reload without the setup screen, and after a lost connection
+    keep reconnecting for 60 s (`RECONNECT_FOR`). A returning player's tab token gets their own seat
+    back; while they are away the computer plays it.
   - Debug: `window.__capture` (`state`, `autoplay()`, `fastForward(s)`, `debug()`).
 - **Hide & seek mode** (`game.js`, panel "Hide & seek" row): Start forces
   drone mode on (via the checkbox `change` path) and spawns the squad at
