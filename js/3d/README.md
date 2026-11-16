@@ -46,6 +46,7 @@ GeoJSON is always `[lng, lat]`; local/Three.js coords are always `{x, z}` /
 | [player.js](player.js) | `Player` — rounded low-poly soldier (capsule limbs/torso, helmet + balaclava, vest with pouches, rifle across the chest; walk-cycle animation, origin at feet), WASD/arrow movement, terrain-following, building collision via footprint rings |
 | [drone.js](drone.js) | `Drone` — procedural quadcopter, WASD horizontal + R/F altitude, smoothed velocity with banking tilt, terrain clearance, spinning rotors |
 | [game.js](game.js) | `HideSeekGame` — hide & seek mode: 3/5/10 soldiers (reusing `buildHumanoid`) hide at tree/building cover points within 1 km of center, relocate on a timer, flee to nearest cover and freeze when the drone is near; tag with T within 25 m; count-up timer HUD |
+| [capture/](capture/) | **Capture Mala Tokmachka**: real-time street-block game (US / China / Russia, vs computer or online). See "Capture game" below |
 | [features/roads.js](features/roads.js) | Draped road ribbons, width/color by `highway` tag |
 | [features/water.js](features/water.js) | River ribbons + lake polygons, animated normal-map shimmer |
 | [features/ditches.js](features/ditches.js) | Fortification trench ribbons (dark, from app API) |
@@ -137,6 +138,35 @@ Each feature class follows the same shape: `load(bbox[, mapFeatures])` (fetch),
   modes. Up/down in drone/freecam is R/F; Q/E yaw the camera around the
   orbit target (`applyYaw` in the render loop), which also turns the
   movement heading since movement is camera-relative.
+- **Capture game** (`capture/`, panel "Capture Mala Tokmachka" row, or a link with `?game=capture`):
+  a Galcon-style game on the village's real street blocks. Blocks raise troops, columns march
+  along the streets (hostile columns that meet in a lane fight), blocks buy Barracks / Sandbags /
+  Gym with their own troops; one perk per side and random village events (tractor, babusya, mud,
+  Mavic). Win by holding 60% of the blocks for 20 s (easing to 50% by 13:00, then most blocks).
+  - Files: `mala-tokmachka.js` (generated preset: outline, street graph, 64 blocks;
+    `scripts/capture-blocks.py`), `streets.js` (routes), `sim.js` (rules, all numbers in `RULES` /
+    `PERKS`), `ai.js` (computer players + `playHeadless`), `text.js` (names, jokes), `view.js`
+    (block overlay, column dots, toy soldiers), `ui.js` (labels, HUD, screens), `net.js` (PeerJS,
+    host-authoritative, protocol v1), `capture.js` (controller), `field-pack.js`.
+  - Pure modules (`streets`, `sim`, `ai`, `text`, `net`) run in node: `tests/capture-*.test.mjs`
+    (in `scripts/check.cjs`); the AI test is the balance guard (`CAPTURE_SEEDS=200` for tuning).
+  - A game link is the game's own page: no viewer panel, quitting returns to its start screen,
+    and the field loads from `data/capture/field/` (`scripts/capture-field.mjs`: heightmap, OSM
+    woods/water/fields, Microsoft buildings, roads and village lanes), so it needs no Overpass or
+    live layers. Only satellite imagery streams (its providers don't allow re-hosting).
+  - Controls: "Drag" (touch-first: press your block and drag to a target; stopping on it ~0.25 s opens
+    four quarters under the finger, 25% up then clockwise, and letting go on one sends that share, in
+    the hub (or before they open) the last share; moving well away closes them; own blocks passed on
+    the way join the column) or "Click"
+    (select, click a target, 1–4 for the share).
+  - Routes: block centres join the street graph at every street node on their edge (`gates`), and
+    neighbours with no street on their shared border get a footpath (`links`); centres are never
+    passed through. Columns march at 28 m/s (cartoon fast).
+  - Gathering point (⚑ in the block panel, key G): `sim.command({type: 'rally'})`; every 3 s that
+    side's rear blocks (no enemy block within 600 m by street) send all but 5 troops there.
+  - Online: PeerJS loads on demand with the pin from `index.html`; the host runs the only sim and
+    sends 5 Hz snapshots, guests send commands; empty or dropped seats are played by the computer.
+  - Debug: `window.__capture` (`state`, `autoplay()`, `fastForward(s)`, `debug()`).
 - **Hide & seek mode** (`game.js`, panel "Hide & seek" row): Start forces
   drone mode on (via the checkbox `change` path) and spawns the squad at
   random cover points (tree placements from `vegetation.placements`, spots

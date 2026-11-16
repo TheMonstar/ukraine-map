@@ -34,5 +34,5 @@ for (const page of ['index.html', 'game/game.html']) {
     }
 }
 console.log(`Syntax checked ${scripts.length} scripts; verified ${cdnAssets} pinned CDN references and entry-point files.`);
-const result = spawnSync(process.execPath, ['--test', 'tests/regressions.cjs'], { stdio: 'inherit' });
+const result = spawnSync(process.execPath, ['--test', 'tests/regressions.cjs', 'tests/capture-sim.test.mjs', 'tests/capture-ai.test.mjs'], { stdio: 'inherit' });
 process.exit(result.status ?? 1);

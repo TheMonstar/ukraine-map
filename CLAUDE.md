@@ -103,6 +103,7 @@ Push to `main` → GitHub Actions ([.github/workflows/deploy.yml](.github/workfl
 | [js/overpass.js](js/overpass.js) | `Overpass` | Live OSM queries — Overpass QL input, `{{bbox}}` → viewport, own overlay |
 | [js/weather-forecast.js](js/weather-forecast.js) | `WeatherForecast` | Weather section: low cloud + fog, visibility and cloud base (drones: how far they see, how high they fly) from Open-Meteo, forecast (ICON-EU) or past days (Historical Forecast archive, day follows the date slider); one smooth image per hour, hour slider, cursor readout, time card + legend on the map |
 | [js/coords.js](js/coords.js) | `Coords` | Cursor lat/lng + MGRS readout, right-click copy popup, top-bar go-to box, MGRS grid overlay (proj4) |
+| [js/3d/capture/](js/3d/capture/) | `CaptureGame` | "Capture Mala Tokmachka" street-block game in the 3D viewer (`?game=capture`): vs computer or online (PeerJS), presaved field pack; see [js/3d/README.md](js/3d/README.md) |
 
 Script load order in `index.html` matters — CDN libraries first, then `utils.js` → ... → `app.js`. `window.dashboard` is set at end of `index.html`.
 

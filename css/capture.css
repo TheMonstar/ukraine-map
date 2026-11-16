@@ -1,0 +1,392 @@
+/* Capture Mala Tokmachka (js/3d/capture/): slim glass HUD, labels and screens over the 3D viewer. */
+
+/* the game takes the whole screen: the viewer's panel and legend come back on Quit */
+body.capture-on .panel,
+body.capture-on .legend,
+body.capture-on #sandbox-toolbar,
+body.capture-on #game-hud,
+body.capture-on #game-hint,
+body.capture-on #walk-hint {
+    display: none !important;
+}
+
+.cap-root {
+    --glass: rgba(13, 16, 23, 0.56);
+    --glass-strong: rgba(13, 16, 23, 0.84);
+    --line: rgba(255, 255, 255, 0.09);
+    --line-strong: rgba(255, 255, 255, 0.18);
+    --text: #eef0f4;
+    --dim: rgba(238, 240, 244, 0.56);
+    --accent: #4f8cff;
+    --r: 12px;
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    color: var(--text);
+    font-size: 12px;
+    -webkit-font-smoothing: antialiased;
+}
+
+.cap-root :is(.cap-hud, .cap-panel, .cap-card, .cap-toast, .cap-tip, .cap-badge) {
+    background: var(--glass);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+}
+
+.cap-root:not(.cap-playing) :is(.cap-hud, .cap-panel, .cap-log, .cap-labels) { display: none; }
+
+/* ── buttons ─────────────────────────────────────────────────────────────── */
+.cap-root button {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.cap-root button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); border-color: var(--line-strong); }
+.cap-root button:disabled { opacity: 0.35; cursor: default; }
+.cap-root button.on,
+.cap-root button.cap-primary { background: var(--accent); border-color: transparent; color: #fff; }
+.cap-root button.cap-primary:hover { background: #6a9dff; }
+.cap-root .cap-icon { min-width: 30px; padding: 5px 8px; }
+
+/* ── floating labels (positioned every frame by ui.js) ───────────────────── */
+.cap-labels { position: fixed; inset: 0; pointer-events: none; z-index: 21; overflow: hidden; }
+.cap-label, .cap-bubble { position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform; }
+
+.cap-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px 2px 5px;
+    border-radius: 999px;
+    background: rgba(13, 16, 23, 0.72);
+    border: 1px solid color-mix(in srgb, var(--side) 70%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+}
+
+.cap-label i { width: 7px; height: 7px; border-radius: 50%; background: var(--side); }
+.cap-label small { font-size: 9px; letter-spacing: -1px; color: var(--side); }
+.cap-label small:empty { display: none; }
+.cap-label em { display: none; font-style: normal; color: var(--side); }
+.cap-label.rally em { display: inline; color: #fff; font-size: 11px; }
+.cap-label.rally { outline: 1.5px dashed #fff; outline-offset: 2px; }
+.cap-label.neutral { background: rgba(13, 16, 23, 0.45); border-color: transparent; color: var(--dim); font-weight: 500; padding: 1px 6px; }
+.cap-label.neutral i { display: none; }
+.cap-label.own { background: color-mix(in srgb, var(--side) 34%, rgba(13, 16, 23, 0.8)); }
+.cap-label.sel { box-shadow: 0 0 0 2px #fff; }
+.cap-label.hover { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7); }
+
+.cap-bubble {
+    padding: 0 4px;
+    border-radius: 5px;
+    background: var(--side);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 13px;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+/* ── HUD: one slim bar, the hold line along its foot ─────────────────────── */
+.cap-hud {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 26;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 8px 8px 12px;
+    border-radius: var(--r);
+    max-width: calc(100vw - 20px);
+    overflow: hidden;
+}
+
+.cap-chips { display: flex; gap: 14px; flex: none; }
+.cap-hud > * { flex: none; }
+.cap-hud button { white-space: nowrap; }
+
+.cap-chip {
+    display: flex;
+    white-space: nowrap;
+    align-items: baseline;
+    gap: 5px;
+    padding: 2px 0;
+    font-variant-numeric: tabular-nums;
+    border-bottom: 2px solid transparent;
+}
+
+.cap-chip i { align-self: center; width: 8px; height: 8px; border-radius: 50%; background: var(--side); }
+.cap-chip b { font-weight: 500; color: var(--dim); font-size: 11px; }
+.cap-chip strong { font-size: 15px; font-weight: 700; }
+.cap-chip span { font-size: 10px; color: var(--dim); white-space: nowrap; }
+.cap-chip em { font-style: normal; font-size: 9px; padding: 1px 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: var(--dim); }
+.cap-chip.you em { background: var(--side); color: #111; font-weight: 600; }
+.cap-chip.you { border-bottom-color: var(--side); }
+.cap-chip.you b { color: var(--text); }
+.cap-chip.out { opacity: 0.35; }
+
+.cap-mid { display: flex; flex-direction: column; align-items: center; line-height: 1.15; min-width: 74px; }
+.cap-clock { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.cap-clock.paused { color: var(--dim); }
+.cap-hold-text { font-size: 10px; color: var(--dim); white-space: nowrap; }
+
+.cap-mud { display: none; padding: 2px 8px; border-radius: 999px; background: #7c5a2c; font-size: 11px; font-weight: 600; }
+.cap-mud.on { display: block; }
+
+.cap-hold { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(255, 255, 255, 0.06); }
+.cap-hold-fill { position: absolute; inset: 0 auto 0 0; transition: width 0.4s, background 0.4s; }
+.cap-hold-mark { position: absolute; top: -2px; bottom: 0; width: 2px; background: #fff; }
+
+.cap-hud-buttons { display: flex; gap: 4px; }
+
+/* ── selected block, bottom centre ───────────────────────────────────────── */
+.cap-panel {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 26;
+    padding: 10px 12px;
+    border-radius: var(--r);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(420px, calc(100vw - 20px));
+}
+
+.cap-panel.empty { width: auto; max-width: min(560px, calc(100vw - 20px)); padding: 8px 14px; gap: 6px; }
+.cap-panel-hint { font-size: 11px; color: var(--dim); text-align: center; white-space: nowrap; }
+.cap-keys { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; font-size: 10.5px; color: var(--dim); }
+
+/* key caps for desktop players; touch screens don't show them */
+.cap-kbd {
+    display: inline-block;
+    min-width: 14px;
+    padding: 0 4px;
+    border-radius: 4px;
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    background: rgba(255, 255, 255, 0.06);
+    font: 600 9.5px/14px Inter, system-ui, sans-serif;
+    color: var(--text);
+    text-align: center;
+    vertical-align: 1px;
+}
+
+.cap-fracs .cap-kbd { margin-right: 5px; }
+button.on .cap-kbd { border-color: rgba(255, 255, 255, 0.45); }
+.cap-panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.cap-panel-head b { font-size: 13px; font-weight: 600; }
+.cap-panel-head span { font-size: 11px; color: var(--dim); }
+
+.cap-bar {
+    position: relative;
+    height: 16px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+}
+
+.cap-bar i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, var(--accent), #7aa8ff); border-radius: 999px; }
+.cap-bar span { position: relative; display: block; text-align: center; font-size: 10px; font-weight: 600; line-height: 16px; font-variant-numeric: tabular-nums; }
+
+.cap-fracs, .cap-ups { display: flex; gap: 6px; }
+.cap-root .cap-fracs button { flex: 1; padding: 4px 0; }
+
+.cap-root .cap-up { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 4px; }
+.cap-up b { font-size: 11px; font-weight: 600; }
+.cap-up small { font-size: 10px; color: var(--dim); }
+.cap-dots { display: flex; gap: 3px; }
+.cap-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); }
+.cap-dots i.on { background: var(--accent); }
+.cap-root .cap-rally.on { background: color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); color: var(--text); }
+.cap-root .cap-rally.on small { color: var(--text); }
+
+.cap-tip {
+    position: fixed;
+    bottom: 150px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 26;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    display: none;
+    pointer-events: none;
+}
+
+.cap-tip.on { display: block; }
+
+/* ── log, bottom left: plain lines that fade with age ────────────────────── */
+.cap-log {
+    position: fixed;
+    left: 14px;
+    bottom: 14px;
+    z-index: 26;
+    width: min(340px, calc(50vw - 230px));
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    pointer-events: none;
+}
+
+.cap-line {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.35;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+
+.cap-line i { flex: none; align-self: center; width: 6px; height: 6px; border-radius: 50%; background: var(--side); }
+.cap-time { flex: none; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+.cap-toast {
+    position: fixed;
+    top: 66px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 40;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+
+.cap-toast.on { opacity: 1; }
+
+/* ── drag controls: the quarters at the target, the label above them ─────── */
+.cap-ring, .cap-badge { position: fixed; left: 0; top: 0; z-index: 27; pointer-events: none; display: none; }
+.cap-ring.on, .cap-badge.on { display: block; }
+.cap-ring svg { display: block; transform: translate(-50%, -50%); overflow: visible; filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.35)); }
+.cap-ring g path { fill: rgba(13, 16, 23, 0.7); stroke: rgba(255, 255, 255, 0.25); stroke-width: 1; }
+.cap-ring g text { fill: #fff; font: 600 11px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+.cap-ring g.on path { fill: var(--side, var(--accent)); stroke: #fff; stroke-width: 1.5; }
+.cap-ring .cap-hub circle { fill: rgba(13, 16, 23, 0.85); stroke: rgba(255, 255, 255, 0.3); stroke-width: 1; }
+.cap-ring .cap-hub text { font-size: 10px; }
+.cap-ring .cap-hub.on circle { fill: var(--side, var(--accent)); stroke: #fff; stroke-width: 1.5; }
+
+.cap-root .cap-badge {
+    translate: -50% 0;
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--glass-strong);
+}
+
+/* ── setup, lobby and end screens ────────────────────────────────────────── */
+.cap-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.55));
+    padding: 16px;
+}
+
+.cap-modal.hidden { display: none; }
+
+.cap-root .cap-card {
+    position: relative;
+    width: min(520px, 100%);
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    padding: 22px 22px 18px;
+    border-radius: 16px;
+    background: var(--glass-strong);
+}
+
+.cap-card h2 { margin: 0 0 6px; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+.cap-intro { margin: 0 0 16px; font-size: 12.5px; line-height: 1.55; color: var(--dim); }
+.cap-note { font-size: 11px; color: var(--dim); }
+.cap-root .cap-x { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; padding: 0; border-radius: 50%; }
+
+.cap-sides { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+
+.cap-root .cap-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 11px;
+    text-align: left;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: inset 3px 0 0 var(--side);
+}
+
+.cap-root .cap-side.on { background: color-mix(in srgb, var(--side) 22%, transparent); border-color: color-mix(in srgb, var(--side) 70%, transparent); }
+.cap-side b { font-size: 13px; font-weight: 600; }
+.cap-perk { font-size: 11px; font-weight: 600; color: var(--side); }
+.cap-blurb { font-size: 10.5px; color: var(--dim); line-height: 1.35; }
+
+.cap-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 12px; color: var(--dim); }
+.cap-row label { min-width: 120px; }
+.cap-row select, .cap-row input {
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 5px 9px;
+}
+
+.cap-link input { flex: 1; min-width: 0; }
+.cap-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 9px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); }
+.cap-root .cap-seg button { border: none; background: transparent; padding: 4px 10px; border-radius: 7px; }
+.cap-root .cap-seg button.on { background: var(--accent); }
+.cap-actions { display: flex; gap: 8px; margin: 6px 0 12px; }
+.cap-root .cap-actions button { padding: 8px 16px; font-size: 13px; border-radius: 10px; }
+.cap-how { margin: 4px 0 0; padding-left: 16px; font-size: 11.5px; line-height: 1.55; color: var(--dim); }
+.cap-how li + li { margin-top: 3px; }
+
+.cap-seats { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+
+.cap-seat {
+    display: flex;
+    justify-content: space-between;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: inset 3px 0 0 var(--side);
+    font-size: 12px;
+}
+
+.cap-seat b { color: var(--side); font-weight: 600; }
+.cap-seat span { color: var(--dim); }
+.cap-end h2 { font-size: 21px; }
+
+@media (pointer: coarse) {
+    .cap-kbd, .cap-keys { display: none; }
+    .cap-root button { padding: 8px 12px; font-size: 13px; }
+    .cap-root .cap-up { padding: 9px 4px; }
+}
+
+@media (max-width: 760px) {
+    .cap-sides { grid-template-columns: 1fr; }
+    .cap-hud { gap: 10px; padding: 6px 8px 8px; }
+    .cap-chip b, .cap-chip span, .cap-chip em { display: none; }
+    .cap-log { width: calc(100vw - 28px); bottom: 170px; }
+    .cap-panel { bottom: 8px; }
+}
