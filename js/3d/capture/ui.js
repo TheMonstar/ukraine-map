@@ -90,15 +90,9 @@ export class CaptureUI {
 
     get modalOpen() { return !this.modal.classList.contains('hidden'); }
 
-    showSetup({ joinId = null, side = 'us', level = 'normal', name = '', standalone = false, controls = 'click' } = {}) {
+    showSetup({ joinId = null, side = 'us', level = 'normal', name = '', controls = 'click' } = {}) {
         this.controls = controls;
         const card = el('div', 'cap-card');
-        if (!standalone) {
-            const close = el('button', 'cap-x', '×');
-            close.title = 'Back to the 3D viewer';
-            close.onclick = () => this.h.onQuit();
-            card.append(close);
-        }
         card.append(el('h2', null, 'Capture Mala Tokmachka'));
         card.append(el('p', 'cap-intro', joinId
             ? 'You were invited to a game. Pick the side you would like; the host gives you a free seat.'
@@ -535,10 +529,5 @@ export class CaptureUI {
             line.append(el('i'), el('span', 'cap-time', formatClock(ev.t)), el('span', null, eventLine(ev)));
             this.log.append(line);
         });
-    }
-
-    dispose() {
-        clearTimeout(this.toastTimer);
-        this.root.remove();
     }
 }

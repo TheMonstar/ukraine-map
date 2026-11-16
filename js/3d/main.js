@@ -18,9 +18,6 @@ import { Player } from './player.js';
 import { Drone } from './drone.js';
 import { HideSeekGame } from './game.js';
 import { Sandbox } from './sandbox/sandbox.js';
-// ── Capture Mala Tokmachka ──
-import { CaptureGame } from './capture/capture.js';
-import { loadFieldPack } from './capture/field-pack.js';
 
 function showError(msg) {
     const banner = document.getElementById('error-banner');
@@ -81,13 +78,6 @@ async function init() {
     });
 
     const proj = makeProjection(lat, lng);
-
-    // ── Capture Mala Tokmachka: a game link (?game=capture or an invite) is the game's own page,
-    // built from the presaved field pack instead of live data when the frame has one
-    const captureJoin = location.hash.startsWith('#join=') ? decodeURIComponent(location.hash.slice(6)) : null;
-    const capturePage = params.get('game') === 'capture' || !!captureJoin;
-    const fieldPack = capturePage ? await loadFieldPack({ lat, lng, size, sceneSize: SCENE_SIZE }) : null;
-    const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 
     // ── Renderer / scene / camera ──────────────────────────────────────────
     const canvas = document.getElementById('scene-canvas');
@@ -167,9 +157,6 @@ async function init() {
     // ── Terrain ─────────────────────────────────────────────────────────────
     setStep('dem', 'active');
     const terrain = new TerrainBuilder(proj);
-    if (fieldPack && fieldPack.heights.length === terrain.heightmap.length) {
-        terrain._buildHeightmap = async () => { terrain.heightmap.set(fieldPack.heights); }; // ── Capture: presaved heights
-    }
     try {
         await terrain.build();
         setStep('dem', 'done');
@@ -227,12 +214,7 @@ async function init() {
     const teethLayer = new FortificationsFeature('teeth');
     const features = [roads, water, ditches, buildings, vegetation, grass, settlements, deepstate, waterLabels, wireLayer, teethLayer];
 
-    // ── Capture Mala Tokmachka: the field pack stands in for Overpass, the road files and the ditches API
-    if (fieldPack) {
-        roads.featureCollection = fieldPack.roads;
-        ditches.featureCollection = EMPTY_FC;
-    }
-    const [mapFeatures] = await Promise.all(fieldPack ? [fieldPack.osm] : [
+    const [mapFeatures] = await Promise.all([
         fetchMapFeatures(bbox).catch(e => { console.warn('Overpass map features failed:', e); return null; }),
         roads.load(bbox).catch(e => { console.warn('Roads fetch failed:', e); }),
         ditches.load(bbox, date)
@@ -245,12 +227,11 @@ async function init() {
     await Promise.all([
         water.load(bbox, mapFeatures),
         waterLabels.load(bbox, mapFeatures),
-        // ── Capture: the pack's buildings, not Mapbox's; no live settlement titles or DeepState
-        fieldPack ? Object.assign(buildings, { mapFeatures, mvtFeatures: null }) : buildings.load(bbox, mapFeatures),
+        buildings.load(bbox, mapFeatures),
         vegetation.load(bbox, mapFeatures),
         grass.load(bbox, mapFeatures),
-        fieldPack ? Object.assign(settlements, { featureCollection: EMPTY_FC }) : settlements.load(bbox),
-        fieldPack ? Object.assign(deepstate, { data: EMPTY_FC }) : deepstate.load(date)
+        settlements.load(bbox),
+        deepstate.load(date)
     ]);
 
     let hadError = mapFeatures === null;
@@ -385,9 +366,8 @@ async function init() {
     });
 
     // The sandbox owns the pointer only in overview; walk/drone/freecam take it back.
-    let capture = null; // ── Capture Mala Tokmachka ── (set below; owns the pointer while open)
     function syncSandbox() {
-        sandbox.setEnabled(!(walkMode || droneMode || freecamMode || capture?.running));
+        sandbox.setEnabled(!(walkMode || droneMode || freecamMode));
     }
 
     // walk / drone / free camera are mutually exclusive
@@ -494,22 +474,6 @@ async function init() {
         game.stop(); // clears the tagged squad from the scene
     });
 
-    // ── Capture Mala Tokmachka ──────────────────────────────────────────────
-    // Real-time street-block game (js/3d/capture/); locks the other modes while open.
-    capture = new CaptureGame({
-        scene, camera, controls, canvas, terrain, proj,
-        inScene: (x, z) => Math.abs(x) <= SCENE_HALF && Math.abs(z) <= SCENE_HALF,
-        onRunningChange: running => {
-            if (running) {
-                uncheckOthers(null);
-                if (game.running) gameStartBtn.click();
-            }
-            [walkCheckbox, droneCheckbox, freecamCheckbox, gameStartBtn].forEach(e => { e.disabled = running; });
-            syncSandbox();
-        },
-    });
-    document.getElementById('capture-play').addEventListener('click', () => capture.openSetup());
-
     // ── Resize ──────────────────────────────────────────────────────────────
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -519,17 +483,7 @@ async function init() {
 
     setStep('scene', 'done');
     hideLoadingOverlay();
-    // ── Capture Mala Tokmachka: a game link opens the game itself: no viewer panel, trench lines
-    // and water off, quitting returns to the game's own start screen
-    if (capturePage) {
-        for (const id of ['layer-ditches', 'layer-water']) {
-            const toggle = document.getElementById(id);
-            if (toggle.checked) toggle.click();
-        }
-        capture.openSetup({ join: captureJoin, standalone: true });
-    } else {
-        sandbox.restoreAutosave();
-    }
+    sandbox.restoreAutosave();
 
     // ── Render loop ─────────────────────────────────────────────────────────
     const clock = new THREE.Clock();
@@ -552,7 +506,6 @@ async function init() {
         controls.update();
         water.update(clock.elapsedTime);
         game.update(dt, droneMode ? drone.mesh.position : null);
-        capture.update(dt); // ── Capture Mala Tokmachka ──
         sandbox.update();
 
         // Enlarge trees as the camera pulls back so the canopy stays readable and the

@@ -1,14 +1,20 @@
-/* Capture Mala Tokmachka (js/3d/capture/): slim glass HUD, labels and screens over the 3D viewer. */
+/* Capture Mala Tokmachka (mala-tokmachka.html, js/3d/capture/): the page, then the slim glass HUD,
+   labels and screens over the 3D village. */
 
-/* the game takes the whole screen: the viewer's panel and legend come back on Quit */
-body.capture-on .panel,
-body.capture-on .legend,
-body.capture-on #sandbox-toolbar,
-body.capture-on #game-hud,
-body.capture-on #game-hint,
-body.capture-on #walk-hint {
-    display: none !important;
+/* ── the page ────────────────────────────────────────────────────────────── */
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0d1017; color: #eef0f4; font-family: Inter, system-ui, -apple-system, sans-serif; }
+#cap-canvas { position: fixed; inset: 0; display: block; }
+#cap-loading {
+    position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: #0d1017;
 }
+#cap-loading h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.2px; }
+#cap-loading p { margin: 0; font-size: 13px; color: rgba(238, 240, 244, 0.56); }
+#cap-loading.failed p { color: #ff8a80; }
+#cap-loading.failed .cap-spinner { display: none; }
+.cap-spinner { width: 32px; height: 32px; border: 3px solid rgba(255, 255, 255, 0.12); border-top-color: #4f8cff; border-radius: 50%; animation: cap-spin 0.9s linear infinite; }
+@keyframes cap-spin { to { transform: rotate(360deg); } }
+.cap-noscript { position: fixed; inset: 0; display: grid; place-items: center; margin: 0; }
 
 .cap-root {
     --glass: rgba(13, 16, 23, 0.56);
@@ -336,7 +342,6 @@ button.on .cap-kbd { border-color: rgba(255, 255, 255, 0.45); }
 .cap-card h2 { margin: 0 0 6px; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
 .cap-intro { margin: 0 0 16px; font-size: 12.5px; line-height: 1.55; color: var(--dim); }
 .cap-note { font-size: 11px; color: var(--dim); }
-.cap-root .cap-x { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; padding: 0; border-radius: 50%; }
 
 .cap-sides { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
 

@@ -1,10 +1,9 @@
-// Capture Mala Tokmachka: the controller the viewer talks to. It owns the game
-// (solo, hosting or as a guest), the fixed-step loop, the computer players, the
-// input while a game is open, and hands the state to the view and the UI.
+// Capture Mala Tokmachka: the game's controller. It owns the game (solo, hosting or
+// as a guest), the fixed-step loop, the computer players and the input, and hands the
+// state to the view and the UI.
 //
-// main.js only constructs it, wires the panel button and calls update(dt) every
-// frame. It touches nothing in the viewer beyond the camera controls (restored on
-// stop) and the scene group it adds.
+// The game page (page.js) builds the village, constructs it, opens the setup screen
+// and calls update(dt) every frame.
 
 import * as THREE from 'three';
 import { MALA_TOKMACHKA as PRESET } from './mala-tokmachka.js';
@@ -48,8 +47,7 @@ function sessionToken() {
 
 export class CaptureGame {
     /**
-     * @param o {scene, camera, controls, canvas, terrain, proj,
-     *           inScene(x, z) → bool, onRunningChange(running)}
+     * @param o {scene, camera, controls, canvas, terrain, proj}
      */
     constructor(o) {
         Object.assign(this, o);
@@ -82,34 +80,8 @@ export class CaptureGame {
         };
     }
 
-    get running() { return this.mode !== null; }
-
-    canPlayHere() {
-        return PRESET.outline.every(([lng, lat]) => {
-            const p = this.proj.toLocal(lat, lng);
-            return this.inScene(p.x, p.z);
-        });
-    }
-
-    presetUrl(join) {
-        const p = new URLSearchParams(location.search);
-        const f = PRESET.frame;
-        const q = new URLSearchParams({ lat: f.lat, lng: f.lng, size: f.size, game: 'capture' });
-        if (p.get('date')) q.set('date', p.get('date'));
-        return `${location.pathname}?${q}${join ? `#join=${encodeURIComponent(join)}` : ''}`;
-    }
-
-    /**
-     * Open the setup screen (or the join screen for an invite link). `standalone`: the
-     * page was opened as the game (?game=capture or an invite), so quitting goes back
-     * to this screen rather than to the viewer.
-     */
-    openSetup({ join = null, standalone = false } = {}) {
-        if (!this.canPlayHere()) {
-            location.href = this.presetUrl(join);
-            return;
-        }
-        this.standalone = this.standalone || standalone;
+    /** Open the setup screen (or the join screen for an invite link). */
+    openSetup({ join = null } = {}) {
         this._activate();
         this.joinId = join;
         this.mode = 'setup';
@@ -123,7 +95,7 @@ export class CaptureGame {
     _showSetup() {
         this.ui.showSetup({
             joinId: this.joinId, side: store.get('side', 'us'), level: store.get('level', 'normal'),
-            name: store.get('name', ''), standalone: this.standalone, controls: this.controlsMode,
+            name: store.get('name', ''), controls: this.controlsMode,
         });
     }
 
@@ -133,11 +105,7 @@ export class CaptureGame {
         this._gestureCancel();
     }
 
-    _quit() {
-        if (this.standalone) this._reset(); else this.stop();
-    }
-
-    /** Back to the setup screen, the scene and the input kept (standalone game page). */
+    /** Quit: back to the setup screen, the scene and the input kept. */
     _reset() {
         session.del(HOST_KEY);
         session.del(GUEST_KEY);
@@ -172,7 +140,7 @@ export class CaptureGame {
             onJoin: (side, name) => this._startGuest(side, name),
             onStart: () => this._hostStart(),
             onAgain: () => this._again(),
-            onQuit: () => this._quit(),
+            onQuit: () => this._reset(),
             onControls: mode => this._setControls(mode),
             onPause: () => { if (this.mode === 'solo') { this.paused = !this.paused; this.autoPaused = false; } },
             onInvite: () => this._showHostLobby(),
@@ -186,51 +154,8 @@ export class CaptureGame {
             blocks: this.world.blocks.map(b => ({ id: b.id, owner: null, troops: neutralGarrison(b.houses), lv: [0, 0, 0] })),
         };
         this._bindInput();
-        const c = this.controls;
-        this.savedControls = { buttons: { ...c.mouseButtons }, touches: { ...c.touches }, spp: c.screenSpacePanning };
-        c.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
-        c.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
-        c.screenSpacePanning = false;
-        // the viewer's near plane of 1 m leaves ~1 m of depth precision at a few km, so the ground
-        // apron 4 m under the river valley and the road ribbons flicker; the game never zooms
-        // closer than the orbit minimum (200 m), so a 25 m near plane costs nothing
-        this.savedNear = this.camera.near;
-        this.camera.near = Math.max(this.camera.near, 25);
-        this.camera.updateProjectionMatrix();
         this._overview();
-        document.body.classList.add('capture-on');
         this.mode = 'setup';
-        this.onRunningChange?.(true);
-    }
-
-    stop() {
-        if (!this.view) return;
-        session.del(HOST_KEY);
-        session.del(GUEST_KEY);
-        this._gestureCancel();
-        clearInterval(this.loop);
-        clearInterval(this.lobbyTimer);
-        this.loop = null;
-        this.net?.close();
-        this.net = null;
-        this._unbindInput();
-        this.view.dispose();
-        this.ui.dispose();
-        this.view = this.ui = null;
-        this.st = this.mirror = null;
-        this.selected.clear();
-        this.hover = null;
-        this.endShown = false;
-        this.paused = false;
-        this.camera.near = this.savedNear;
-        this.camera.updateProjectionMatrix();
-        this.controls.mouseButtons = this.savedControls.buttons;
-        this.controls.touches = this.savedControls.touches;
-        this.controls.screenSpacePanning = this.savedControls.spp;
-        document.body.classList.remove('capture-on');
-        if (location.hash.startsWith('#join=')) history.replaceState(null, '', location.pathname + location.search);
-        this.mode = null;
-        this.onRunningChange?.(false);
     }
 
     _overview(ids) {
@@ -340,7 +265,7 @@ export class CaptureGame {
         this.guests = new Map();     // conn → side
         this.net = new HostNet({
             onOpen: id => {
-                this.link = this._inviteLink(id);
+                this.link = inviteLink(id);
                 if (!this.st) this._showHostLobby();
                 this._saveHost();
             },
@@ -373,18 +298,6 @@ export class CaptureGame {
             if (!this.st) this._lobbyChanged();
             this._saveHost();
         }, 2000);
-    }
-
-    /** Invites point at the game's own page (mala-tokmachka.html: clean address, link preview)
-     * when the game runs on its fixed frame, else at this viewer URL. */
-    _inviteLink(id) {
-        const p = new URLSearchParams(location.search), f = PRESET.frame;
-        const fixed = +p.get('lat') === f.lat && +p.get('lng') === f.lng && +p.get('size') === f.size;
-        if (!fixed) return inviteLink(id);
-        const u = new URL('mala-tokmachka', location.href);
-        if (/^(localhost|127\.|\[::1\])/.test(location.hostname) || location.protocol === 'file:') u.pathname += '.html';
-        u.hash = `join=${encodeURIComponent(id)}`;
-        return u.toString();
     }
 
     _seatLabels() {
@@ -629,18 +542,6 @@ export class CaptureGame {
         c.addEventListener('pointerleave', this.h.leave);
         c.addEventListener('contextmenu', this.h.menu);
         window.addEventListener('keydown', this.h.key);
-    }
-
-    _unbindInput() {
-        const c = this.canvas;
-        c.removeEventListener('pointerdown', this.h.grab, true);
-        c.removeEventListener('pointerdown', this.h.down);
-        c.removeEventListener('pointerup', this.h.up);
-        c.removeEventListener('pointercancel', this.h.cancel);
-        c.removeEventListener('pointermove', this.h.move);
-        c.removeEventListener('pointerleave', this.h.leave);
-        c.removeEventListener('contextmenu', this.h.menu);
-        window.removeEventListener('keydown', this.h.key);
     }
 
     _pick(e) {

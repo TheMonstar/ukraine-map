@@ -1,9 +1,9 @@
 // Capture Mala Tokmachka: the game's fixed field, presaved by scripts/capture-field.mjs
 // (heightmap, OSM woods/water/fields, Microsoft buildings, roads and village lanes),
-// so a game link loads without Overpass or the live layers. Only the preset frame
-// has a pack; any other frame, or a pack that doesn't fit this viewer, returns null
-// and the viewer loads live data as usual. Satellite imagery is not packed (its
-// providers don't allow re-hosting).
+// so the game page loads without Overpass or the viewer's live layers. Only the preset
+// frame has a pack; any other frame, a pack that doesn't fit the terrain grid or a failed
+// fetch returns null. Satellite imagery is not packed (its providers don't allow
+// re-hosting).
 
 import { MALA_TOKMACHKA } from './mala-tokmachka.js';
 
@@ -22,7 +22,7 @@ export async function loadFieldPack({ lat, lng, size, sceneSize }) {
         if (heights.length !== (meta.grid + 1) ** 2) return null;
         return { heights, osm: meta.osm, roads: meta.roads, attribution: meta.attribution };
     } catch (err) {
-        console.warn('Capture field pack unavailable, loading live data:', err);
+        console.warn('Capture field pack unavailable:', err);
         return null;
     }
 }

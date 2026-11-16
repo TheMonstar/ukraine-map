@@ -36,7 +36,7 @@ const CARD = `
   </div>
 </div>
 <style>
-  .cap-root, #error-banner { display: none !important; }
+  .cap-root { display: none !important; }
   #og-card { position: fixed; inset: 0; z-index: 9999; pointer-events: none; font-family: Georgia, 'Times New Roman', serif; color: #fff; }
   .og-shade { position: absolute; inset: 0;
     background: radial-gradient(ellipse 85% 70% at 50% 62%, rgba(8,10,16,0.02), rgba(8,10,16,0.62)),
@@ -56,7 +56,7 @@ const browser = await playwright.chromium.launch({
 try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
     page.on('pageerror', err => console.warn('page error:', err.message));
-    await page.goto(new URL('3d-view.html?lat=47.5368&lng=35.8918&size=9.5&game=capture', base).toString());
+    await page.goto(new URL('mala-tokmachka.html', base).toString());
     await page.waitForFunction(() => window.__capture?.mode === 'setup', null, { timeout: 180000 });
     await page.evaluate(() => {
         localStorage.setItem('capture-side', 'us');

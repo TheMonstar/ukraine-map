@@ -121,7 +121,6 @@ export class CaptureView {
             capMap: { value: this.texture },
             capBox: { value: new THREE.Vector4(minX, minZ, w, d) },
         };
-        this.patched = { mat, before: mat.onBeforeCompile, key: mat.customProgramCacheKey };
         const before = mat.onBeforeCompile;
         mat.onBeforeCompile = (shader, renderer) => {
             before?.call(mat, shader, renderer);
@@ -420,24 +419,5 @@ export class CaptureView {
         ray.setFromCamera(ndc, camera);
         const hit = ray.intersectObject(this.overlay, false)[0];
         return hit ? { x: hit.point.x, z: hit.point.z } : null;
-    }
-
-    dispose() {
-        if (this.patched) {                     // hand the ground its own shader back
-            const { mat, before, key } = this.patched;
-            mat.onBeforeCompile = before;
-            if (key) mat.customProgramCacheKey = key; else delete mat.customProgramCacheKey;
-            mat.needsUpdate = true;
-            this.patched = null;
-        }
-        this.scene.remove(this.group);
-        this.group.traverse(o => {
-            o.geometry?.dispose();
-            if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
-        });
-        this.texture.dispose();
-        this.ringTex.dispose();
-        this.dotTex.dispose();
-        this.puffTex.dispose();
     }
 }

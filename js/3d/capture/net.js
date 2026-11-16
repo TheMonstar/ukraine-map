@@ -99,9 +99,9 @@ export function cleanCommand(cmd, nBlocks) {
 
 export const cleanName = s => String(s ?? '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 24) || 'Guest';
 
+/** An invite: this game page with the host's PeerJS address. */
 export function inviteLink(peerId) {
     const u = new URL(location.href);
-    u.searchParams.set('game', 'capture');
     u.hash = `join=${encodeURIComponent(peerId)}`;
     return u.toString();
 }

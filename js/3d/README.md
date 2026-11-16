@@ -138,7 +138,7 @@ Each feature class follows the same shape: `load(bbox[, mapFeatures])` (fetch),
   modes. Up/down in drone/freecam is R/F; Q/E yaw the camera around the
   orbit target (`applyYaw` in the render loop), which also turns the
   movement heading since movement is camera-relative.
-- **Capture game** (`capture/`, panel "Capture Mala Tokmachka" row, or a link with `?game=capture`):
+- **Capture game** (`capture/`, its own page `mala-tokmachka.html`, not part of `3d-view.html`):
   a Galcon-style game on the village's real street blocks. Blocks raise troops, columns march
   along the streets (hostile columns that meet in a lane fight), blocks buy Barracks / Sandbags /
   Gym with their own troops; one perk per side and random village events (tractor, babusya, mud,
@@ -147,16 +147,19 @@ Each feature class follows the same shape: `load(bbox[, mapFeatures])` (fetch),
     `scripts/capture-blocks.py`), `streets.js` (routes), `sim.js` (rules, all numbers in `RULES` /
     `PERKS`), `ai.js` (computer players + `playHeadless`), `text.js` (names, jokes), `view.js`
     (block overlay, column dots, toy soldiers), `ui.js` (labels, HUD, screens), `net.js` (PeerJS,
-    host-authoritative, protocol v1), `capture.js` (controller), `field-pack.js`.
+    host-authoritative, protocol v1), `capture.js` (controller), `field-pack.js`, `page.js` (the page's
+    entry: builds the village and starts the game).
   - Pure modules (`streets`, `sim`, `ai`, `text`, `net`) run in node: `tests/capture-*.test.mjs`
     (in `scripts/check.cjs`); the AI test is the balance guard (`CAPTURE_SEEDS=200` for tuning).
-  - The game's address is `mala-tokmachka.html` (`/ukraine-map/mala-tokmachka` on Pages): no parameters,
-    a link preview (Open Graph / Twitter card, `images/capture-preview.jpg` rendered from the game by
-    `scripts/capture-preview.mjs`), then on to `3d-view.html?…&game=capture`; invites use it too.
-  - A game link is the game's own page: no viewer panel, quitting returns to its start screen,
-    and the field loads from `data/capture/field/` (`scripts/capture-field.mjs`: heightmap, OSM
-    woods/water/fields, Microsoft buildings, roads and village lanes), so it needs no Overpass or
-    live layers. Only satellite imagery streams (its providers don't allow re-hosting).
+  - The page (`/ukraine-map/mala-tokmachka` on Pages) takes no parameters and carries a link preview
+    (Open Graph / Twitter card, `images/capture-preview.jpg` rendered from the game by
+    `scripts/capture-preview.mjs`); an invite is the same address with `#join=<host>`.
+  - `page.js` reuses the viewer's terrain, imagery and scenery modules (`terrain.js`, roads,
+    buildings, trees, grass) on the preset frame, nothing of `main.js` or the viewer page: no panel,
+    sandbox, walk/drone modes or water. The field loads from `data/capture/field/`
+    (`scripts/capture-field.mjs`: heightmap, OSM woods/water/fields, Microsoft buildings, roads and
+    village lanes), so it needs no Overpass or live layers. Only satellite imagery streams (its
+    providers don't allow re-hosting). Quit returns to the start screen.
   - Controls: "Drag" (touch-first: press your block and drag to a target; stopping on it ~0.25 s opens
     four quarters under the finger, 25% up then clockwise, and letting go on one sends that share, in
     the hub (or before they open) the last share; moving well away closes them; own blocks passed on

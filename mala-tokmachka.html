@@ -4,12 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Capture Mala Tokmachka: the game's own address. It carries the link preview and sends the
-         player into the 3D viewer's game mode on the game's fixed frame (js/3d/capture/,
-         MALA_TOKMACHKA.frame). An invite's #join=… travels along. -->
+    <!-- Capture Mala Tokmachka: the game's own page (js/3d/capture/page.js builds the village on
+         its fixed frame and starts the game). An invite is this address with #join=<host>. -->
     <title>Capture Mala Tokmachka: whoever controls it controls the world</title>
     <meta name="description" content="US, China and Russia fight over the real street blocks of the Ukrainian village that became a meme. A free real-time browser game: send troops down the lanes, dig in, mind the tractor. Play solo or online with friends.">
     <link rel="canonical" href="https://themonstar.github.io/ukraine-map/mala-tokmachka">
+    <meta name="theme-color" content="#0d1017">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Ukraine Frontline Map">
     <meta property="og:url" content="https://themonstar.github.io/ukraine-map/mala-tokmachka">
@@ -23,17 +23,32 @@
     <meta name="twitter:title" content="‘Whoever Controls Mala Tokmachka Controls the World’: Now Prove It">
     <meta name="twitter:description" content="US, China and Russia fight over the real street blocks of the Ukrainian village that became a meme. A free real-time browser game, solo or online with friends.">
     <meta name="twitter:image" content="https://themonstar.github.io/ukraine-map/images/capture-preview.jpg">
-    <script>
-        location.replace('3d-view.html?lat=47.5368&lng=35.8918&size=9.5&game=capture' + location.hash);
+    <link rel="icon" href="images/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="images/favicon.png" type="image/png" sizes="512x512">
+    <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/capture.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+        }
+    }
     </script>
-    <style>
-        body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0d1017; color: #eef0f4; font: 15px/1.5 system-ui, sans-serif; }
-        a { color: #7aa8ff; }
-    </style>
 </head>
 
 <body>
-    <p>Loading Capture Mala Tokmachka… <a href="3d-view.html?lat=47.5368&amp;lng=35.8918&amp;size=9.5&amp;game=capture">Open the game</a></p>
+    <canvas id="cap-canvas"></canvas>
+    <div id="cap-loading">
+        <h1>Capture Mala Tokmachka</h1>
+        <div class="cap-spinner"></div>
+        <p id="cap-loading-text">Loading the village…</p>
+    </div>
+    <noscript><p class="cap-noscript">Capture Mala Tokmachka needs JavaScript and WebGL.</p></noscript>
+    <script type="module" src="js/3d/capture/page.js"></script>
 </body>
 
 </html>

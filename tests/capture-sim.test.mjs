@@ -341,7 +341,7 @@ test('gathering point: rear blocks send their spare troops, front blocks keep th
     assert.equal(st.rally.us, null, 'a lost gathering point is cleared');
 });
 
-test('game page: a parameter-free address with a link preview, opening the fixed frame', async () => {
+test('game page: its own address with a link preview, running the game itself', async () => {
     const { readFileSync, existsSync } = await import('node:fs');
     const html = readFileSync(new URL('../mala-tokmachka.html', import.meta.url), 'utf8');
     const meta = name => html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]+)"`))?.[1];
@@ -351,13 +351,12 @@ test('game page: a parameter-free address with a link preview, opening the fixed
     assert.ok(existsSync(new URL(`../${image}`, import.meta.url)), `${image} is in the repo`);
     const jpeg = readFileSync(new URL(`../${image}`, import.meta.url));
     assert.equal(jpeg.readUInt16BE(0), 0xffd8, 'a JPEG');
-    const target = html.match(/location\.replace\('([^']+)'/)[1];
-    const q = new URL(target, 'https://x/').searchParams;
-    assert.equal(+q.get('lat'), P.frame.lat);
-    assert.equal(+q.get('lng'), P.frame.lng);
-    assert.equal(+q.get('size'), P.frame.size);
-    assert.equal(q.get('game'), 'capture');
-    assert.match(html, /location\.hash\)/, 'an invite (#join=…) travels along');
+    assert.match(html, /<script type="module" src="js\/3d\/capture\/page\.js"><\/script>/, 'the page runs the game');
+    assert.doesNotMatch(html, /3d-view\.html|location\.replace/, 'not a redirect into the viewer');
+    // the same three.js build as the viewer whose terrain and scenery modules the page reuses
+    const importmap = page => readFileSync(new URL(`../${page}`, import.meta.url), 'utf8').match(/<script type="importmap">([\s\S]*?)<\/script>/)[1];
+    assert.deepEqual(JSON.parse(importmap('mala-tokmachka.html')), JSON.parse(importmap('3d-view.html')));
+    assert.doesNotMatch(readFileSync(new URL('../3d-view.html', import.meta.url), 'utf8'), /Mala Tokmachka|capture\.css|capture-play|game=capture/, 'the viewer carries no game');
 });
 
 test('a saved game picks up exactly where it was (what a host reload restores)', () => {
