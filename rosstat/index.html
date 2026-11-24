@@ -7,13 +7,13 @@
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-TDKVEL6LDH"></script>
 <script>window.dataLayer = window.dataLayer || []; function gtag() { dataLayer.push(arguments); } gtag('js', new Date()); gtag('config', 'G-TDKVEL6LDH');</script>
-<meta name="description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
+<meta name="description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town, and where they died. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
 <link rel="canonical" href="https://themonstar.github.io/ukraine-map/rosstat/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Ukraine Frontline Map">
 <meta property="og:url" content="https://themonstar.github.io/ukraine-map/rosstat/">
 <meta property="og:title" content="Russian war deaths by region: the Rosstat leaks">
-<meta property="og:description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
+<meta property="og:description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town, and where they died. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
 <meta property="og:image" content="https://themonstar.github.io/ukraine-map/rosstat/preview.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
@@ -21,7 +21,7 @@
 <meta property="og:image:alt" content="Map of Russia shaded by war dead per 1,000 men, registered and projected to October 2026, with the ten hardest-hit regions: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Russian war deaths by region: the Rosstat leaks">
-<meta name="twitter:description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
+<meta name="twitter:description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town, and where they died. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
 <meta name="twitter:image" content="https://themonstar.github.io/ukraine-map/rosstat/preview.jpg">
 <meta name="twitter:image:alt" content="Map of Russia shaded by war dead per 1,000 men, registered and projected to October 2026, with the ten hardest-hit regions: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
@@ -137,6 +137,12 @@
   .sharepop button { text-align: left; background: transparent; border: 0; border-radius: 6px; color: var(--ink); padding: 7px 9px; font: inherit; font-size: 13px; cursor: pointer; }
   .sharepop button:hover, .sharepop button:focus-visible { background: var(--hover); outline: none; }
   .sharepop .note { color: var(--muted); font-size: 11px; padding: 4px 9px 2px; }
+  .tl { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px 6px; width: 400px; max-width: calc(100vw - 24px); font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+  .tl[hidden] { display: none; }
+  .tl .tlh { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+  .tl .x { background: transparent; border: 0; color: var(--ink2); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+  .tl .m { color: var(--ink2); margin: 2px 0 6px; }
+  .tl svg { display: block; width: 100%; height: auto; } .tl text { fill: var(--muted); font-size: 9px; font-family: inherit; }
 </style>
 </head>
 <body>
@@ -148,7 +154,8 @@
   </header>
   <div class="ctrl">
     <label class="range" id="basisWrap">Counted by <select id="basis" aria-label="Region each death is counted in"><option value="home">Home region</option><option value="reg">Registry office</option><option value="death">Place of death</option></select></label>
-    <div class="sub" id="basisNote" hidden>Rayons and settlements count matched home towns only, whatever is chosen above.</div>
+    <label class="range" id="yearWrap">Year of death <select id="year" aria-label="Year of death"><option value="all">All years</option><option value="2022">2022</option><option value="2023">2023</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select></label>
+    <div class="sub" id="basisNote" hidden>Rayons and settlements: home towns, or the places of death when counted by place of death.</div>
     <div class="seg" role="group" aria-label="Aggregation level">
       <button data-level="oblast" aria-pressed="true">Oblast</button>
       <button data-level="rayon" aria-pressed="false">Rayon</button>
@@ -164,7 +171,7 @@
   </div>
   <details id="corr" open hidden><summary><span class="grow">Correlation between the two metrics</span><button type="button" class="iconbtn" id="expandChart" title="Expand chart to the whole screen" aria-label="Expand chart to the whole screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></summary><div id="corrBody"></div></details>
   <div id="list"></div>
-  <footer>The Rosstat leaks (rosstat-leaks.com): the Russian death register and the SMEV broadcast of death records, deaths to 29.09.2026. My count: 497,396 war deaths, men of 18-64 (65 for court decisions), counted by a broad filter (a military cause, military employment, death notices from abroad, court decisions on the missing, no-cause deaths in combat areas, the Rostov military registry offices), each act and each person once. Home region: the residence in the act or the broadcast; where there is none, the registry office’s usual municipality, the birthplace or the region. Registry office: the region of the office that registered the death. Place of death: where the act says the man died, matched to a region; deaths in the rest of Ukraine are off this map. Projected: my estimate of 776,671 dead to October 2026 (the registered plus GSUA’s reports scaled to the register for the deaths still to be registered), each month’s missing spread over the regions in that month’s registered mix. Rayons and settlements: the 215,848 deaths whose home town was matched by name (rayons also take municipality centres). Rayon and oblast borders: geoBoundaries 2017. Male population: russia_per100k_map.html. Salary (2025) and signing payments: gogov.ru, via russia_payments_map.html.</footer>
+  <footer>The Rosstat leaks (rosstat-leaks.com): the Russian death register and the SMEV broadcast of death records, deaths to 29.09.2026. My count: 497,396 war deaths, men of 18-64 (65 for court decisions), counted by a broad filter (a military cause, military employment, death notices from abroad, court decisions on the missing, no-cause deaths in combat areas, the Rostov military registry offices), each act and each person once. Year: the year of death. Home region: the residence in the act or the broadcast; where there is none, the registry office’s usual municipality, the birthplace or the region. Registry office: the region of the office that registered the death. Place of death: where the act says the man died, matched to a region of Russia or Ukraine; the occupied regions show their residents counted by home region and the deaths there counted by place of death. Projected: my estimate of 776,671 dead to October 2026 (the registered plus GSUA’s reports scaled to the register for the deaths still to be registered), each month’s missing spread over the regions in that month’s registered mix. Rayons and settlements: by home region and registry office, the 215,848 deaths whose home town was matched by name (rayons also take municipality centres); by place of death, the 401,537 deaths with a settlement of death. Click a settlement for its deaths by month. Russian rayon and oblast borders: geoBoundaries 2017; Ukrainian oblasts and raions: the UALosses map. Male population: russia_per100k_map.html. Salary (2025) and signing payments: gogov.ru, via russia_payments_map.html.</footer>
 </aside>
 <div id="chartModal" role="dialog" aria-modal="true" aria-label="Correlation chart" hidden>
   <div class="bar"><h2 id="chartTitle">Correlation</h2><span class="stats" id="chartStats"></span>
@@ -257,10 +264,10 @@ Object.assign(METRICS, {
   nbSal: { label: 'Neighbours’ average salary, ₽ per month', short: 'Nb. salary', cell: v => compact(v), text: v => fmt(Math.round(v)) + ' ₽', lf: compact,
     get: p => nbAvg(p, q => q.sal || null), bounds: [60000, 65000, 70000, 75000, 80000, 90000, 100000, 120000, 150000] },
 });
-// the projection: registered plus the deaths not yet registered, to October 2026, by home region
+// the projection: registered plus the deaths not yet registered, to October 2026, by home region (projOf: the year chosen)
 Object.assign(METRICS, {
-  projDeaths: { label: 'Deaths, projected to October 2026', short: 'Projected', get: p => (p.by ? p.by.proj : null), cell: fmt, text: fmt, lf: fmt, bounds: [1800, 3500, 4400, 5500, 6300, 8300, 11000, 14000, 18000] },
-  projPct: { label: 'Projected deaths, % of male population', short: 'Proj. % men', get: p => (p.by && p.male ? (p.by.proj / p.male) * 100 : null), cell: fmtPct, text: fmtPct, lf: v => v.toFixed(1).replace('.', ',') + '%', bounds: [0.87, 1.2, 1.3, 1.4, 1.7, 1.8, 2.1, 2.2, 2.8] },
+  projDeaths: { label: 'Deaths, projected to October 2026', short: 'Projected', get: p => projOf(p), cell: fmt, text: fmt, lf: fmt, bounds: [1800, 3500, 4400, 5500, 6300, 8300, 11000, 14000, 18000] },
+  projPct: { label: 'Projected deaths, % of male population', short: 'Proj. % men', get: p => (p.by && p.male ? (projOf(p) / p.male) * 100 : null), cell: fmtPct, text: fmtPct, lf: v => v.toFixed(1).replace('.', ',') + '%', bounds: [0.87, 1.2, 1.3, 1.4, 1.7, 1.8, 2.1, 2.2, 2.8] },
 });
 const metricValue = (key, p) => (key === 'none' ? null : METRICS[key].get(p));
 const breaks = (values, kind) => BOUNDS[kind];
@@ -368,7 +375,7 @@ let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() 
 function oblastTip(p) {
   const line = k => { const v = METRICS[k].get(p); return v == null ? '' : `<br>${METRICS[k].label.split(',')[0]}${k === 'pct' ? ' (% of men)' : ''}: <b>${METRICS[k].text(v)}</b>`; };
   const pay = p.pay ? `<br>Signing payment: <b>${fmt(p.pay)} ₽</b> (regional ${fmt(p.extra)} ₽${p.sal ? ` · ${dec1(p.pay / p.sal)} months of salary` : ''})` : '';
-  return `<b>${p.name}</b><br>Deaths, by ${BASES[basisSel.value].label}: <b>${fmt(p.n)}</b>${p.male ? ` · ${fmtPct((p.n / p.male) * 100)} of ${fmt(p.male)} men` : ''}${p.by ? `<br>Projected to October 2026: <b>${fmt(p.by.proj)}</b>${p.male ? ` · ${fmtPct((p.by.proj / p.male) * 100)} of men` : ''}` : ''}${p.by ? `<br><span class="m">home region ${fmt(p.by.home)} (${fmt(p.addr)} by residence) · registry office ${fmt(p.by.reg)} · died here ${fmt(p.by.death)}</span>` : ''}${p.sal ? `<br>Average salary: <b>${fmt(p.sal)} ₽</b>` : ''}${pay}${(() => { const d = METRICS.payDeficit.get(p), e = METRICS.rateExcess.get(p); return d == null ? '' : `<br>vs neighbours: payment ${d > 0 ? 'lower' : 'higher'} by <b>${fmt(Math.abs(Math.round(d)))} ₽</b>${e != null ? `, deaths % of men ${e > 0 ? 'above' : 'below'} by <b>${pp(Math.abs(e))} pp</b>` : ''}`; })()}`;
+  return `<b>${p.name}</b><br>Deaths${yearSel.value === 'all' ? '' : ' in ' + yearSel.value}, by ${BASES[basisSel.value].label}: <b>${fmt(p.n)}</b>${p.male ? ` · ${fmtPct((p.n / p.male) * 100)} of ${fmt(p.male)} men` : ''}${projOf(p) ? `<br>Projected${yearSel.value === 'all' ? ' to October 2026' : ', ' + yearSel.value}: <b>${fmt(projOf(p))}</b>${p.male ? ` · ${fmtPct((projOf(p) / p.male) * 100)} of men` : ''}` : ''}${p.by ? `<br><span class="m">home region ${fmt(val(p, 'home'))} · registry office ${fmt(val(p, 'reg'))} · died here ${fmt(val(p, 'death'))}</span>` : ''}${p.sal ? `<br>Average salary: <b>${fmt(p.sal)} ₽</b>` : ''}${pay}${(() => { const d = METRICS.payDeficit.get(p), e = METRICS.rateExcess.get(p); return d == null ? '' : `<br>vs neighbours: payment ${d > 0 ? 'lower' : 'higher'} by <b>${fmt(Math.abs(Math.round(d)))} ₽</b>${e != null ? `, deaths % of men ${e > 0 ? 'above' : 'below'} by <b>${pp(Math.abs(e))} pp</b>` : ''}`; })()}`;
 }
 
 function polygonLayer(fc, br, kind) {
@@ -381,7 +388,7 @@ function polygonLayer(fc, br, kind) {
     },
     onEachFeature: (f, l) => {
       const p = f.properties;
-      l.bindTooltip(kind === 'oblast' ? oblastTip(p) : `<b>${p.name}</b>${p.oblast ? `<br><span class="m">${p.oblast}</span>` : ''}<br>${fmt(p.n)} deaths with the home town matched · ${fmt(p.s)} settlements`, { sticky: true, className: 'tip' });
+      l.bindTooltip(kind === 'oblast' ? oblastTip(p) : `<b>${p.name}</b>${p.oblast ? `<br><span class="m">${p.oblast}</span>` : ''}<br>${fmt(p.n)} ${basisSel.value === 'death' ? 'died here' : 'deaths with the home town matched'}${yearSel.value === 'all' ? '' : ' in ' + yearSel.value} · ${fmt(p.s)} settlements`, { sticky: true, className: 'tip' });
       l.on('mouseover', () => l.setStyle({ weight: 2, color: css('--ink') }));
       l.on('mouseout', () => layer.resetStyle(l));
     },
@@ -410,20 +417,21 @@ function settlementLayer(rows, br) {
       renderer: canvas, radius: radius(r[3]), fillColor: css(COLORS[Math.max(3, classOf(r[3], br))]),
       fillOpacity: .7, color: css('--surface'), weight: .5,
     });
-    m.bindTooltip(`<b>${r[0]}</b><br><span class="m">${[r[4], r[5]].filter(Boolean).join(', ') || 'outside borders data'}</span><br>${fmt(r[3])} deaths with this home town`, { sticky: true, className: 'tip' });
+    m.bindTooltip(`<b>${r[0]}</b><br><span class="m">${[r[4], r[5]].filter(Boolean).join(', ') || 'outside borders data'}</span><br>${fmt(r[3])} ${basisSel.value === 'death' ? 'died here' : 'deaths with this home town'}${yearSel.value === 'all' ? '' : ' in ' + yearSel.value}<br><span class="m">click for the months</span>`, { sticky: true, className: 'tip' });
+    m.on('click', () => showTimeline(r));
     g.addLayer(m);
   });
   return g;
 }
 
-const match = r => !state.q || r.slice(0, 1).concat(r.slice(4)).join(' ').toLowerCase().includes(state.q);
+const match = r => !state.q || r.slice(0, 1).concat(r.slice(4, 6)).join(' ').toLowerCase().includes(state.q);
 
 function currentRows() {
   if (level === 'settlement') return data.settlements.filter(r => r[3] >= state.min && match(r)).sort((a, b) => b[3] - a[3])
-    .map(r => ({ name: r[0], sub: [r[4], r[5]].filter(Boolean).join(', '), n: r[3], at: [r[1], r[2]] }));
+    .map(r => ({ name: r[0], sub: [r[4], r[5]].filter(Boolean).join(', '), n: r[3], at: [r[1], r[2]], row: r }));
   if (level === 'oblast') {
     const rows = oblastRegions().filter(p => !state.q || p.name.toLowerCase().includes(state.q))
-      .map(p => ({ name: p.name, sub: p.bbox ? 'Occupied territory · see Settlement layer' : '', p, bbox: p.bbox }));
+      .map(p => ({ name: p.name, sub: p.ua ? (p.occ ? 'occupied Ukraine' : 'Ukraine') : p.bbox ? 'Occupied territory · see Settlement layer' : '', p, bbox: p.bbox }));
     // sorted by the colour metric, falling back to the circle metric, then to deaths
     const key = state.fill !== 'none' ? state.fill : state.size !== 'none' ? state.size : 'deaths';
     rows.forEach(r => { r.v = METRICS[key].get(r.p); });
@@ -448,7 +456,7 @@ function renderList() {
   document.querySelectorAll('#list tr.row').forEach(tr => {
     const go = () => {
       const r = shown[tr.dataset.i];
-      if (r.at) return map.flyTo(r.at, Math.max(map.getZoom(), 9));
+      if (r.at) { if (r.row) showTimeline(r.row); return map.flyTo(r.at, Math.max(map.getZoom(), 9)); }
       if (r.bbox) return map.flyToBounds([[r.bbox[1], r.bbox[0]], [r.bbox[3], r.bbox[2]]], { maxZoom: 8 });
       const f = (level === 'rayon' ? data.rayons : data.oblasts).features.find(f => f.properties.name === r.name && (f.properties.oblast || '') === r.sub);
       if (f) map.flyToBounds(L.geoJSON(f).getBounds(), { maxZoom: 9 });
@@ -493,7 +501,7 @@ function drawLayer() {
   if (layer) layer.remove();
   if (sizes) { sizes.remove(); sizes = null; }
   document.getElementById('minWrap').hidden = level !== 'settlement';
-  document.getElementById('basisNote').hidden = level === 'oblast' || basisSel.value === 'home';
+  document.getElementById('basisNote').hidden = level === 'oblast';
   document.getElementById('metricWrap').hidden = level !== 'oblast';
   if (level === 'settlement') {
     const br = breaks(null, 'settlement');
@@ -552,31 +560,68 @@ const unwrap = fc => {
   return fc;
 };
 
-// the three ways a registered death is counted at oblast level, and the projection; every region carries all four in p.by
-const BASES = {"home":{"label":"home region","bounds":{"deaths":[1100,2300,2900,3400,4200,5000,7600,9200,12000],"pct":[0.55,0.76,0.86,0.95,1,1.2,1.3,1.5,1.8]}},"reg":{"label":"registry office","bounds":{"deaths":[1100,2300,2700,3200,3800,5000,6900,9200,12000],"pct":[0.57,0.64,0.77,0.86,0.98,1.1,1.2,1.4,2.1]}},"death":{"label":"place of death","bounds":{"deaths":[15,25,41,54,73,98,140,330,2400],"pct":[0.0054,0.0074,0.0093,0.011,0.014,0.017,0.024,0.041,0.098]}}};
-const basisSel = document.getElementById('basis');
+// the three ways a registered death is counted, each for all years or one year of death; the projection by home region
+const BASES = {"home":{"label":"home region","bounds":{"2022":{"deaths":[57,97,120,160,190,230,300,350,500],"pct":[0.025,0.032,0.037,0.041,0.043,0.05,0.055,0.068,0.08]},"2023":{"deaths":[130,270,340,430,500,580,680,1100,1400],"pct":[0.062,0.077,0.099,0.11,0.12,0.14,0.15,0.18,0.25]},"2024":{"deaths":[370,700,950,1100,1300,1600,2100,2900,3900],"pct":[0.17,0.24,0.29,0.31,0.36,0.39,0.41,0.46,0.51]},"2025":{"deaths":[460,920,1200,1400,1600,2200,3200,3700,5200],"pct":[0.22,0.29,0.34,0.38,0.43,0.5,0.58,0.64,0.83]},"2026":{"deaths":[140,240,300,360,430,630,820,1100,1600],"pct":[0.064,0.079,0.085,0.095,0.11,0.12,0.14,0.17,0.27]},"all":{"deaths":[1100,2300,2900,3400,4200,5000,7600,9200,12000],"pct":[0.55,0.76,0.86,0.95,1,1.2,1.3,1.5,1.8]}}},"reg":{"label":"registry office","bounds":{"2022":{"deaths":[57,79,110,150,160,200,270,330,460],"pct":[0.021,0.027,0.033,0.038,0.041,0.046,0.051,0.058,0.074]},"2023":{"deaths":[140,290,350,390,470,540,750,1000,1300],"pct":[0.063,0.083,0.096,0.11,0.12,0.13,0.14,0.17,0.21]},"2024":{"deaths":[340,790,960,1100,1200,1600,2100,2900,3700],"pct":[0.17,0.23,0.27,0.3,0.33,0.35,0.41,0.45,0.5]},"2025":{"deaths":[430,770,960,1200,1500,2000,2900,3400,5900],"pct":[0.2,0.24,0.28,0.31,0.38,0.44,0.49,0.63,0.92]},"2026":{"deaths":[110,170,240,300,370,520,750,1100,1500],"pct":[0.05,0.058,0.069,0.075,0.084,0.1,0.11,0.14,0.28]},"all":{"deaths":[1100,2300,2700,3200,3800,5000,6900,9200,12000],"pct":[0.57,0.64,0.77,0.86,0.98,1.1,1.2,1.4,2.1]}}},"death":{"label":"place of death","bounds":{"2022":{"deaths":[1,2,3,4,6,27,94],"pct":[0.00017,0.00023,0.00028,0.0003,0.00035,0.00048,0.00068,0.00085,0.0021]},"2023":{"deaths":[2,5,8,12,17,21,26,61,190],"pct":[0.00082,0.0014,0.0017,0.0024,0.003,0.0036,0.0057,0.0083,0.016]},"2024":{"deaths":[3,9,15,18,30,39,61,96,870],"pct":[0.0013,0.0029,0.0041,0.0051,0.0068,0.0077,0.01,0.015,0.033]},"2025":{"deaths":[5,9,13,18,20,29,46,130,2100],"pct":[0.0013,0.0028,0.0032,0.0038,0.0045,0.0057,0.0069,0.012,0.035]},"2026":{"deaths":[1,2,3,7,48,260,1200],"pct":[0.00019,0.00024,0.00028,0.00038,0.00079,0.0012,0.002,0.0072,0.047]},"all":{"deaths":[15,26,44,55,79,100,140,450,4400],"pct":[0.0054,0.0074,0.0093,0.011,0.014,0.017,0.024,0.041,0.098]}}}};
+const PROJB = {"2022":{"deaths":[57,98,120,160,190,230,300,360,500],"pct":[0.025,0.032,0.037,0.042,0.044,0.051,0.055,0.069,0.08]},"2023":{"deaths":[130,270,350,430,500,590,690,1100,1400],"pct":[0.063,0.078,0.1,0.11,0.12,0.14,0.15,0.18,0.25]},"2024":{"deaths":[390,740,1000,1200,1400,1700,2200,3100,4100],"pct":[0.18,0.25,0.31,0.33,0.38,0.41,0.44,0.49,0.54]},"2025":{"deaths":[620,1200,1500,1800,2100,2900,4200,5000,6900],"pct":[0.29,0.38,0.44,0.49,0.56,0.66,0.76,0.84,1.1]},"2026":{"deaths":[610,1100,1400,1800,2200,2800,3900,4900,5900],"pct":[0.3,0.37,0.4,0.45,0.55,0.6,0.66,0.74,1]},"all":{"deaths":[1800,3500,4400,5500,6300,8300,11000,14000,18000],"pct":[0.87,1.2,1.3,1.4,1.7,1.8,2.1,2.2,2.8]}};
+const YEARS = ["2022","2023","2024","2025","2026"];
+const basisSel = document.getElementById('basis'), yearSel = document.getElementById('year');
+const yIdx = () => YEARS.indexOf(yearSel.value);
+const val = (p, b) => { const i = yIdx(); return !p.by ? null : i < 0 ? p.by[b] : p.yr[b][i]; };
+const projOf = p => (p.by ? val(p, 'proj') : null);
+const yearCount = (mf, i) => { let n = 0; for (let k = 0; k < mf.length; k += 2) if (Math.floor(mf[k] / 12) === i) n += mf[k + 1]; return n; };
 function setBasis(b) {
-  oblastRegions().forEach(p => { p.n = p.by[b]; });
-  Object.entries(BASES[b].bounds).forEach(([k, v]) => { METRICS[k].bounds = v; });
-  const s = data.summary, t = s.by[b];
-  document.getElementById('summary').textContent = `${fmt(s.acts)} war deaths to ${s.data_until}, ${fmt(s.projected)} projected to October 2026 · by ${BASES[b].label}: ${fmt(t.map)} on the map, ${fmt(t.occupied)} in Crimea and the occupied regions` +
-    `${t.outside ? `, ${fmt(t.outside)} off the map` : ''}${t.unknown ? `, ${fmt(t.unknown)} unknown` : ''} · rayons and settlements: the ${fmt(s.geocoded)} deaths with the home town matched`;
+  const y = yearSel.value, i = yIdx(), d = b === 'death';
+  oblastRegions().forEach(p => { p.n = val(p, b); });
+  Object.entries(BASES[b].bounds[y]).forEach(([k, v]) => { METRICS[k].bounds = v; });
+  METRICS.projDeaths.bounds = PROJB[y].deaths; METRICS.projPct.bounds = PROJB[y].pct;
+  data.rayons.features.forEach(f => { const p = f.properties; p.n = i < 0 ? (d ? p.nd : p.nh) : (d ? p.ndy : p.nhy)[i]; p.s = d ? p.sd : p.sh; });
+  data.settlements = d ? data.deathSettlements : data.homeSettlements;
+  data.settlements.forEach(r => { if (r[7] == null) r[7] = r[3]; r[3] = i < 0 ? r[7] : yearCount(r[6], i); });
+  const s = data.summary, t = i < 0 ? s.by[b] : s.byY[b][i], tot = i < 0 ? s.acts : s.actsY[i], pj = i < 0 ? s.projected : s.projY[i];
+  document.getElementById('summary').textContent = `${fmt(tot)} war deaths${i < 0 ? ` to ${s.data_until}` : ` in ${y}`}, ${fmt(pj)} projected${i < 0 ? ' to October 2026' : ''} · by ${BASES[b].label}: ${fmt(t.map)} in Russia, ${fmt(t.occupied)} in Crimea and the occupied regions` +
+    `${t.ukraine ? `, ${fmt(t.ukraine)} elsewhere in Ukraine` : ''}${t.outside ? `, ${fmt(t.outside)} elsewhere` : ''}${t.unknown ? `, ${fmt(t.unknown)} unknown` : ''} · rayons and settlements: ${d ? `the ${fmt(s.placed)} deaths with a settlement of death` : `the ${fmt(s.geocoded)} deaths with the home town matched`}`;
 }
-basisSel.onchange = () => { setBasis(basisSel.value); render(); };
-Promise.all(['oblasts.geojson', 'rayons.geojson', 'settlements.json', 'summary.json', 'occupied.json'].map(f => fetch(DIR + f).then(r => r.json())))
-  .then(([oblasts, rayons, settlements, summary, occupied]) => {
-    data = { oblasts: unwrap(oblasts), rayons: unwrap(rayons), settlements, summary, occupied };
+// counted by place of death, the map shows deaths, not shares of men (Ukraine has no population figures here)
+basisSel.onchange = () => {
+  if (basisSel.value === 'death') { state.fill = 'deaths'; state.size = 'none'; }
+  else if (state.fill === 'deaths' && state.size === 'none') { state.fill = 'projPct'; state.size = 'deaths'; }
+  fillSel.value = state.fill; sizeSel.value = state.size; document.getElementById('timeline').hidden = true;
+  setBasis(basisSel.value); render();
+};
+yearSel.onchange = () => { setBasis(basisSel.value); render(); const el = document.getElementById('timeline'); if (!el.hidden && el._row) showTimeline(el._row); };
+// a settlement's deaths by month, February 2022 to September 2026 (click a settlement on the map or in the list)
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], escH = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const tlCtl = L.control({ position: 'bottomleft' });
+tlCtl.onAdd = () => { const d = L.DomUtil.create('div', 'tl'); d.id = 'timeline'; d.hidden = true; L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d); return d; };
+tlCtl.addTo(map);
+function showTimeline(r) {
+  const el = document.getElementById('timeline'), N = 57, m = new Array(N).fill(0), mf = r[6] || [];
+  for (let k = 0; k < mf.length; k += 2) if (mf[k] >= 0 && mf[k] < N) m[mf[k]] += mf[k + 1];
+  const W = 400, H = 130, L0 = 28, B = 20, T = 10, R0 = 6, bw = (W - L0 - R0) / N, max = Math.max(1, ...m), sy = v => T + (H - T - B) * (1 - v / max), yi = yIdx();
+  let s = `<line x1="${L0}" x2="${W - R0}" y1="${H - B}" y2="${H - B}" stroke="var(--line)"/><text x="${L0 - 4}" y="${T + 6}" text-anchor="end">${fmt(max)}</text><text x="${L0 - 4}" y="${H - B}" text-anchor="end">0</text>`;
+  for (let y = 0; y < 5; y++) { const x = L0 + y * 12 * bw; s += `<line x1="${x}" x2="${x}" y1="${T}" y2="${H - B + 4}" stroke="var(--line)" stroke-dasharray="2 3"/><text x="${x + 6 * bw}" y="${H - 6}" text-anchor="middle">${2022 + y}</text>`; }
+  m.forEach((v, k) => { if (!v) return; const on = yi < 0 || Math.floor(k / 12) === yi; s += `<rect x="${L0 + k * bw + 0.5}" y="${sy(v)}" width="${Math.max(1, bw - 1)}" height="${H - B - sy(v)}" fill="var(--accent)" opacity="${on ? 1 : 0.3}"><title>${MONTHS[k % 12]} ${2022 + Math.floor(k / 12)}: ${fmt(v)}</title></rect>`; });
+  const tot = m.reduce((a, b) => a + b, 0), what = basisSel.value === 'death' ? 'died here' : 'deaths with this home town';
+  el.innerHTML = `<div class="tlh"><b>${escH(r[0])}</b><button type="button" class="x" aria-label="Close">×</button></div><div class="m">${escH([r[4], r[5]].filter(Boolean).join(', '))} · ${fmt(tot)} ${what}, by month of death</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Deaths by month">${s}</svg>`;
+  el._row = r; el.hidden = false; el.querySelector('.x').onclick = () => { el.hidden = true; };
+  if (typeof gtag === 'function') gtag('event', 'select_content', { content_type: 'settlement', item_id: r[0] });
+}
+Promise.all(['oblasts.geojson', 'rayons.geojson', 'settlements.json', 'summary.json', 'occupied.json', 'death-settlements.json'].map(f => fetch(DIR + f).then(r => r.json())))
+  .then(([oblasts, rayons, settlements, summary, occupied, deathSettlements]) => {
+    data = { oblasts: unwrap(oblasts), rayons: unwrap(rayons), settlements, summary, occupied, homeSettlements: settlements, deathSettlements };
     byName = new Map(data.oblasts.features.map(f => [f.properties.name, f.properties]));
     setBasis(basisSel.value);
     render();
   })
   .catch(e => { document.getElementById('summary').textContent = 'Failed to load data: ' + e.message; });
-// the view in the address (level, colour, circles, counted by), so a shared link or an embed opens what the sender saw
-const DEF = { level: 'oblast', fill: state.fill, size: state.size, by: 'home' }, qs = new URLSearchParams(location.search);
+// the view in the address (level, colour, circles, counted by, year), so a shared link or an embed opens what the sender saw
+const DEF = { level: 'oblast', fill: state.fill, size: state.size, by: 'home', year: 'all' }, qs = new URLSearchParams(location.search);
 if (['oblast', 'rayon', 'settlement'].includes(qs.get('level'))) { level = qs.get('level'); document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x.dataset.level === level)); }
 for (const [k, sel] of [['fill', fillSel], ['size', sizeSel]]) { const v = qs.get(k); if (v && (v === 'none' || METRICS[v])) { state[k] = v; sel.value = v; } }
 if (BASES[qs.get('by')]) basisSel.value = qs.get('by');
-const viewUrl = () => { const p = new URLSearchParams(); if (level !== DEF.level) p.set('level', level); if (state.fill !== DEF.fill) p.set('fill', state.fill); if (state.size !== DEF.size) p.set('size', state.size); if (basisSel.value !== DEF.by) p.set('by', basisSel.value); const q = p.toString(); return location.origin + location.pathname + (q ? '?' + q : ''); };
+if (basisSel.value === 'death' && !qs.has('fill') && !qs.has('size')) { state.fill = 'deaths'; state.size = 'none'; fillSel.value = 'deaths'; sizeSel.value = 'none'; }
+if (YEARS.includes(qs.get('year'))) yearSel.value = qs.get('year');
+const viewUrl = () => { const p = new URLSearchParams(); if (level !== DEF.level) p.set('level', level); if (state.fill !== DEF.fill) p.set('fill', state.fill); if (state.size !== DEF.size) p.set('size', state.size); if (basisSel.value !== DEF.by) p.set('by', basisSel.value); if (yearSel.value !== DEF.year) p.set('year', yearSel.value); const q = p.toString(); return location.origin + location.pathname + (q ? '?' + q : ''); };
 const renderView = render;
 render = function () { renderView(); try { history.replaceState(null, '', viewUrl()); } catch (e) {} };
 // share: copy link, X, Telegram, Facebook, embed code, and the system share sheet where there is one
