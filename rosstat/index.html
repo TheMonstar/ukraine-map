@@ -140,7 +140,9 @@
   .tl { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px 6px; width: 400px; max-width: calc(100vw - 24px); font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
   .tl[hidden] { display: none; }
   .tl .tlh { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
-  .tl .x { background: transparent; border: 0; color: var(--ink2); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+  .tl .x { background: transparent; border: 0; color: var(--ink2); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 3px; } .tl .btns { white-space: nowrap; }
+  .tl.big { width: 800px; } .tl.big .tlh { font-size: 15px; } .tl.big .m { font-size: 13px; }
+  .leaflet-bottom.leaflet-left:has(.tl.big) { z-index: 1001; } /* the expanded chart over the legend */
   .tl .m { color: var(--ink2); margin: 2px 0 6px; }
   .tl svg { display: block; width: 100%; height: auto; } .tl text { fill: var(--muted); font-size: 9px; font-family: inherit; }
 </style>
@@ -375,7 +377,7 @@ let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() 
 function oblastTip(p) {
   const line = k => { const v = METRICS[k].get(p); return v == null ? '' : `<br>${METRICS[k].label.split(',')[0]}${k === 'pct' ? ' (% of men)' : ''}: <b>${METRICS[k].text(v)}</b>`; };
   const pay = p.pay ? `<br>Signing payment: <b>${fmt(p.pay)} ₽</b> (regional ${fmt(p.extra)} ₽${p.sal ? ` · ${dec1(p.pay / p.sal)} months of salary` : ''})` : '';
-  return `<b>${p.name}</b><br>Deaths${yearSel.value === 'all' ? '' : ' in ' + yearSel.value}, by ${BASES[basisSel.value].label}: <b>${fmt(p.n)}</b>${p.male ? ` · ${fmtPct((p.n / p.male) * 100)} of ${fmt(p.male)} men` : ''}${projOf(p) ? `<br>Projected${yearSel.value === 'all' ? ' to October 2026' : ', ' + yearSel.value}: <b>${fmt(projOf(p))}</b>${p.male ? ` · ${fmtPct((projOf(p) / p.male) * 100)} of men` : ''}` : ''}${p.by ? `<br><span class="m">home region ${fmt(val(p, 'home'))} · registry office ${fmt(val(p, 'reg'))} · died here ${fmt(val(p, 'death'))}</span>` : ''}${p.sal ? `<br>Average salary: <b>${fmt(p.sal)} ₽</b>` : ''}${pay}${(() => { const d = METRICS.payDeficit.get(p), e = METRICS.rateExcess.get(p); return d == null ? '' : `<br>vs neighbours: payment ${d > 0 ? 'lower' : 'higher'} by <b>${fmt(Math.abs(Math.round(d)))} ₽</b>${e != null ? `, deaths % of men ${e > 0 ? 'above' : 'below'} by <b>${pp(Math.abs(e))} pp</b>` : ''}`; })()}`;
+  return `<b>${p.name}</b><br>Deaths${yearSel.value === 'all' ? '' : ' in ' + yearSel.value}, by ${BASES[basisSel.value].label}: <b>${fmt(p.n)}</b>${p.male ? ` · ${fmtPct((p.n / p.male) * 100)} of ${fmt(p.male)} men` : ''}${projOf(p) ? `<br>Projected${yearSel.value === 'all' ? ' to October 2026' : ', ' + yearSel.value}: <b>${fmt(projOf(p))}</b>${p.male ? ` · ${fmtPct((projOf(p) / p.male) * 100)} of men` : ''}` : ''}${p.by ? `<br><span class="m">home region ${fmt(val(p, 'home'))} · registry office ${fmt(val(p, 'reg'))} · died here ${fmt(val(p, 'death'))}<br>click for the months</span>` : ''}${p.sal ? `<br>Average salary: <b>${fmt(p.sal)} ₽</b>` : ''}${pay}${(() => { const d = METRICS.payDeficit.get(p), e = METRICS.rateExcess.get(p); return d == null ? '' : `<br>vs neighbours: payment ${d > 0 ? 'lower' : 'higher'} by <b>${fmt(Math.abs(Math.round(d)))} ₽</b>${e != null ? `, deaths % of men ${e > 0 ? 'above' : 'below'} by <b>${pp(Math.abs(e))} pp</b>` : ''}`; })()}`;
 }
 
 function polygonLayer(fc, br, kind) {
@@ -388,7 +390,8 @@ function polygonLayer(fc, br, kind) {
     },
     onEachFeature: (f, l) => {
       const p = f.properties;
-      l.bindTooltip(kind === 'oblast' ? oblastTip(p) : `<b>${p.name}</b>${p.oblast ? `<br><span class="m">${p.oblast}</span>` : ''}<br>${fmt(p.n)} ${basisSel.value === 'death' ? 'died here' : 'deaths with the home town matched'}${yearSel.value === 'all' ? '' : ' in ' + yearSel.value} · ${fmt(p.s)} settlements`, { sticky: true, className: 'tip' });
+      l.bindTooltip(kind === 'oblast' ? oblastTip(p) : `<b>${p.name}</b>${p.oblast ? `<br><span class="m">${p.oblast}</span>` : ''}<br>${fmt(p.n)} ${basisSel.value === 'death' ? 'died here' : 'deaths with the home town matched'}${yearSel.value === 'all' ? '' : ' in ' + yearSel.value} · ${fmt(p.s)} settlements<br><span class="m">click for the months</span>`, { sticky: true, className: 'tip' });
+      l.on('click', () => showAreaTimeline(p, kind));
       l.on('mouseover', () => l.setStyle({ weight: 2, color: css('--ink') }));
       l.on('mouseout', () => layer.resetStyle(l));
     },
@@ -404,7 +407,7 @@ function sizeLayer() {
   oblastRegions().map(p => ({ p, v: metricValue(state.size, p) })).filter(r => r.v > 0 && r.p.c)
     .sort((a, b) => b.v - a.v).forEach(({ p, v }) => {
       L.circleMarker([p.c[1], p.c[0]], { radius: circleRadius(v, max), fillColor: css('--c2'), fillOpacity: .7, color: css('--surface'), weight: 1 })
-        .bindTooltip(oblastTip(p), { sticky: true, className: 'tip' }).addTo(g);
+        .bindTooltip(oblastTip(p), { sticky: true, className: 'tip' }).on('click', () => showAreaTimeline(p, 'oblast')).addTo(g);
     });
   return g;
 }
@@ -459,7 +462,7 @@ function renderList() {
       if (r.at) { if (r.row) showTimeline(r.row); return map.flyTo(r.at, Math.max(map.getZoom(), 9)); }
       if (r.bbox) return map.flyToBounds([[r.bbox[1], r.bbox[0]], [r.bbox[3], r.bbox[2]]], { maxZoom: 8 });
       const f = (level === 'rayon' ? data.rayons : data.oblasts).features.find(f => f.properties.name === r.name && (f.properties.oblast || '') === r.sub);
-      if (f) map.flyToBounds(L.geoJSON(f).getBounds(), { maxZoom: 9 });
+      if (f) { showAreaTimeline(f.properties, level); map.flyToBounds(L.geoJSON(f).getBounds(), { maxZoom: 9 }); }
     };
     tr.onclick = go; tr.onkeydown = e => { if (e.key === 'Enter') go(); };
   });
@@ -588,23 +591,43 @@ basisSel.onchange = () => {
   fillSel.value = state.fill; sizeSel.value = state.size; document.getElementById('timeline').hidden = true;
   setBasis(basisSel.value); render();
 };
-yearSel.onchange = () => { setBasis(basisSel.value); render(); const el = document.getElementById('timeline'); if (!el.hidden && el._row) showTimeline(el._row); };
-// a settlement's deaths by month, February 2022 to September 2026 (click a settlement on the map or in the list)
+yearSel.onchange = () => { setBasis(basisSel.value); render(); if (tlLast && !document.getElementById('timeline').hidden) tlLast.redo(); };
+// deaths by month, February 2022 to September 2026 (October 2026 projected): click a settlement, rayon or oblast, on the map or in the list
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], escH = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const NM = 58, expandM = mf => { const m = new Array(NM).fill(0); for (let k = 0; k < (mf || []).length; k += 2) if (mf[k] >= 0 && mf[k] < NM) m[mf[k]] += mf[k + 1]; return m; };
 const tlCtl = L.control({ position: 'bottomleft' });
 tlCtl.onAdd = () => { const d = L.DomUtil.create('div', 'tl'); d.id = 'timeline'; d.hidden = true; L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d); return d; };
 tlCtl.addTo(map);
-function showTimeline(r) {
-  const el = document.getElementById('timeline'), N = 57, m = new Array(N).fill(0), mf = r[6] || [];
-  for (let k = 0; k < mf.length; k += 2) if (mf[k] >= 0 && mf[k] < N) m[mf[k]] += mf[k + 1];
-  const W = 400, H = 130, L0 = 28, B = 20, T = 10, R0 = 6, bw = (W - L0 - R0) / N, max = Math.max(1, ...m), sy = v => T + (H - T - B) * (1 - v / max), yi = yIdx();
-  let s = `<line x1="${L0}" x2="${W - R0}" y1="${H - B}" y2="${H - B}" stroke="var(--line)"/><text x="${L0 - 4}" y="${T + 6}" text-anchor="end">${fmt(max)}</text><text x="${L0 - 4}" y="${H - B}" text-anchor="end">0</text>`;
+let tlBig = false, tlLast = null;
+function drawTimeline(o) {
+  const el = document.getElementById('timeline'), m = o.m, pr = o.proj, W = 400, H = 130, L0 = 30, B = 20, T = 10, R0 = 6, bw = (W - L0 - R0) / NM, yi = yIdx();
+  const max = Math.max(1, ...m, ...(pr || [])), sy = v => T + (H - T - B) * (1 - v / max);
+  let s = `<line x1="${L0}" x2="${W - R0}" y1="${H - B}" y2="${H - B}" stroke="var(--line)"/><text x="${L0 - 4}" y="${T + 6}" text-anchor="end">${fmt(Math.round(max))}</text><text x="${L0 - 4}" y="${H - B}" text-anchor="end">0</text>`;
   for (let y = 0; y < 5; y++) { const x = L0 + y * 12 * bw; s += `<line x1="${x}" x2="${x}" y1="${T}" y2="${H - B + 4}" stroke="var(--line)" stroke-dasharray="2 3"/><text x="${x + 6 * bw}" y="${H - 6}" text-anchor="middle">${2022 + y}</text>`; }
-  m.forEach((v, k) => { if (!v) return; const on = yi < 0 || Math.floor(k / 12) === yi; s += `<rect x="${L0 + k * bw + 0.5}" y="${sy(v)}" width="${Math.max(1, bw - 1)}" height="${H - B - sy(v)}" fill="var(--accent)" opacity="${on ? 1 : 0.3}"><title>${MONTHS[k % 12]} ${2022 + Math.floor(k / 12)}: ${fmt(v)}</title></rect>`; });
-  const tot = m.reduce((a, b) => a + b, 0), what = basisSel.value === 'death' ? 'died here' : 'deaths with this home town';
-  el.innerHTML = `<div class="tlh"><b>${escH(r[0])}</b><button type="button" class="x" aria-label="Close">×</button></div><div class="m">${escH([r[4], r[5]].filter(Boolean).join(', '))} · ${fmt(tot)} ${what}, by month of death</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Deaths by month">${s}</svg>`;
-  el._row = r; el.hidden = false; el.querySelector('.x').onclick = () => { el.hidden = true; };
+  const bar = (k, v, fill, op, label) => `<rect x="${L0 + k * bw + 0.5}" y="${sy(v)}" width="${Math.max(1, bw - 1)}" height="${H - B - sy(v)}" fill="${fill}" opacity="${op}"><title>${MONTHS[k % 12]} ${2022 + Math.floor(k / 12)}: ${label}</title></rect>`;
+  for (let k = 0; k < NM; k++) { const on = yi < 0 || Math.floor(k / 12) === yi, v = m[k] || 0, q = pr ? pr[k] || 0 : 0;
+    if (q > v) s += bar(k, q, 'var(--c2)', on ? 0.45 : 0.15, `${fmt(v)} registered, ${fmt(Math.round(q))} projected`);
+    if (v) s += bar(k, v, 'var(--accent)', on ? 1 : 0.3, pr ? `${fmt(v)} registered, ${fmt(Math.round(q))} projected` : fmt(v)); }
+  const tot = m.reduce((a, b) => a + b, 0), ptot = pr ? pr.reduce((a, b) => a + b, 0) : 0;
+  el.classList.toggle('big', tlBig);
+  el.innerHTML = `<div class="tlh"><b>${escH(o.title)}</b><span class="btns"><button type="button" class="x ex" aria-label="${tlBig ? 'Shrink chart' : 'Expand chart'}" title="${tlBig ? 'Shrink' : 'Expand'}">${tlBig ? '⤡' : '⤢'}</button><button type="button" class="x cl" aria-label="Close">×</button></span></div>` +
+    `<div class="m">${o.sub ? escH(o.sub) + ' · ' : ''}${fmt(tot)} ${o.what}${pr ? ` · <span style="color:var(--c2)">${fmt(Math.round(ptot))} projected to October 2026</span>` : ''}, by month of death</div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Deaths by month">${s}</svg>`;
+  el.hidden = false; tlLast = o;
+  el.querySelector('.cl').onclick = () => { el.hidden = true; tlLast = null; };
+  el.querySelector('.ex').onclick = () => { tlBig = !tlBig; drawTimeline(tlLast); };
+}
+function showTimeline(r) {
+  drawTimeline({ title: r[0], sub: [r[4], r[5]].filter(Boolean).join(', '), m: expandM(r[6]), what: basisSel.value === 'death' ? 'died here' : 'deaths with this home town', redo: () => showTimeline(r) });
   if (typeof gtag === 'function') gtag('event', 'select_content', { content_type: 'settlement', item_id: r[0] });
+}
+function showAreaTimeline(p, kind) {
+  const b = basisSel.value;
+  if (kind === 'oblast') {
+    if (!p.mo) return;
+    const pr = p.mo.proj && p.mo.proj.some(v => v) ? p.mo.proj : null, what = { home: 'deaths of residents', reg: 'deaths registered here', death: 'died here' }[b];
+    drawTimeline({ title: p.name, sub: p.ua ? (p.occ ? 'occupied Ukraine' : 'Ukraine') : '', m: p.mo[b], proj: pr, what, redo: () => showAreaTimeline(p, kind) });
+  } else drawTimeline({ title: p.name, sub: p.oblast || '', m: expandM(b === 'death' ? p.md : p.mh), what: b === 'death' ? 'died here' : 'deaths with the home town matched', redo: () => showAreaTimeline(p, kind) });
+  if (typeof gtag === 'function') gtag('event', 'select_content', { content_type: kind, item_id: p.name });
 }
 Promise.all(['oblasts.geojson', 'rayons.geojson', 'settlements.json', 'summary.json', 'occupied.json', 'death-settlements.json'].map(f => fetch(DIR + f).then(r => r.json())))
   .then(([oblasts, rayons, settlements, summary, occupied, deathSettlements]) => {
