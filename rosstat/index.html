@@ -7,6 +7,23 @@
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-TDKVEL6LDH"></script>
 <script>window.dataLayer = window.dataLayer || []; function gtag() { dataLayer.push(arguments); } gtag('js', new Date()); gtag('config', 'G-TDKVEL6LDH');</script>
+<meta name="description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
+<link rel="canonical" href="https://themonstar.github.io/ukraine-map/rosstat/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Ukraine Frontline Map">
+<meta property="og:url" content="https://themonstar.github.io/ukraine-map/rosstat/">
+<meta property="og:title" content="Russian war deaths by region: the Rosstat leaks">
+<meta property="og:description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
+<meta property="og:image" content="https://themonstar.github.io/ukraine-map/rosstat/preview.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Map of Russia shaded by war dead per 1,000 men, registered and projected to October 2026, with the ten hardest-hit regions: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Russian war deaths by region: the Rosstat leaks">
+<meta name="twitter:description" content="497,396 Russian war deaths in the Rosstat leaks to 29 September 2026, 776,671 projected to October 2026, by home region, district and town. Hardest hit: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23.">
+<meta name="twitter:image" content="https://themonstar.github.io/ukraine-map/rosstat/preview.jpg">
+<meta name="twitter:image:alt" content="Map of Russia shaded by war dead per 1,000 men, registered and projected to October 2026, with the ten hardest-hit regions: Jewish Autonomous Oblast, one man in 17; Zabaykalsky, one in 20; Tuva, one in 23">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <style>
   :root {
@@ -113,12 +130,20 @@
     body.collapsed #side { width: 100%; height: 0; border-top-width: 0; }
     #toggle svg { transform: rotate(-90deg); } body.collapsed #toggle svg { transform: rotate(90deg); }
   }
+  header { position: relative; }
+  .hrow { display: flex; align-items: flex-start; gap: 8px; } .hrow h1 { flex: 1; } .hrow .iconbtn { flex: none; margin-top: 1px; }
+  .sharepop { position: absolute; right: 12px; top: 46px; z-index: 5000; min-width: 190px; display: grid; gap: 1px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
+  .sharepop[hidden] { display: none; }
+  .sharepop button { text-align: left; background: transparent; border: 0; border-radius: 6px; color: var(--ink); padding: 7px 9px; font: inherit; font-size: 13px; cursor: pointer; }
+  .sharepop button:hover, .sharepop button:focus-visible { background: var(--hover); outline: none; }
+  .sharepop .note { color: var(--muted); font-size: 11px; padding: 4px 9px 2px; }
 </style>
 </head>
 <body>
 <aside id="side">
   <header>
-    <h1>Russian war deaths in the Rosstat leaks, by region</h1>
+    <div class="hrow"><h1>Russian war deaths in the Rosstat leaks, by region</h1><button type="button" class="iconbtn" id="shareBtn" title="Share this map" aria-label="Share this map" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg></button></div>
+    <div id="sharePop" class="sharepop" role="menu" aria-label="Share this map" hidden><button type="button" role="menuitem" data-share="link">Copy link</button><button type="button" role="menuitem" data-share="x">Post on X</button><button type="button" role="menuitem" data-share="tg">Share on Telegram</button><button type="button" role="menuitem" data-share="fb">Share on Facebook</button><button type="button" role="menuitem" data-share="embed">Copy embed code</button><button type="button" role="menuitem" data-share="native" hidden>More…</button><div class="note">Links keep the view you have open.</div></div>
     <div class="sub" id="summary">Loading…</div>
   </header>
   <div class="ctrl">
@@ -546,6 +571,35 @@ Promise.all(['oblasts.geojson', 'rayons.geojson', 'settlements.json', 'summary.j
     render();
   })
   .catch(e => { document.getElementById('summary').textContent = 'Failed to load data: ' + e.message; });
+// the view in the address (level, colour, circles, counted by), so a shared link or an embed opens what the sender saw
+const DEF = { level: 'oblast', fill: state.fill, size: state.size, by: 'home' }, qs = new URLSearchParams(location.search);
+if (['oblast', 'rayon', 'settlement'].includes(qs.get('level'))) { level = qs.get('level'); document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x.dataset.level === level)); }
+for (const [k, sel] of [['fill', fillSel], ['size', sizeSel]]) { const v = qs.get(k); if (v && (v === 'none' || METRICS[v])) { state[k] = v; sel.value = v; } }
+if (BASES[qs.get('by')]) basisSel.value = qs.get('by');
+const viewUrl = () => { const p = new URLSearchParams(); if (level !== DEF.level) p.set('level', level); if (state.fill !== DEF.fill) p.set('fill', state.fill); if (state.size !== DEF.size) p.set('size', state.size); if (basisSel.value !== DEF.by) p.set('by', basisSel.value); const q = p.toString(); return location.origin + location.pathname + (q ? '?' + q : ''); };
+const renderView = render;
+render = function () { renderView(); try { history.replaceState(null, '', viewUrl()); } catch (e) {} };
+// share: copy link, X, Telegram, Facebook, embed code, and the system share sheet where there is one
+const SHARE_TEXT = "Russian war deaths by region in the Rosstat leaks: 497,396 registered, 776,671 projected to October 2026";
+const shareBtn = document.getElementById('shareBtn'), sharePop = document.getElementById('sharePop'), enc = encodeURIComponent;
+const setPop = open => { sharePop.hidden = !open; shareBtn.setAttribute('aria-expanded', open); };
+shareBtn.onclick = e => { e.stopPropagation(); setPop(sharePop.hidden); };
+document.addEventListener('click', e => { if (!sharePop.hidden && !sharePop.contains(e.target)) setPop(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sharePop.hidden) { setPop(false); shareBtn.focus(); } });
+const popup = u => window.open(u, '_blank', 'noopener,noreferrer,width=640,height=600');
+const copyText = (text, btn) => { const label = btn.textContent, done = () => { btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = label; }, 1500); };
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(done, () => { window.prompt('Copy:', text); }); };
+const embedCode = () => `<iframe src="${viewUrl()}" width="100%" height="640" style="border:0" loading="lazy" title="${document.title}"></iframe>`;
+const SHARE = {
+  link: b => copyText(viewUrl(), b),
+  x: () => popup('https://twitter.com/intent/tweet?text=' + enc(SHARE_TEXT) + '&url=' + enc(viewUrl())),
+  tg: () => popup('https://t.me/share/url?url=' + enc(viewUrl()) + '&text=' + enc(SHARE_TEXT)),
+  fb: () => popup('https://www.facebook.com/sharer/sharer.php?u=' + enc(viewUrl())),
+  embed: b => copyText(embedCode(), b),
+  native: () => navigator.share({ title: document.title, text: SHARE_TEXT, url: viewUrl() }).catch(() => {}),
+};
+if (navigator.share) sharePop.querySelector('[data-share=native]').hidden = false;
+sharePop.querySelectorAll('[data-share]').forEach(b => { b.onclick = () => { SHARE[b.dataset.share](b); if (typeof gtag === 'function') gtag('event', 'share', { method: b.dataset.share, content_type: 'map', item_id: viewUrl() }); if (b.dataset.share !== 'link' && b.dataset.share !== 'embed') setPop(false); }; });
 </script>
 </body>
 </html>
